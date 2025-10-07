@@ -39,12 +39,14 @@ app.whenReady().then(() => {
           tree.push({
             name: item.name,
             type: 'directory',
-            // children: await buildTree(fullPath)
+            path: fullPath,
+            children: null // Lazy-load children
           })
         } else {
           tree.push({
             name: item.name,
-            type: 'file'
+            type: 'file',
+            path: fullPath
           })
         }
       }
@@ -52,7 +54,35 @@ app.whenReady().then(() => {
     }
     return await buildTree(dirPath)
   })
-  
+
+  ipcMain.handle('fetch-children', async (event, dirPath) => {
+    try {
+      const items = await fs.readdir(dirPath, { withFileTypes: true })
+      const children = []
+      for (const item of items) {
+        const fullPath = path.join(dirPath, item.name)
+        if (item.isDirectory()) {
+          children.push({
+            name: item.name,
+            type: 'directory',
+            path: fullPath,
+            children: null // Lazy-load children
+          })
+        } else {
+          children.push({
+            name: item.name,
+            type: 'file',
+            path: fullPath
+          })
+        }
+      }
+      return children
+    } catch (error) {
+      console.error('Error fetching children:', error)
+      return []
+    }
+  })
+
   createWindow()
 
   app.on('activate', () => {

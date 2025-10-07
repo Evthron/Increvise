@@ -28,12 +28,27 @@ function renderTree(tree, container) {
   tree.forEach(item => {
     const li = document.createElement('li')
     li.textContent = item.name
-    if (item.type === 'directory' && item.children) {
-      const subUl = document.createElement('ul')
-      renderTree(item.children, subUl)
-      li.appendChild(subUl)
-      li.addEventListener('click', () => {
-        subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none'
+    li.classList.add(item.type === 'directory' ? 'directory' : 'file')
+
+    if (item.type === 'directory') {
+      li.addEventListener('click', async (event) => {
+        event.stopPropagation() // Prevent parent directories from toggling
+        if (!li.dataset.loaded) {
+          try {
+            const children = await window.fileManager.getDirectoryTree(item.path)
+            const subUl = document.createElement('ul')
+            renderTree(children, subUl)
+            li.appendChild(subUl)
+            li.dataset.loaded = true // Mark as loaded
+          } catch (error) {
+            console.error('Error loading children:', error)
+          }
+        } else {
+          const subUl = li.querySelector('ul')
+          if (subUl) {
+            subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none'
+          }
+        }
       })
     }
     ul.appendChild(li)
