@@ -1,0 +1,16 @@
+{
+  "name": "localreviser",
+  "version": "1.0.0",
+  "description": "Revise your local files with spaced repetition.",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "electron": "^38.2.1"
+  }
+}
