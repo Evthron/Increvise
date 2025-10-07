@@ -7,3 +7,8 @@ contextBridge.exposeInMainWorld('versions', {
   ping: () => ipcRenderer.invoke('ping')
   // we can also expose variables, not just functions
 })
+
+contextBridge.exposeInMainWorld('fileManager', {
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
+  getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path)
+})
