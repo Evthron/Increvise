@@ -9,15 +9,19 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-inline'"
     />
-    
-    <title>File Manager</title>
     <link rel="stylesheet" href="./style.css"  />
 
   </head>
   <body>
-    <h1>File Manager</h1>
-    <button id="select-folder">Select Folder</button>
-    <div id="tree-container"></div>
+    <div class="user-panel">
+      <div>
+        <button id="select-folder">Select Folder</button>
+        <button id="create-db">Create db</button>
+        <div id="tree-container"></div>
+      </div>
+      <div class="reader">This is the reader part</div>
+      <div class="editor">This is the editor part</div>
+    </div>
   </body>
   <script src="./renderer.js"></script>
 </html>
