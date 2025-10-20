@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('versions', {
 
 contextBridge.exposeInMainWorld('fileManager', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-  getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path)
+  getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path),
+  createDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),
+  reateDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),
 })

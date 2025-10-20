@@ -1,5 +1,6 @@
 const selectFolderBtn = document.getElementById('select-folder')
 const treeContainer = document.getElementById('tree-container')
+const createdbbutton = document.getElementById('create-db')
 
 if (!selectFolderBtn) {
   console.error('Select folder button not found in the DOM')
@@ -16,6 +17,22 @@ selectFolderBtn.addEventListener('click', async () => {
       renderTree(tree, treeContainer)
     } else {
       console.warn('No folder selected')
+    }
+  } catch (error) {
+    console.error('Error selecting folder:', error)
+  }
+})
+
+createdbbutton.addEventListener('click', async () => {
+  console.log('Create db button clicked')
+  try {
+    const folderPath = await window.fileManager.selectFolder()
+    console.log('Folder path received:', folderPath)
+    if (folderPath) {
+      await window.fileManager.createDatabase(folderPath)
+      console.log('Database created:')
+    } else {
+      console.warn('No path created')
     }
   } catch (error) {
     console.error('Error selecting folder:', error)
