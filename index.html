@@ -17,9 +17,22 @@
       <div>
         <button id="select-folder">Select Folder</button>
         <button id="create-db">Create db</button>
+        <button id="revise-files">Revise Files Today</button>
         <div id="tree-container"></div>
       </div>
-      <div class="reader">This is the reader part</div>
+      <div class="reader">
+        <h3>Files for Revision</h3>
+        <div id="revision-list"></div>
+        <div id="revision-controls" style="display: none;">
+          <h4 id="current-file-name"></h4>
+          <div>
+            <button class="feedback-btn" data-feedback="again">Again</button>
+            <button class="feedback-btn" data-feedback="hard">Hard</button>
+            <button class="feedback-btn" data-feedback="medium">Medium</button>
+            <button class="feedback-btn" data-feedback="easy">Easy</button>
+          </div>
+        </div>
+      </div>
       <div class="editor">This is the editor part</div>
     </div>
   </body>

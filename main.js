@@ -166,6 +166,195 @@ app.whenReady().then(() => {
     }
   });
 
+  // Add file to revision queue
+  ipcMain.handle('add-file-to-queue', async (event, filePath, folderPath) => {
+    try {
+      const dbFilePath = path.join(folderPath, 'db.sqlite');
+      
+      // Check if database exists
+      try {
+        await fs.access(dbFilePath);
+      } catch {
+        return { success: false, error: 'Database not found. Please create a database first.' };
+      }
+      
+      return new Promise((resolve, reject) => {
+        const db = new Database.Database(dbFilePath, (err) => {
+          if (err) {
+            reject({ success: false, error: err.message });
+            return;
+          }
+          
+          // Insert file into the file table
+          const stmt = db.prepare(`
+            INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
+            VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
+            ON CONFLICT(file_path) DO UPDATE SET
+              last_revised_time = datetime('now')
+          `);
+          
+          stmt.run([filePath], function(runErr) {
+            if (runErr) {
+              stmt.finalize();
+              db.close();
+              reject({ success: false, error: runErr.message });
+              return;
+            }
+            
+            const noteId = this.lastID;
+            
+            // Also record the folder if not exists
+            const folderStmt = db.prepare(`
+              INSERT OR IGNORE INTO folder_data (folder_path, overall_priority)
+              VALUES (?, 0)
+            `);
+            
+            folderStmt.run([folderPath], (folderErr) => {
+              folderStmt.finalize();
+              stmt.finalize();
+              
+              db.close((closeErr) => {
+                if (closeErr || folderErr) {
+                  reject({ success: false, error: (closeErr || folderErr).message });
+                } else {
+                  resolve({ success: true, noteId, message: 'File added to revision queue' });
+                }
+              });
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Error adding file to queue:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Get files due for revision today
+  ipcMain.handle('get-files-for-revision', async (event, rootPath) => {
+    try {
+      // Find all db.sqlite files in subdirectories
+      const findDatabases = async (dir) => {
+        const databases = [];
+        const items = await fs.readdir(dir, { withFileTypes: true });
+        
+        for (const item of items) {
+          const fullPath = path.join(dir, item.name);
+          if (item.isDirectory()) {
+            databases.push(...await findDatabases(fullPath));
+          } else if (item.name === 'db.sqlite') {
+            databases.push(fullPath);
+          }
+        }
+        return databases;
+      };
+      
+      const dbPaths = await findDatabases(rootPath);
+      console.log('Found databases:', dbPaths);
+      
+      // Aggregate files from all databases
+      const allFiles = [];
+      
+      for (const dbPath of dbPaths) {
+        await new Promise((resolve, reject) => {
+          const db = new Database.Database(dbPath, Database.OPEN_READONLY, (err) => {
+            if (err) {
+              console.error('Error opening database:', dbPath, err);
+              resolve(); // Continue with other databases
+              return;
+            }
+            
+            db.all(`
+              SELECT note_id, file_path, creation_time, last_revised_time, 
+                     review_count, difficulty, due_time
+              FROM file
+              WHERE date(due_time) <= date('now')
+              ORDER BY due_time ASC
+            `, [], (selectErr, rows) => {
+              if (selectErr) {
+                console.error('Error querying database:', selectErr);
+              } else {
+                allFiles.push(...rows.map(row => ({ ...row, dbPath })));
+              }
+              
+              db.close(() => resolve());
+            });
+          });
+        });
+      }
+      
+      console.log('Files for revision:', allFiles);
+      return { success: true, files: allFiles };
+      
+    } catch (error) {
+      console.error('Error getting files for revision:', error);
+      return { success: false, error: error.message, files: [] };
+    }
+  });
+
+  // Update file after revision (spaced repetition feedback)
+  ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
+    try {
+      return new Promise((resolve, reject) => {
+        const db = new Database.Database(dbPath, (err) => {
+          if (err) {
+            reject({ success: false, error: err.message });
+            return;
+          }
+          
+          // Calculate next due time based on feedback
+          // feedback: 'easy', 'medium', 'hard', 'again'
+          const intervals = {
+            'again': 0, // Review again today
+            'hard': 1,  // 1 day
+            'medium': 3, // 3 days
+            'easy': 7    // 7 days
+          };
+          
+          const daysToAdd = intervals[feedback] || 1;
+          
+          // Update difficulty based on feedback
+          const difficultyChanges = {
+            'again': 0.2,
+            'hard': 0.1,
+            'medium': 0,
+            'easy': -0.1
+          };
+          
+          const difficultyChange = difficultyChanges[feedback] || 0;
+          
+          const stmt = db.prepare(`
+            UPDATE file
+            SET last_revised_time = datetime('now'),
+                review_count = review_count + 1,
+                difficulty = MAX(0.0, MIN(1.0, difficulty + ?)),
+                due_time = datetime('now', '+' || ? || ' days')
+            WHERE note_id = ?
+          `);
+          
+          stmt.run([difficultyChange, daysToAdd, noteId], function(runErr) {
+            stmt.finalize();
+            
+            db.close((closeErr) => {
+              if (runErr || closeErr) {
+                reject({ success: false, error: (runErr || closeErr).message });
+              } else {
+                resolve({ 
+                  success: true, 
+                  message: `File updated. Next review in ${daysToAdd} day(s)`,
+                  changes: this.changes
+                });
+              }
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Error updating revision feedback:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   createWindow()
 
   app.on('activate', () => {
@@ -173,8 +362,7 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
-})
-
+}) 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
