@@ -38,8 +38,20 @@
         </div>
 
         <div class="editor-panel">
+          <div id="editor-toolbar" class="editor-toolbar hidden">
+            <div class="toolbar-left">
+              <span id="current-file-path"></span>
+            </div>
+            <div class="toolbar-right">
+              <button id="save-file-btn">Save</button>
+              <button id="toggle-edit-btn">Edit</button>
+            </div>
+          </div>
           <div class="editor-content">
-            <p>Select a file to view</p>
+            <textarea id="file-editor" class="file-editor hidden" spellcheck="false"></textarea>
+            <div id="file-preview" class="file-preview">
+              <p>Select a file to view</p>
+            </div>
           </div>
           <div id="revision-controls" class="hidden">
             <div id="current-file-name"></div>

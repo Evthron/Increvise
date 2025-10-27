@@ -5,10 +5,21 @@ const revisionList = document.getElementById('revision-list')
 const revisionControls = document.getElementById('revision-controls')
 const currentFileName = document.getElementById('current-file-name')
 
+const editorToolbar = document.getElementById('editor-toolbar')
+const currentFilePath = document.getElementById('current-file-path')
+const fileEditor = document.getElementById('file-editor')
+const filePreview = document.getElementById('file-preview')
+const saveFileBtn = document.getElementById('save-file-btn')
+const toggleEditBtn = document.getElementById('toggle-edit-btn')
+
 let currentRootPath = null
 let currentFolderPath = null
 let revisionFiles = []
 let currentRevisionIndex = 0
+
+let currentOpenFile = null
+let isEditMode = false
+let hasUnsavedChanges = false
 
 if (!selectFolderBtn) {
   console.error('Select folder button not found in the DOM')
@@ -56,6 +67,7 @@ reviseFilesBtn.addEventListener('click', async () => {
       currentRevisionIndex = 0
       displayRevisionList(result.files)
       showRevisionFile(0)
+      await openFile(result.files[0].file_path)
     } else if (result.success && result.files.length === 0) {
       alert('No files due for revision today!')
       revisionList.innerHTML = '<p>No files due for revision today! 🎉</p>'
@@ -84,14 +96,24 @@ document.addEventListener('click', async (e) => {
       
       if (result.success) {
         console.log('Feedback updated:', result.message)
-        // Move to next file
-        currentRevisionIndex++
-        if (currentRevisionIndex < revisionFiles.length) {
+        
+        revisionFiles.splice(currentRevisionIndex, 1)
+        
+        displayRevisionList(revisionFiles)
+        
+        if (revisionFiles.length > 0) {
+          if (currentRevisionIndex >= revisionFiles.length) {
+            currentRevisionIndex = revisionFiles.length - 1
+          }
           showRevisionFile(currentRevisionIndex)
+          await openFile(revisionFiles[currentRevisionIndex].file_path)
         } else {
           alert('All files reviewed! Great job! 🎉')
           revisionControls.style.display = 'none'
           revisionList.innerHTML = '<p>All files reviewed! 🎉</p>'
+          editorToolbar.classList.add('hidden')
+          filePreview.textContent = ''
+          currentOpenFile = null
         }
       } else {
         alert(`Error: ${result.error}`)
@@ -108,6 +130,11 @@ function displayRevisionList(files) {
   files.forEach((file, index) => {
     const li = document.createElement('li')
     li.textContent = `${index + 1}. ${file.file_path} (Reviews: ${file.review_count}, Difficulty: ${file.difficulty.toFixed(2)})`
+    li.addEventListener('click', async () => {
+      currentRevisionIndex = index
+      showRevisionFile(index)
+      await openFile(file.file_path)
+    })
     ul.appendChild(li)
   })
   revisionList.appendChild(ul)
@@ -158,7 +185,7 @@ function renderTree(tree, container) {
     li.appendChild(nameSpan)
 
     nameSpan.addEventListener('click', async (event) => {
-        event.stopPropagation() // Prevent parent directories from toggling
+        event.stopPropagation()
         if (item.type === 'directory') {
             if (!li.dataset.loaded) {
                 try {
@@ -166,7 +193,7 @@ function renderTree(tree, container) {
                 const subUl = document.createElement('ul')
                 renderTree(children, subUl)
                 li.appendChild(subUl)
-                li.dataset.loaded = true // Mark as loaded
+                li.dataset.loaded = true
                 } catch (error) {
                 console.error('Error loading children:', error)
                 }
@@ -176,9 +203,86 @@ function renderTree(tree, container) {
                 subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none'
                 }
             }
+        } else if (item.type === 'file') {
+            await openFile(item.path)
         }
     })
     ul.appendChild(li)
   })
   container.appendChild(ul)
 }
+
+async function openFile(filePath) {
+  try {
+    if (hasUnsavedChanges) {
+      const proceed = confirm('You have unsaved changes. Discard them?')
+      if (!proceed) return
+    }
+
+    const result = await window.fileManager.readFile(filePath)
+    if (result.success) {
+      currentOpenFile = filePath
+      filePreview.textContent = result.content
+      fileEditor.value = result.content
+      currentFilePath.textContent = filePath
+      
+      editorToolbar.classList.remove('hidden')
+      filePreview.classList.remove('hidden')
+      fileEditor.classList.add('hidden')
+      
+      isEditMode = false
+      hasUnsavedChanges = false
+      toggleEditBtn.textContent = 'Edit'
+      
+      revisionControls.classList.remove('hidden')
+    } else {
+      alert(`Error reading file: ${result.error}`)
+    }
+  } catch (error) {
+    console.error('Error opening file:', error)
+    alert(`Error opening file: ${error.message}`)
+  }
+}
+
+saveFileBtn.addEventListener('click', async () => {
+  if (!currentOpenFile) return
+  
+  try {
+    const content = fileEditor.value
+    const result = await window.fileManager.writeFile(currentOpenFile, content)
+    
+    if (result.success) {
+      hasUnsavedChanges = false
+      filePreview.textContent = content
+      alert('File saved successfully!')
+    } else {
+      alert(`Error saving file: ${result.error}`)
+    }
+  } catch (error) {
+    console.error('Error saving file:', error)
+    alert(`Error saving file: ${error.message}`)
+  }
+})
+
+toggleEditBtn.addEventListener('click', () => {
+  if (!currentOpenFile) return
+  
+  isEditMode = !isEditMode
+  
+  if (isEditMode) {
+    filePreview.classList.add('hidden')
+    fileEditor.classList.remove('hidden')
+    toggleEditBtn.textContent = 'Preview'
+    fileEditor.focus()
+  } else {
+    fileEditor.classList.add('hidden')
+    filePreview.classList.remove('hidden')
+    toggleEditBtn.textContent = 'Edit'
+  }
+})
+
+fileEditor.addEventListener('input', () => {
+  if (currentOpenFile) {
+    hasUnsavedChanges = true
+  }
+})

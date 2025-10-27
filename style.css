@@ -180,6 +180,17 @@ button:active {
   padding: 8px;
 }
 
+#revision-list ul li {
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+#revision-list ul li:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
 .editor-panel {
   flex: 1;
   background-color: var(--bg-primary);
@@ -188,15 +199,79 @@ button:active {
   overflow: hidden;
 }
 
+.editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background-color: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border-color);
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.toolbar-left {
+  flex: 1;
+  overflow: hidden;
+}
+
+#current-file-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar-right button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
 .editor-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+.file-editor {
+  flex: 1;
+  padding: 16px;
+  border: none;
+  outline: none;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  resize: none;
+  tab-size: 2;
+}
+
+.file-preview {
   flex: 1;
   padding: 24px 32px;
   overflow-y: auto;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.file-preview:empty::before {
+  content: 'Select a file to view';
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
-  font-size: 14px;
+  height: 100%;
 }
 
 #revision-controls {

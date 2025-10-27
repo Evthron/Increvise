@@ -372,6 +372,26 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('read-file', async (event, filePath) => {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8')
+      return { success: true, content }
+    } catch (error) {
+      console.error('Error reading file:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('write-file', async (event, filePath, content) => {
+    try {
+      await fs.writeFile(filePath, content, 'utf-8')
+      return { success: true }
+    } catch (error) {
+      console.error('Error writing file:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
   createWindow()
 
   app.on('activate', () => {
