@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, noteId, feedback) => ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
+  extractNote: (filePath, selectedText) => ipcRenderer.invoke('extract-note', filePath, selectedText),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),

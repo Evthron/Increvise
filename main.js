@@ -127,26 +127,131 @@ app.whenReady().then(async () => {
 
 
   ipcMain.handle('get-directory-tree', async (event, dirPath) => {
+    const parseNoteNumber = (filename) => {
+      const match = filename.match(/^(\d+(?:\.\d+)*)\.md$/)
+      if (!match) return null
+      return match[1].split('.').map(Number)
+    }
+    
+    const buildTreeFromFlat = (notes) => {
+      const map = new Map()
+      const roots = []
+      
+      notes.forEach(note => {
+        const hasChildren = notes.some(n => 
+          n.number.length === note.number.length + 1 &&
+          n.number.slice(0, -1).join('.') === note.numberKey
+        )
+        
+        map.set(note.numberKey, { 
+          ...note, 
+          children: [],
+          type: hasChildren ? 'note-parent' : 'note-child'
+        })
+      })
+      
+      notes.forEach(note => {
+        const node = map.get(note.numberKey)
+        if (note.number.length === 1) {
+          roots.push(node)
+        } else {
+          const parentKey = note.number.slice(0, -1).join('.')
+          const parent = map.get(parentKey)
+          if (parent) {
+            parent.children.push(node)
+          } else {
+            roots.push(node)
+          }
+        }
+      })
+      
+      return roots
+    }
+    
+    const buildNoteHierarchy = async (folderPath, baseName) => {
+      try {
+        const items = await fs.readdir(folderPath, { withFileTypes: true })
+        const mdFiles = items
+          .filter(item => item.isFile() && item.name.endsWith('.md'))
+          .map(item => ({
+            name: item.name,
+            number: parseNoteNumber(item.name),
+            path: path.join(folderPath, item.name)
+          }))
+          .filter(item => item.number !== null)
+        
+        if (mdFiles.length === 0) return []
+        
+        mdFiles.sort((a, b) => {
+          for (let i = 0; i < Math.max(a.number.length, b.number.length); i++) {
+            const aNum = a.number[i] || 0
+            const bNum = b.number[i] || 0
+            if (aNum !== bNum) return aNum - bNum
+          }
+          return 0
+        })
+        
+        const notesWithKeys = mdFiles.map(note => ({
+          ...note,
+          numberKey: note.number.join('.')
+        }))
+        
+        return buildTreeFromFlat(notesWithKeys)
+      } catch (error) {
+        return []
+      }
+    }
+    
     const buildTree = async (dir) => {
       const items = await fs.readdir(dir, { withFileTypes: true })
       const tree = []
+      
+      const fileMap = new Map()
+      items.filter(item => item.isFile()).forEach(item => {
+        const baseName = path.basename(item.name, path.extname(item.name))
+        fileMap.set(baseName, item)
+      })
+      
       for (const item of items) {
         const fullPath = path.join(dir, item.name)
+        
         if (item.isDirectory()) {
-          tree.push({
-            name: item.name,
-            type: 'directory',
-            path: fullPath,
-            children: null // Lazy-load children
-          })
-        } else {
-          tree.push({
-            name: item.name,
-            type: 'file',
-            path: fullPath
-          })
+          if (item.name === '.increvise') continue
+          
+          if (fileMap.has(item.name)) {
+            const fileItem = fileMap.get(item.name)
+            const filePath = path.join(dir, fileItem.name)
+            
+            const hierarchy = await buildNoteHierarchy(fullPath, item.name)
+            
+            tree.push({
+              name: fileItem.name,
+              type: 'note-parent',
+              path: filePath,
+              children: hierarchy
+            })
+            
+            fileMap.delete(item.name)
+          } else {
+            tree.push({
+              name: item.name,
+              type: 'directory',
+              path: fullPath,
+              children: null
+            })
+          }
         }
       }
+      
+      for (const [baseName, item] of fileMap) {
+        const fullPath = path.join(dir, item.name)
+        tree.push({
+          name: item.name,
+          type: 'file',
+          path: fullPath
+        })
+      }
+      
       return tree
     }
     return await buildTree(dirPath)
@@ -574,6 +679,136 @@ app.whenReady().then(async () => {
       return { success: false, error: error.message };
     }
   });
+
+  ipcMain.handle('extract-note', async (event, parentFilePath, selectedText) => {
+    try {
+      const parentDir = path.dirname(parentFilePath)
+      const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+      const parentDirName = path.basename(parentDir)
+      
+      const matchNumber = (filename) => {
+        const match = filename.match(/^(\d+(?:\.\d+)*)$/)
+        if (!match) return null
+        return match[1].split('.').map(Number)
+      }
+      
+      const currentNumber = matchNumber(parentFileName)
+      const isAlreadyInNoteFolder = currentNumber !== null
+      
+      let noteFolder
+      let currentPrefix
+      
+      if (isAlreadyInNoteFolder) {
+        noteFolder = parentDir
+        currentPrefix = currentNumber
+      } else {
+        noteFolder = path.join(parentDir, parentFileName)
+        await fs.mkdir(noteFolder, { recursive: true })
+        
+        const increviseDir = path.join(noteFolder, '.increvise')
+        const noteFolderDbPath = path.join(increviseDir, 'data.sqlite')
+        
+        await fs.mkdir(increviseDir, { recursive: true })
+        
+        try {
+          await fs.access(noteFolderDbPath)
+        } catch {
+          const noteDb = new Database.Database(noteFolderDbPath)
+          await new Promise((resolve, reject) => {
+            noteDb.exec(`
+              CREATE TABLE IF NOT EXISTS file (
+                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL UNIQUE,
+                creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_revised_time DATETIME,
+                review_count INTEGER DEFAULT 0,
+                difficulty REAL DEFAULT 0.0,
+                due_time DATETIME
+              );
+            `, (err) => {
+              noteDb.close()
+              if (err) reject(err)
+              else resolve()
+            })
+          })
+        }
+        
+        currentPrefix = []
+      }
+      
+      const existingFiles = await fs.readdir(noteFolder)
+      const mdFiles = existingFiles.filter(f => f.endsWith('.md'))
+      
+      const allNumbers = mdFiles
+        .map(f => matchNumber(path.basename(f, '.md')))
+        .filter(n => n !== null)
+      
+      let nextNumber
+      
+      if (currentPrefix.length === 0) {
+        if (allNumbers.length === 0) {
+          nextNumber = [1]
+        } else {
+          const maxFirstLevel = Math.max(...allNumbers.map(n => n[0]))
+          nextNumber = [maxFirstLevel + 1]
+        }
+      } else {
+        const childNumbers = allNumbers.filter(n => {
+          if (n.length !== currentPrefix.length + 1) return false
+          for (let i = 0; i < currentPrefix.length; i++) {
+            if (n[i] !== currentPrefix[i]) return false
+          }
+          return true
+        })
+        
+        if (childNumbers.length === 0) {
+          nextNumber = [...currentPrefix, 1]
+        } else {
+          const maxLastLevel = Math.max(...childNumbers.map(n => n[n.length - 1]))
+          nextNumber = [...currentPrefix, maxLastLevel + 1]
+        }
+      }
+      
+      const newFileName = nextNumber.join('.') + '.md'
+      const newFilePath = path.join(noteFolder, newFileName)
+      
+      await fs.writeFile(newFilePath, selectedText, 'utf-8')
+      
+      const result = await findIncreviseDatabase(newFilePath)
+      
+      if (result.found) {
+        await new Promise((resolve, reject) => {
+          const db = new Database.Database(result.dbPath, (err) => {
+            if (err) {
+              resolve()
+              return
+            }
+            
+            db.run(`
+              INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
+              VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
+            `, [newFilePath], function(runErr) {
+              db.close()
+              if (runErr) {
+                console.error('Error adding extracted note to queue:', runErr)
+              }
+              resolve()
+            })
+          })
+        })
+      }
+      
+      return {
+        success: true,
+        fileName: newFileName,
+        filePath: newFilePath
+      }
+      
+    } catch (error) {
+      console.error('Error extracting note:', error)
+      return { success: false, error: error.message }
+    }
+  })
 
   ipcMain.handle('read-file', async (event, filePath) => {
     try {

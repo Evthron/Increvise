@@ -12,6 +12,7 @@ const fileEditor = document.getElementById('file-editor')
 const filePreview = document.getElementById('file-preview')
 const saveFileBtn = document.getElementById('save-file-btn')
 const toggleEditBtn = document.getElementById('toggle-edit-btn')
+const extractBtn = document.getElementById('extract-btn')
 const toast = document.getElementById('toast')
 
 let currentRootPath = null
@@ -360,9 +361,10 @@ function renderTree(tree, container) {
     
     const treeItem = document.createElement('div')
     treeItem.classList.add('tree-item')
-    treeItem.classList.add(item.type === 'directory' ? 'directory' : 'file')
     
     if (item.type === 'directory') {
+      treeItem.classList.add('directory')
+      
       const expandIcon = document.createElement('span')
       expandIcon.classList.add('tree-expand-icon')
       expandIcon.textContent = '▶'
@@ -372,7 +374,120 @@ function renderTree(tree, container) {
       icon.classList.add('tree-icon')
       icon.textContent = '📁'
       treeItem.appendChild(icon)
+      
+      const label = document.createElement('span')
+      label.classList.add('tree-label')
+      label.textContent = item.name
+      treeItem.appendChild(label)
+      
+    } else if (item.type === 'note-parent') {
+      treeItem.classList.add('note-parent')
+      
+      const expandIcon = document.createElement('span')
+      expandIcon.classList.add('tree-expand-icon')
+      expandIcon.textContent = '▶'
+      treeItem.appendChild(expandIcon)
+      
+      const icon = document.createElement('span')
+      icon.classList.add('tree-icon')
+      icon.textContent = '📄'
+      treeItem.appendChild(icon)
+      
+      const label = document.createElement('span')
+      label.classList.add('tree-label')
+      label.textContent = item.name
+      treeItem.appendChild(label)
+      
+      const addBtn = document.createElement('button')
+      addBtn.textContent = '+'
+      addBtn.classList.add('add-file-btn')
+      
+      window.fileManager.checkFileInQueue(item.path).then(result => {
+        if (result.inQueue) {
+          addBtn.textContent = '✓'
+          addBtn.disabled = true
+        }
+      })
+      
+      addBtn.onclick = async (e) => {
+        e.stopPropagation()
+        
+        const result = await window.fileManager.addFileToQueue(item.path)
+        if (result.success) {
+          addBtn.textContent = '✓'
+          addBtn.disabled = true
+        } else {
+          if (result.alreadyExists) {
+            addBtn.textContent = '✓'
+            addBtn.disabled = true
+          } else {
+            alert(`Error: ${result.error}`)
+          }
+        }
+      }
+      treeItem.appendChild(addBtn)
+      
+    } else if (item.type === 'note-child') {
+      treeItem.classList.add('note-child')
+      
+      if (item.children && item.children.length > 0) {
+        const expandIcon = document.createElement('span')
+        expandIcon.classList.add('tree-expand-icon')
+        expandIcon.textContent = '▶'
+        treeItem.appendChild(expandIcon)
+      } else {
+        const spacer = document.createElement('span')
+        spacer.classList.add('tree-expand-icon')
+        treeItem.appendChild(spacer)
+      }
+      
+      const icon = document.createElement('span')
+      icon.classList.add('tree-icon')
+      icon.textContent = '📝'
+      treeItem.appendChild(icon)
+      
+      const prefix = document.createElement('span')
+      prefix.classList.add('note-child-prefix')
+      prefix.textContent = '↳ '
+      treeItem.appendChild(prefix)
+      
+      const label = document.createElement('span')
+      label.classList.add('tree-label')
+      label.textContent = item.name
+      treeItem.appendChild(label)
+      
+      const addBtn = document.createElement('button')
+      addBtn.textContent = '+'
+      addBtn.classList.add('add-file-btn')
+      
+      window.fileManager.checkFileInQueue(item.path).then(result => {
+        if (result.inQueue) {
+          addBtn.textContent = '✓'
+          addBtn.disabled = true
+        }
+      })
+      
+      addBtn.onclick = async (e) => {
+        e.stopPropagation()
+        
+        const result = await window.fileManager.addFileToQueue(item.path)
+        if (result.success) {
+          addBtn.textContent = '✓'
+          addBtn.disabled = true
+        } else {
+          if (result.alreadyExists) {
+            addBtn.textContent = '✓'
+            addBtn.disabled = true
+          } else {
+            alert(`Error: ${result.error}`)
+          }
+        }
+      }
+      treeItem.appendChild(addBtn)
+      
     } else {
+      treeItem.classList.add('file')
+      
       const spacer = document.createElement('span')
       spacer.classList.add('tree-expand-icon')
       treeItem.appendChild(spacer)
@@ -381,14 +496,12 @@ function renderTree(tree, container) {
       icon.classList.add('tree-icon')
       icon.textContent = '📄'
       treeItem.appendChild(icon)
-    }
-    
-    const label = document.createElement('span')
-    label.classList.add('tree-label')
-    label.textContent = item.name
-    treeItem.appendChild(label)
-    
-    if (item.type === 'file') {
+      
+      const label = document.createElement('span')
+      label.classList.add('tree-label')
+      label.textContent = item.name
+      treeItem.appendChild(label)
+      
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
@@ -422,43 +535,99 @@ function renderTree(tree, container) {
     li.appendChild(treeItem)
 
     treeItem.addEventListener('click', async (event) => {
-        event.stopPropagation()
-        if (item.type === 'directory') {
-            const expandIcon = treeItem.querySelector('.tree-expand-icon')
-            if (!li.dataset.loaded) {
-                try {
-                const children = await window.fileManager.getDirectoryTree(item.path)
-                const subUl = document.createElement('ul')
-                renderTree(children, subUl)
-                li.appendChild(subUl)
-                li.dataset.loaded = true
-                expandIcon.classList.add('expanded')
-                const icon = treeItem.querySelector('.tree-icon')
-                icon.textContent = '📂'
-                } catch (error) {
-                console.error('Error loading children:', error)
-                }
+      event.stopPropagation()
+      
+      if (item.type === 'directory') {
+        const expandIcon = treeItem.querySelector('.tree-expand-icon')
+        if (!li.dataset.loaded) {
+          try {
+            const children = await window.fileManager.getDirectoryTree(item.path)
+            const subUl = document.createElement('ul')
+            renderTree(children, subUl)
+            li.appendChild(subUl)
+            li.dataset.loaded = true
+            expandIcon.classList.add('expanded')
+            const icon = treeItem.querySelector('.tree-icon')
+            icon.textContent = '📂'
+          } catch (error) {
+            console.error('Error loading children:', error)
+          }
+        } else {
+          const subUl = li.querySelector('ul')
+          if (subUl) {
+            const isHidden = subUl.style.display === 'none'
+            subUl.style.display = isHidden ? 'block' : 'none'
+            if (isHidden) {
+              expandIcon.classList.add('expanded')
+              const icon = treeItem.querySelector('.tree-icon')
+              icon.textContent = '📂'
             } else {
-                const subUl = li.querySelector('ul')
-                if (subUl) {
-                  const isHidden = subUl.style.display === 'none'
-                  subUl.style.display = isHidden ? 'block' : 'none'
-                  if (isHidden) {
-                    expandIcon.classList.add('expanded')
-                    const icon = treeItem.querySelector('.tree-icon')
-                    icon.textContent = '📂'
-                  } else {
-                    expandIcon.classList.remove('expanded')
-                    const icon = treeItem.querySelector('.tree-icon')
-                    icon.textContent = '📁'
-                  }
-                }
+              expandIcon.classList.remove('expanded')
+              const icon = treeItem.querySelector('.tree-icon')
+              icon.textContent = '📁'
             }
-        } else if (item.type === 'file') {
-            await openFile(item.path)
-            document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'))
-            treeItem.classList.add('selected')
+          }
         }
+        
+      } else if (item.type === 'note-parent') {
+        await openFile(item.path)
+        document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'))
+        treeItem.classList.add('selected')
+        
+        const expandIcon = treeItem.querySelector('.tree-expand-icon')
+        if (!li.dataset.loaded && item.children && item.children.length > 0) {
+          const subUl = document.createElement('ul')
+          subUl.classList.add('note-children')
+          renderTree(item.children, subUl)
+          li.appendChild(subUl)
+          li.dataset.loaded = true
+          expandIcon.classList.add('expanded')
+        } else if (li.dataset.loaded) {
+          const subUl = li.querySelector('ul.note-children')
+          if (subUl) {
+            const isHidden = subUl.style.display === 'none'
+            subUl.style.display = isHidden ? 'block' : 'none'
+            if (isHidden) {
+              expandIcon.classList.add('expanded')
+            } else {
+              expandIcon.classList.remove('expanded')
+            }
+          }
+        }
+        
+      } else if (item.type === 'note-child') {
+        await openFile(item.path)
+        document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'))
+        treeItem.classList.add('selected')
+        
+        if (item.children && item.children.length > 0) {
+          const expandIcon = treeItem.querySelector('.tree-expand-icon')
+          if (!li.dataset.loaded) {
+            const subUl = document.createElement('ul')
+            subUl.classList.add('note-children')
+            renderTree(item.children, subUl)
+            li.appendChild(subUl)
+            li.dataset.loaded = true
+            expandIcon.classList.add('expanded')
+          } else {
+            const subUl = li.querySelector('ul.note-children')
+            if (subUl) {
+              const isHidden = subUl.style.display === 'none'
+              subUl.style.display = isHidden ? 'block' : 'none'
+              if (isHidden) {
+                expandIcon.classList.add('expanded')
+              } else {
+                expandIcon.classList.remove('expanded')
+              }
+            }
+          }
+        }
+        
+      } else if (item.type === 'file') {
+        await openFile(item.path)
+        document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'))
+        treeItem.classList.add('selected')
+      }
     })
     ul.appendChild(li)
   })
@@ -537,6 +706,62 @@ toggleEditBtn.addEventListener('click', () => {
 fileEditor.addEventListener('input', () => {
   if (currentOpenFile) {
     hasUnsavedChanges = true
+  }
+})
+
+function updateExtractButtonState() {
+  if (!isEditMode || !currentOpenFile) {
+    extractBtn.disabled = true
+    return
+  }
+  
+  const selectedText = fileEditor.value.substring(
+    fileEditor.selectionStart,
+    fileEditor.selectionEnd
+  )
+  
+  extractBtn.disabled = selectedText.trim().length === 0
+}
+
+fileEditor.addEventListener('mouseup', updateExtractButtonState)
+fileEditor.addEventListener('keyup', updateExtractButtonState)
+fileEditor.addEventListener('select', updateExtractButtonState)
+
+extractBtn.addEventListener('click', async () => {
+  if (!isEditMode || !currentOpenFile) {
+    showToast('Please enter edit mode first', true)
+    return
+  }
+  
+  const selectedText = fileEditor.value.substring(
+    fileEditor.selectionStart,
+    fileEditor.selectionEnd
+  )
+  
+  if (!selectedText.trim()) {
+    showToast('Please select text to extract', true)
+    return
+  }
+  
+  const confirm = window.confirm(`Extract selected text to a new note?\n\nThis will create a new numbered file in the note's folder.`)
+  if (!confirm) return
+  
+  try {
+    const result = await window.fileManager.extractNote(currentOpenFile, selectedText)
+    
+    if (result.success) {
+      showToast(`Note extracted to ${result.fileName}`)
+      
+      if (currentRootPath) {
+        const tree = await window.fileManager.getDirectoryTree(currentRootPath)
+        renderTree(tree, treeContainer)
+      }
+    } else {
+      showToast(`Error: ${result.error}`, true)
+    }
+  } catch (error) {
+    console.error('Error extracting note:', error)
+    showToast(`Error extracting note: ${error.message}`, true)
   }
 })
 

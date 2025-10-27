@@ -820,3 +820,42 @@ footer {
 .toast.error {
   background: linear-gradient(135deg, #dc3545 0%, #e63946 100%);
 }
+
+.note-children {
+  border-left: 2px solid rgba(0, 122, 255, 0.3);
+  margin-left: 24px;
+  padding-left: 8px;
+}
+
+.note-child {
+  background-color: rgba(0, 122, 255, 0.05);
+  border-radius: 4px;
+}
+
+.note-child .tree-label {
+  color: var(--text-primary);
+}
+
+.note-child-prefix {
+  color: var(--accent-color);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.note-parent {
+  background-color: rgba(255, 204, 0, 0.08);
+  border-radius: 4px;
+}
+
+.note-parent .tree-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.note-parent:hover {
+  background-color: rgba(255, 204, 0, 0.15);
+}
+
+.note-child:hover {
+  background-color: rgba(0, 122, 255, 0.12);
+}
