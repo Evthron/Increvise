@@ -282,9 +282,7 @@ function renderTree(tree, container) {
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
       
-      const folderPath = item.path.substring(0, item.path.lastIndexOf('/'))
-      
-      window.fileManager.checkFileInQueue(item.path, folderPath).then(result => {
+      window.fileManager.checkFileInQueue(item.path).then(result => {
         if (result.inQueue) {
           addBtn.textContent = '✓'
           addBtn.disabled = true
@@ -294,7 +292,7 @@ function renderTree(tree, container) {
       addBtn.onclick = async (e) => {
         e.stopPropagation()
         
-        const result = await window.fileManager.addFileToQueue(item.path, folderPath)
+        const result = await window.fileManager.addFileToQueue(item.path)
         if (result.success) {
           addBtn.textContent = '✓'
           addBtn.disabled = true

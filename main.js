@@ -19,6 +19,30 @@ function getIncreviseDataDir() {
   return path.join(dataHome, 'increvise')
 }
 
+async function findIncreviseDatabase(filePath) {
+  let currentDir = path.dirname(filePath)
+  const rootDir = path.parse(currentDir).root
+  
+  while (currentDir !== rootDir) {
+    const increviseDir = path.join(currentDir, '.increvise')
+    const dbPath = path.join(increviseDir, 'db.sqlite')
+    
+    try {
+      await fs.access(dbPath)
+      return {
+        found: true,
+        dbPath: dbPath,
+        rootPath: currentDir
+      }
+    } catch {
+    }
+    
+    currentDir = path.dirname(currentDir)
+  }
+  
+  return { found: false, dbPath: null, rootPath: null }
+}
+
 async function initializeCentralDatabase() {
   const increviseDataDir = getIncreviseDataDir()
   const centralDbPath = getCentralDbPath()
@@ -248,109 +272,107 @@ app.whenReady().then(async () => {
   });
 
   // Add file to revision queue
-  ipcMain.handle('check-file-in-queue', async (event, filePath, folderPath) => {
+  ipcMain.handle('check-file-in-queue', async (event, filePath) => {
     try {
-      const dbFilePath = path.join(folderPath, '.increvise', 'db.sqlite');
+      const result = await findIncreviseDatabase(filePath)
       
-      try {
-        await fs.access(dbFilePath);
-      } catch {
-        return { inQueue: false };
+      if (!result.found) {
+        return { inQueue: false }
       }
       
       return new Promise((resolve, reject) => {
-        const db = new Database.Database(dbFilePath, (err) => {
+        const db = new Database.Database(result.dbPath, (err) => {
           if (err) {
-            resolve({ inQueue: false });
-            return;
+            resolve({ inQueue: false })
+            return
           }
           
           db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
-            db.close();
+            db.close()
             if (queryErr) {
-              resolve({ inQueue: false });
+              resolve({ inQueue: false })
             } else {
-              resolve({ inQueue: !!row });
+              resolve({ inQueue: !!row })
             }
-          });
-        });
-      });
-    } catch (error) {
-      return { inQueue: false };
-    }
-  });
-
-  ipcMain.handle('add-file-to-queue', async (event, filePath, folderPath) => {
-    try {
-      const dbFilePath = path.join(folderPath, '.increvise', 'db.sqlite');
+          })
+        })
+      })
       
-      try {
-        await fs.access(dbFilePath);
-      } catch {
-        return { success: false, error: 'Database not found. Please create a database first.' };
+    } catch (error) {
+      console.error('Error in check-file-in-queue handler:', error)
+      return { inQueue: false }
+    }
+  })
+
+  ipcMain.handle('add-file-to-queue', async (event, filePath) => {
+    try {
+      const result = await findIncreviseDatabase(filePath)
+      
+      if (!result.found) {
+        return { success: false, error: 'Database not found. Please create a database first.' }
       }
       
       return new Promise((resolve, reject) => {
-        const db = new Database.Database(dbFilePath, (err) => {
+        const db = new Database.Database(result.dbPath, (err) => {
           if (err) {
-            reject({ success: false, error: err.message });
-            return;
+            reject({ success: false, error: err.message })
+            return
           }
           
           db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
             if (queryErr) {
-              db.close();
-              reject({ success: false, error: queryErr.message });
-              return;
+              db.close()
+              reject({ success: false, error: queryErr.message })
+              return
             }
             
             if (row) {
-              db.close();
-              resolve({ success: false, error: 'File already in queue', alreadyExists: true });
-              return;
+              db.close()
+              resolve({ success: false, error: 'File already in queue', alreadyExists: true })
+              return
             }
             
             const stmt = db.prepare(`
               INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
               VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-            `);
+            `)
             
             stmt.run([filePath], function(runErr) {
               if (runErr) {
-                stmt.finalize();
-                db.close();
-                reject({ success: false, error: runErr.message });
-                return;
+                stmt.finalize()
+                db.close()
+                reject({ success: false, error: runErr.message })
+                return
               }
               
-              const noteId = this.lastID;
+              const noteId = this.lastID
               
               const folderStmt = db.prepare(`
                 INSERT OR IGNORE INTO folder_data (folder_path, overall_priority)
                 VALUES (?, 0)
-              `);
+              `)
               
-              folderStmt.run([folderPath], (folderErr) => {
-                folderStmt.finalize();
-                stmt.finalize();
+              folderStmt.run([result.rootPath], (folderErr) => {
+                folderStmt.finalize()
+                stmt.finalize()
                 
                 db.close((closeErr) => {
                   if (closeErr || folderErr) {
-                    reject({ success: false, error: (closeErr || folderErr).message });
+                    reject({ success: false, error: (closeErr || folderErr).message })
                   } else {
-                    resolve({ success: true, noteId, message: 'File added to revision queue' });
+                    resolve({ success: true, noteId, message: 'File added to revision queue' })
                   }
-                });
-              });
-            });
-          });
-        });
-      });
+                })
+              })
+            })
+          })
+        })
+      })
     } catch (error) {
-      console.error('Error adding file to queue:', error);
-      return { success: false, error: error.message };
+      console.error('Error adding file to queue:', error)
+      return { success: false, error: error.message }
     }
-  });
+  })
 
   // Get files due for revision today
   ipcMain.handle('get-files-for-revision', async (event, rootPath) => {
