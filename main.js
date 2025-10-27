@@ -511,9 +511,9 @@ app.whenReady().then(async () => {
         `, [limit], (queryErr, rows) => {
           db.close()
           if (queryErr) {
-            reject({ success: false, error: queryErr.message })
+            reject(rows || [])
           } else {
-            resolve({ success: true, workspaces: rows || [] })
+            resolve(rows || [])
           }
         })
       })

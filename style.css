@@ -379,6 +379,84 @@ footer {
   display: none;
 }
 
+.workspace-history {
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-sidebar);
+  flex-shrink: 0;
+  max-height: 250px;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-history-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--toolbar-bg);
+}
+
+.workspace-history-header h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+#workspace-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.workspace-item {
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.workspace-item:hover {
+  background-color: #fafafa;
+  border-color: var(--accent-color);
+}
+
+.workspace-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.workspace-stats {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+#workspace-history-list:empty::before {
+  content: 'No recent workspaces';
+  color: var(--text-secondary);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
