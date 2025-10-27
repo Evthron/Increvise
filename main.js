@@ -31,6 +31,7 @@ app.whenReady().then(() => {
     }
   })
 
+
   ipcMain.handle('get-directory-tree', async (event, dirPath) => {
     const buildTree = async (dir) => {
       const items = await fs.readdir(dir, { withFileTypes: true })
@@ -87,11 +88,21 @@ app.whenReady().then(() => {
 
   ipcMain.handle('create-database', async (event, dbPath) => {
     try {
-      await fs.mkdir(dbPath, { recursive: true });
+      const oldDbPath = path.join(dbPath, 'db.sqlite');
+      const increviseFolder = path.join(dbPath, '.increvise');
+      const dbFilePath = path.join(increviseFolder, 'db.sqlite');
       
-      const dbFilePath = path.join(dbPath, 'db.sqlite');
+      await fs.mkdir(increviseFolder, { recursive: true });
       
       console.log('Attempting to create database at:', dbFilePath);
+      
+      try {
+        await fs.access(oldDbPath);
+        console.log('Found old db.sqlite, migrating to .increvise folder');
+        await fs.rename(oldDbPath, dbFilePath);
+        console.log('Migration complete');
+        return { success: true, path: dbFilePath };
+      } catch {}
       
       try {
         await fs.access(dbFilePath);
@@ -169,7 +180,7 @@ app.whenReady().then(() => {
   // Add file to revision queue
   ipcMain.handle('add-file-to-queue', async (event, filePath, folderPath) => {
     try {
-      const dbFilePath = path.join(folderPath, 'db.sqlite');
+      const dbFilePath = path.join(folderPath, '.increvise', 'db.sqlite');
       
       // Check if database exists
       try {
@@ -241,9 +252,15 @@ app.whenReady().then(() => {
         for (const item of items) {
           const fullPath = path.join(dir, item.name);
           if (item.isDirectory()) {
-            databases.push(...await findDatabases(fullPath));
-          } else if (item.name === 'db.sqlite') {
-            databases.push(fullPath);
+            if (item.name === '.increvise') {
+              const dbFile = path.join(fullPath, 'db.sqlite');
+              try {
+                await fs.access(dbFile);
+                databases.push(dbFile);
+              } catch {}
+            } else {
+              databases.push(...await findDatabases(fullPath));
+            }
           }
         }
         return databases;

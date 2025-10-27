@@ -1,6 +1,5 @@
 const selectFolderBtn = document.getElementById('select-folder')
 const treeContainer = document.getElementById('tree-container')
-const createdbbutton = document.getElementById('create-db')
 const reviseFilesBtn = document.getElementById('revise-files')
 const revisionList = document.getElementById('revision-list')
 const revisionControls = document.getElementById('revision-controls')
@@ -16,12 +15,20 @@ if (!selectFolderBtn) {
 }
 
 selectFolderBtn.addEventListener('click', async () => {
-  console.log('Select folder button clicked')
+  console.log('Open folder button clicked')
   try {
     const folderPath = await window.fileManager.selectFolder()
     console.log('Folder path received:', folderPath)
     if (folderPath) {
       currentRootPath = folderPath
+      
+      const dbResult = await window.fileManager.createDatabase(folderPath)
+      if (dbResult.success) {
+        console.log('Database ready at:', dbResult.path)
+      } else {
+        console.warn('Database setup warning:', dbResult.error)
+      }
+      
       const tree = await window.fileManager.getDirectoryTree(folderPath)
       console.log('Directory tree received:', tree)
       renderTree(tree, treeContainer)
@@ -29,28 +36,7 @@ selectFolderBtn.addEventListener('click', async () => {
       console.warn('No folder selected')
     }
   } catch (error) {
-    console.error('Error selecting folder:', error)
-  }
-})
-
-createdbbutton.addEventListener('click', async () => {
-  console.log('Create db button clicked')
-  try {
-    const folderPath = await window.fileManager.selectFolder()
-    console.log('Folder path received:', folderPath)
-    if (folderPath) {
-      const result = await window.fileManager.createDatabase(folderPath)
-      if (result.success) {
-        alert(`Database created successfully at: ${result.path}`)
-      } else {
-        alert(`Failed to create database: ${result.error}`)
-      }
-      console.log('Database created:', result)
-    } else {
-      console.warn('No path created')
-    }
-  } catch (error) {
-    console.error('Error selecting folder:', error)
+    console.error('Error setting up folder:', error)
   }
 })
 
