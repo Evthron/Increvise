@@ -748,9 +748,6 @@ extractBtn.addEventListener('click', async () => {
     return
   }
   
-  const confirm = window.confirm(`Extract selected text to a new note?\n\nThis will create a new numbered file in the note's folder.`)
-  if (!confirm) return
-  
   try {
     const result = await window.fileManager.extractNote(currentOpenFile, selectedText)
     
