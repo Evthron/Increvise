@@ -248,11 +248,42 @@ app.whenReady().then(async () => {
   });
 
   // Add file to revision queue
+  ipcMain.handle('check-file-in-queue', async (event, filePath, folderPath) => {
+    try {
+      const dbFilePath = path.join(folderPath, '.increvise', 'db.sqlite');
+      
+      try {
+        await fs.access(dbFilePath);
+      } catch {
+        return { inQueue: false };
+      }
+      
+      return new Promise((resolve, reject) => {
+        const db = new Database.Database(dbFilePath, (err) => {
+          if (err) {
+            resolve({ inQueue: false });
+            return;
+          }
+          
+          db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
+            db.close();
+            if (queryErr) {
+              resolve({ inQueue: false });
+            } else {
+              resolve({ inQueue: !!row });
+            }
+          });
+        });
+      });
+    } catch (error) {
+      return { inQueue: false };
+    }
+  });
+
   ipcMain.handle('add-file-to-queue', async (event, filePath, folderPath) => {
     try {
       const dbFilePath = path.join(folderPath, '.increvise', 'db.sqlite');
       
-      // Check if database exists
       try {
         await fs.access(dbFilePath);
       } catch {
@@ -266,40 +297,50 @@ app.whenReady().then(async () => {
             return;
           }
           
-          // Insert file into the file table
-          const stmt = db.prepare(`
-            INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
-            VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-            ON CONFLICT(file_path) DO UPDATE SET
-              last_revised_time = datetime('now')
-          `);
-          
-          stmt.run([filePath], function(runErr) {
-            if (runErr) {
-              stmt.finalize();
+          db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
+            if (queryErr) {
               db.close();
-              reject({ success: false, error: runErr.message });
+              reject({ success: false, error: queryErr.message });
               return;
             }
             
-            const noteId = this.lastID;
+            if (row) {
+              db.close();
+              resolve({ success: false, error: 'File already in queue', alreadyExists: true });
+              return;
+            }
             
-            // Also record the folder if not exists
-            const folderStmt = db.prepare(`
-              INSERT OR IGNORE INTO folder_data (folder_path, overall_priority)
-              VALUES (?, 0)
+            const stmt = db.prepare(`
+              INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
+              VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
             `);
             
-            folderStmt.run([folderPath], (folderErr) => {
-              folderStmt.finalize();
-              stmt.finalize();
+            stmt.run([filePath], function(runErr) {
+              if (runErr) {
+                stmt.finalize();
+                db.close();
+                reject({ success: false, error: runErr.message });
+                return;
+              }
               
-              db.close((closeErr) => {
-                if (closeErr || folderErr) {
-                  reject({ success: false, error: (closeErr || folderErr).message });
-                } else {
-                  resolve({ success: true, noteId, message: 'File added to revision queue' });
-                }
+              const noteId = this.lastID;
+              
+              const folderStmt = db.prepare(`
+                INSERT OR IGNORE INTO folder_data (folder_path, overall_priority)
+                VALUES (?, 0)
+              `);
+              
+              folderStmt.run([folderPath], (folderErr) => {
+                folderStmt.finalize();
+                stmt.finalize();
+                
+                db.close((closeErr) => {
+                  if (closeErr || folderErr) {
+                    reject({ success: false, error: (closeErr || folderErr).message });
+                  } else {
+                    resolve({ success: true, noteId, message: 'File added to revision queue' });
+                  }
+                });
               });
             });
           });

@@ -247,39 +247,75 @@ function renderTree(tree, container) {
   tree.forEach(item => {
     const li = document.createElement('li')
     
-    // Create a span for the item name
-    const nameSpan = document.createElement('span')
-    nameSpan.textContent = item.name
-    nameSpan.classList.add(item.type === 'directory' ? 'directory' : 'file')
+    const treeItem = document.createElement('div')
+    treeItem.classList.add('tree-item')
+    treeItem.classList.add(item.type === 'directory' ? 'directory' : 'file')
     
-    // Add "Add to Queue" button for files
+    if (item.type === 'directory') {
+      const expandIcon = document.createElement('span')
+      expandIcon.classList.add('tree-expand-icon')
+      expandIcon.textContent = '▶'
+      treeItem.appendChild(expandIcon)
+      
+      const icon = document.createElement('span')
+      icon.classList.add('tree-icon')
+      icon.textContent = '📁'
+      treeItem.appendChild(icon)
+    } else {
+      const spacer = document.createElement('span')
+      spacer.classList.add('tree-expand-icon')
+      treeItem.appendChild(spacer)
+      
+      const icon = document.createElement('span')
+      icon.classList.add('tree-icon')
+      icon.textContent = '📄'
+      treeItem.appendChild(icon)
+    }
+    
+    const label = document.createElement('span')
+    label.classList.add('tree-label')
+    label.textContent = item.name
+    treeItem.appendChild(label)
+    
     if (item.type === 'file') {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
+      
+      const folderPath = item.path.substring(0, item.path.lastIndexOf('/'))
+      
+      window.fileManager.checkFileInQueue(item.path, folderPath).then(result => {
+        if (result.inQueue) {
+          addBtn.textContent = '✓'
+          addBtn.disabled = true
+        }
+      })
+      
       addBtn.onclick = async (e) => {
         e.stopPropagation()
         
-        // Find the parent folder path
-        let folderPath = item.path.substring(0, item.path.lastIndexOf('/'))
-        
         const result = await window.fileManager.addFileToQueue(item.path, folderPath)
         if (result.success) {
-          alert(result.message)
           addBtn.textContent = '✓'
           addBtn.disabled = true
         } else {
-          alert(`Error: ${result.error}`)
+          if (result.alreadyExists) {
+            addBtn.textContent = '✓'
+            addBtn.disabled = true
+          } else {
+            alert(`Error: ${result.error}`)
+          }
         }
       }
-      li.appendChild(addBtn)
+      treeItem.appendChild(addBtn)
     }
     
-    li.appendChild(nameSpan)
+    li.appendChild(treeItem)
 
-    nameSpan.addEventListener('click', async (event) => {
+    treeItem.addEventListener('click', async (event) => {
         event.stopPropagation()
         if (item.type === 'directory') {
+            const expandIcon = treeItem.querySelector('.tree-expand-icon')
             if (!li.dataset.loaded) {
                 try {
                 const children = await window.fileManager.getDirectoryTree(item.path)
@@ -287,17 +323,32 @@ function renderTree(tree, container) {
                 renderTree(children, subUl)
                 li.appendChild(subUl)
                 li.dataset.loaded = true
+                expandIcon.classList.add('expanded')
+                const icon = treeItem.querySelector('.tree-icon')
+                icon.textContent = '📂'
                 } catch (error) {
                 console.error('Error loading children:', error)
                 }
             } else {
                 const subUl = li.querySelector('ul')
                 if (subUl) {
-                subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none'
+                  const isHidden = subUl.style.display === 'none'
+                  subUl.style.display = isHidden ? 'block' : 'none'
+                  if (isHidden) {
+                    expandIcon.classList.add('expanded')
+                    const icon = treeItem.querySelector('.tree-icon')
+                    icon.textContent = '📂'
+                  } else {
+                    expandIcon.classList.remove('expanded')
+                    const icon = treeItem.querySelector('.tree-icon')
+                    icon.textContent = '📁'
+                  }
                 }
             }
         } else if (item.type === 'file') {
             await openFile(item.path)
+            document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'))
+            treeItem.classList.add('selected')
         }
     })
     ul.appendChild(li)

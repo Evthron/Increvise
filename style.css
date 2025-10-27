@@ -125,32 +125,93 @@ button:active {
   min-height: 100px;
 }
 
+#tree-container ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+#tree-container ul ul {
+  padding-left: 16px;
+}
+
+#tree-container li {
+  margin: 0;
+  padding: 0;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  margin: 1px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease;
+  gap: 6px;
+}
+
+.tree-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.tree-item.selected {
+  background-color: rgba(0, 122, 255, 0.1);
+}
+
+.tree-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.tree-expand-icon {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.tree-expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.tree-item.directory .tree-label {
+  font-weight: 500;
+}
+
+.tree-item.file .tree-label {
+  font-weight: 400;
+}
+
 .directory {
   font-weight: 500;
   color: var(--text-primary);
-  padding: 4px 8px;
-  margin: 2px 0;
-  cursor: pointer;
-  border-radius: 4px;
-  user-select: none;
-}
-
-.directory:hover {
-  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .file {
   color: var(--text-primary);
-  padding: 4px 8px 4px 20px;
-  margin: 1px 0;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 12px;
-  user-select: none;
-}
-
-.file:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  font-weight: 400;
 }
 
 .list-panel {
@@ -348,27 +409,33 @@ button:active {
 }
 
 .add-file-btn {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
   background-color: var(--accent-color);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: all 0.15s ease;
+  margin-left: auto;
 }
 
-.add-file-btn:hover {
+.add-file-btn:hover:not(:disabled) {
   background-color: var(--accent-hover);
+  transform: scale(1.05);
 }
 
 .add-file-btn:disabled {
-  background-color: var(--text-secondary);
+  background-color: #34c759;
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.8;
 }
 
 .hidden {
