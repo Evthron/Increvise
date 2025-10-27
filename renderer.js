@@ -12,6 +12,7 @@ const fileEditor = document.getElementById('file-editor')
 const filePreview = document.getElementById('file-preview')
 const saveFileBtn = document.getElementById('save-file-btn')
 const toggleEditBtn = document.getElementById('toggle-edit-btn')
+const toast = document.getElementById('toast')
 
 let currentRootPath = null
 let currentFolderPath = null
@@ -21,6 +22,16 @@ let currentRevisionIndex = 0
 let currentOpenFile = null
 let isEditMode = false
 let hasUnsavedChanges = false
+
+function showToast(message, isError = false) {
+  toast.textContent = message
+  toast.classList.toggle('error', isError)
+  toast.classList.add('show')
+  
+  setTimeout(() => {
+    toast.classList.remove('show')
+  }, 3000)
+}
 
 if (!selectFolderBtn) {
   console.error('Select folder button not found in the DOM')
@@ -496,13 +507,13 @@ saveFileBtn.addEventListener('click', async () => {
     if (result.success) {
       hasUnsavedChanges = false
       filePreview.textContent = content
-      alert('File saved successfully!')
+      showToast('File saved successfully!')
     } else {
-      alert(`Error saving file: ${result.error}`)
+      showToast(`Error saving file: ${result.error}`, true)
     }
   } catch (error) {
     console.error('Error saving file:', error)
-    alert(`Error saving file: ${error.message}`)
+    showToast(`Error saving file: ${error.message}`, true)
   }
 })
 
