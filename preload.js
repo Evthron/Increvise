@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   checkFileInQueue: (filePath) => ipcRenderer.invoke('check-file-in-queue', filePath),
   addFileToQueue: (filePath) => ipcRenderer.invoke('add-file-to-queue', filePath),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
+  getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, noteId, feedback) => ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),

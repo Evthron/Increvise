@@ -132,13 +132,8 @@ selectFolderBtn.addEventListener('click', async () => {
 reviseFilesBtn.addEventListener('click', async () => {
   console.log('Revise files button clicked')
   try {
-    if (!currentRootPath) {
-      alert('Please select a folder first')
-      return
-    }
-    
-    const result = await window.fileManager.getFilesForRevision(currentRootPath)
-    console.log('Files for revision:', result)
+    const result = await window.fileManager.getAllFilesForRevision()
+    console.log('Files for revision from all workspaces:', result)
     
     if (result.success && result.files.length > 0) {
       revisionFiles = result.files
@@ -147,11 +142,14 @@ reviseFilesBtn.addEventListener('click', async () => {
       showRevisionFile(0)
       await openFile(result.files[0].file_path)
       
-      await window.fileManager.updateWorkspaceStats(
-        currentRootPath,
-        result.files.length,
-        result.files.length
-      )
+      const workspaceCounts = {}
+      for (const file of result.files) {
+        workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
+      }
+      
+      for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
+        await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
+      }
       console.log('Workspace stats updated in central database')
     } else if (result.success && result.files.length === 0) {
       alert('No files due for revision today!')
@@ -186,12 +184,13 @@ document.addEventListener('click', async (e) => {
         
         displayRevisionList(revisionFiles)
         
-        if (currentRootPath) {
-          await window.fileManager.updateWorkspaceStats(
-            currentRootPath,
-            revisionFiles.length,
-            revisionFiles.length
-          )
+        const workspaceCounts = {}
+        for (const file of revisionFiles) {
+          workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
+        }
+        
+        for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
+          await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
         }
         
         if (revisionFiles.length > 0) {

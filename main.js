@@ -442,6 +442,76 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('get-all-files-for-revision', async (event) => {
+    try {
+      const centralDbPath = getCentralDbPath()
+      
+      const workspaces = await new Promise((resolve, reject) => {
+        const db = new Database.Database(centralDbPath, Database.OPEN_READONLY, (err) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          
+          db.all('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC', [], (queryErr, rows) => {
+            db.close()
+            if (queryErr) {
+              reject(queryErr)
+            } else {
+              resolve(rows || [])
+            }
+          })
+        })
+      })
+      
+      const allFiles = []
+      
+      for (const workspace of workspaces) {
+        try {
+          await fs.access(workspace.db_path)
+        } catch {
+          continue
+        }
+        
+        await new Promise((resolve, reject) => {
+          const db = new Database.Database(workspace.db_path, Database.OPEN_READONLY, (err) => {
+            if (err) {
+              resolve()
+              return
+            }
+            
+            db.all(`
+              SELECT note_id, file_path, creation_time, last_revised_time, 
+                     review_count, difficulty, due_time
+              FROM file
+              WHERE date(due_time) <= date('now')
+              ORDER BY due_time ASC
+            `, [], (selectErr, rows) => {
+              if (!selectErr && rows) {
+                allFiles.push(...rows.map(row => ({
+                  ...row,
+                  dbPath: workspace.db_path,
+                  workspacePath: workspace.folder_path
+                })))
+              }
+              
+              db.close(() => resolve())
+            })
+          })
+        })
+      }
+      
+      allFiles.sort((a, b) => new Date(a.due_time) - new Date(b.due_time))
+      
+      console.log('All files for revision from all workspaces:', allFiles.length)
+      return { success: true, files: allFiles }
+      
+    } catch (error) {
+      console.error('Error getting all files for revision:', error)
+      return { success: false, error: error.message, files: [] }
+    }
+  })
+
   // Update file after revision (spaced repetition feedback)
   ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
     try {
