@@ -63,6 +63,8 @@ main {
 }
 
 .sidebar {
+  min-width: 150px;
+  max-width: 600px;
   width: 240px;
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
@@ -215,6 +217,8 @@ button:active {
 }
 
 .list-panel {
+  min-width: 150px;
+  max-width: 600px;
   width: 280px;
   background-color: var(--bg-primary);
   border-right: 1px solid var(--border-color);
@@ -858,4 +862,30 @@ footer {
 
 .note-child:hover {
   background-color: rgba(0, 122, 255, 0.12);
+}
+
+.resize-handle {
+  width: 4px;
+  background-color: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle:hover {
+  background-color: var(--accent-color);
+}
+
+.resize-handle:active {
+  background-color: var(--accent-hover);
+}
+
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -2px;
+  right: -2px;
+  bottom: 0;
 }
