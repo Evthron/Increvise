@@ -40,6 +40,9 @@ selectFolderBtn.addEventListener('click', async () => {
         console.warn('Database setup warning:', dbResult.error)
       }
       
+      await window.fileManager.recordWorkspace(folderPath)
+      console.log('Workspace recorded in central database')
+      
       const tree = await window.fileManager.getDirectoryTree(folderPath)
       console.log('Directory tree received:', tree)
       renderTree(tree, treeContainer)
@@ -68,6 +71,13 @@ reviseFilesBtn.addEventListener('click', async () => {
       displayRevisionList(result.files)
       showRevisionFile(0)
       await openFile(result.files[0].file_path)
+      
+      await window.fileManager.updateWorkspaceStats(
+        currentRootPath,
+        result.files.length,
+        result.files.length
+      )
+      console.log('Workspace stats updated in central database')
     } else if (result.success && result.files.length === 0) {
       alert('No files due for revision today!')
       revisionList.innerHTML = '<p>No files due for revision today! 🎉</p>'
@@ -100,6 +110,14 @@ document.addEventListener('click', async (e) => {
         revisionFiles.splice(currentRevisionIndex, 1)
         
         displayRevisionList(revisionFiles)
+        
+        if (currentRootPath) {
+          await window.fileManager.updateWorkspaceStats(
+            currentRootPath,
+            revisionFiles.length,
+            revisionFiles.length
+          )
+        }
         
         if (revisionFiles.length > 0) {
           if (currentRevisionIndex >= revisionFiles.length) {

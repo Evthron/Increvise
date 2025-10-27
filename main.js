@@ -3,6 +3,69 @@ const { dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs').promises
 const Database = require('sqlite3')
+const os = require('os')
+
+function getXdgDataHome() {
+  return process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')
+}
+
+function getCentralDbPath() {
+  const dataHome = getXdgDataHome()
+  return path.join(dataHome, 'increvise', 'central.sqlite')
+}
+
+function getIncreviseDataDir() {
+  const dataHome = getXdgDataHome()
+  return path.join(dataHome, 'increvise')
+}
+
+async function initializeCentralDatabase() {
+  const increviseDataDir = getIncreviseDataDir()
+  const centralDbPath = getCentralDbPath()
+  
+  await fs.mkdir(increviseDataDir, { recursive: true })
+  
+  console.log('Central database path:', centralDbPath)
+  
+  return new Promise((resolve, reject) => {
+    const db = new Database.Database(centralDbPath, (err) => {
+      if (err) {
+        console.error('Error creating central database:', err)
+        reject(err)
+        return
+      }
+      
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          folder_path TEXT NOT NULL UNIQUE,
+          folder_name TEXT NOT NULL,
+          db_path TEXT NOT NULL,
+          first_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+          open_count INTEGER DEFAULT 1,
+          total_files INTEGER DEFAULT 0,
+          files_due_today INTEGER DEFAULT 0
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_last_opened 
+        ON workspace_history(last_opened DESC);
+        
+        CREATE INDEX IF NOT EXISTS idx_folder_path 
+        ON workspace_history(folder_path);
+      `, (execErr) => {
+        db.close()
+        if (execErr) {
+          console.error('Error creating tables:', execErr)
+          reject(execErr)
+        } else {
+          console.log('Central database initialized successfully')
+          resolve()
+        }
+      })
+    })
+  })
+}
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -16,7 +79,14 @@ const createWindow = () => {
   win.loadFile('index.html')
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await initializeCentralDatabase()
+    console.log('Central database ready')
+  } catch (error) {
+    console.error('Failed to initialize central database:', error)
+  }
+  
   ipcMain.handle('select-folder', async () => {
     console.log('select-folder IPC handler invoked')
     try {
@@ -390,6 +460,117 @@ app.whenReady().then(() => {
       console.error('Error writing file:', error)
       return { success: false, error: error.message }
     }
+  })
+
+  ipcMain.handle('record-workspace', async (event, folderPath) => {
+    const centralDbPath = getCentralDbPath()
+    const folderName = path.basename(folderPath)
+    const dbPath = path.join(folderPath, '.increvise', 'db.sqlite')
+    
+    return new Promise((resolve, reject) => {
+      const db = new Database.Database(centralDbPath, (err) => {
+        if (err) {
+          reject({ success: false, error: err.message })
+          return
+        }
+        
+        db.run(`
+          INSERT INTO workspace_history 
+          (folder_path, folder_name, db_path, last_opened, open_count)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
+          ON CONFLICT(folder_path) DO UPDATE SET
+            last_opened = CURRENT_TIMESTAMP,
+            open_count = open_count + 1
+        `, [folderPath, folderName, dbPath], function(runErr) {
+          db.close()
+          if (runErr) {
+            reject({ success: false, error: runErr.message })
+          } else {
+            console.log('Workspace recorded:', folderPath)
+            resolve({ success: true, id: this.lastID })
+          }
+        })
+      })
+    })
+  })
+
+  ipcMain.handle('get-recent-workspaces', async (event, limit = 10) => {
+    const centralDbPath = getCentralDbPath()
+    
+    return new Promise((resolve, reject) => {
+      const db = new Database.Database(centralDbPath, (err) => {
+        if (err) {
+          reject({ success: false, error: err.message })
+          return
+        }
+        
+        db.all(`
+          SELECT * FROM workspace_history 
+          ORDER BY last_opened DESC 
+          LIMIT ?
+        `, [limit], (queryErr, rows) => {
+          db.close()
+          if (queryErr) {
+            reject({ success: false, error: queryErr.message })
+          } else {
+            resolve({ success: true, workspaces: rows || [] })
+          }
+        })
+      })
+    })
+  })
+
+  ipcMain.handle('update-workspace-stats', async (event, folderPath, totalFiles, filesDueToday) => {
+    const centralDbPath = getCentralDbPath()
+    
+    return new Promise((resolve, reject) => {
+      const db = new Database.Database(centralDbPath, (err) => {
+        if (err) {
+          reject({ success: false, error: err.message })
+          return
+        }
+        
+        db.run(`
+          UPDATE workspace_history 
+          SET total_files = ?, files_due_today = ?
+          WHERE folder_path = ?
+        `, [totalFiles, filesDueToday, folderPath], function(runErr) {
+          db.close()
+          if (runErr) {
+            reject({ success: false, error: runErr.message })
+          } else {
+            console.log('Workspace stats updated:', folderPath, totalFiles, filesDueToday)
+            resolve({ success: true, changes: this.changes })
+          }
+        })
+      })
+    })
+  })
+
+  ipcMain.handle('remove-workspace', async (event, folderPath) => {
+    const centralDbPath = getCentralDbPath()
+    
+    return new Promise((resolve, reject) => {
+      const db = new Database.Database(centralDbPath, (err) => {
+        if (err) {
+          reject({ success: false, error: err.message })
+          return
+        }
+        
+        db.run(`
+          DELETE FROM workspace_history 
+          WHERE folder_path = ?
+        `, [folderPath], function(runErr) {
+          db.close()
+          if (runErr) {
+            reject({ success: false, error: runErr.message })
+          } else {
+            console.log('Workspace removed:', folderPath)
+            resolve({ success: true, changes: this.changes })
+          }
+        })
+      })
+    })
   })
 
   createWindow()

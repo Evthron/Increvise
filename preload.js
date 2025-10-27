@@ -16,5 +16,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   updateRevisionFeedback: (dbPath, noteId, feedback) => ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-  writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content)
+  writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
+  recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
+  getRecentWorkspaces: (limit) => ipcRenderer.invoke('get-recent-workspaces', limit),
+  updateWorkspaceStats: (folderPath, totalFiles, filesDueToday) => 
+    ipcRenderer.invoke('update-workspace-stats', folderPath, totalFiles, filesDueToday),
+  removeWorkspace: (folderPath) => ipcRenderer.invoke('remove-workspace', folderPath)
 })
