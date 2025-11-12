@@ -106,7 +106,8 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error('Failed to initialize central database:', error)
   }
-  
+
+  // 1. File System
   ipcMain.handle('select-folder', async () => {
     console.log('select-folder IPC handler invoked')
     try {
@@ -120,7 +121,6 @@ app.whenReady().then(async () => {
       return null
     }
   })
-
 
   ipcMain.handle('get-directory-tree', async (event, dirPath) => {
     const parseNoteNumber = (filename) => {
@@ -281,6 +281,7 @@ app.whenReady().then(async () => {
     }
   })
 
+  // 2. Spaced Repetition
   ipcMain.handle('create-database', async (event, dbPath) => {
     try {
       const oldDbPath = path.join(dbPath, 'db.sqlite')
@@ -350,7 +351,6 @@ app.whenReady().then(async () => {
     }
   })
 
-  // Add file to revision queue
   ipcMain.handle('check-file-in-queue', async (event, filePath) => {
     try {
       const result = await findIncreviseDatabase(filePath)
@@ -404,7 +404,6 @@ app.whenReady().then(async () => {
     }
   })
 
-  // Get files due for revision today
   ipcMain.handle('get-files-for-revision', async (event, rootPath) => {
     try {
       // Find all db.sqlite files in subdirectories
@@ -502,7 +501,6 @@ app.whenReady().then(async () => {
     }
   })
 
-  // Update file after revision (spaced repetition feedback)
   ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
     try {
       // Calculate next due time based on feedback
@@ -545,6 +543,27 @@ app.whenReady().then(async () => {
       }
     } catch (error) {
       console.error('Error updating revision feedback:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
+  // 3. Incremental Reading
+  ipcMain.handle('read-file', async (event, filePath) => {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8')
+      return { success: true, content }
+    } catch (error) {
+      console.error('Error reading file:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('write-file', async (event, filePath, content) => {
+    try {
+      await fs.writeFile(filePath, content, 'utf-8')
+      return { success: true }
+    } catch (error) {
+      console.error('Error writing file:', error)
       return { success: false, error: error.message }
     }
   })
@@ -670,26 +689,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('read-file', async (event, filePath) => {
-    try {
-      const content = await fs.readFile(filePath, 'utf-8')
-      return { success: true, content }
-    } catch (error) {
-      console.error('Error reading file:', error)
-      return { success: false, error: error.message }
-    }
-  })
-
-  ipcMain.handle('write-file', async (event, filePath, content) => {
-    try {
-      await fs.writeFile(filePath, content, 'utf-8')
-      return { success: true }
-    } catch (error) {
-      console.error('Error writing file:', error)
-      return { success: false, error: error.message }
-    }
-  })
-
+  // 4. Workspace
   ipcMain.handle('record-workspace', async (event, folderPath) => {
     const centralDbPath = getCentralDbPath()
     const folderName = path.basename(folderPath)
@@ -776,6 +776,7 @@ app.whenReady().then(async () => {
     }
   })
 }) 
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
