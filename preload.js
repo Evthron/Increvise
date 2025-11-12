@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('versions', {

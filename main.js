@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 const { app, BrowserWindow, ipcMain } = require('electron/main')
 const { dialog } = require('electron')
 const path = require('node:path')

@@ -2,7 +2,7 @@
   "name": "Increvise",
   "version": "1.0.0",
   "description": "Revise your local files with spaced repetition.",
-  "license": "ISC",
+  "license": "GPL-3.0-or-later",
   "author": "",
   "type": "commonjs",
   "main": "main.js",
