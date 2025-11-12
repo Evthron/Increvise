@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const { app, BrowserWindow, ipcMain } = require('electron/main')
-const { dialog } = require('electron')
-const path = require('node:path')
-const fs = require('node:fs').promises
-const Database = require('better-sqlite3')
-const os = require('os')
+import { app, BrowserWindow, ipcMain } from 'electron/main'
+import { dialog } from 'electron'
+import path from 'node:path'
+import fs from 'node:fs/promises'
+import Database from 'better-sqlite3'
+import os from 'os'
 
 function getXdgDataHome() {
   return process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')
@@ -92,7 +92,7 @@ const createWindow = () => {
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(path.dirname(new URL(import.meta.url).pathname), 'preload.js')
     }
   })
 

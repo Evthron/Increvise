@@ -4,7 +4,7 @@
   "description": "Revise your local files with spaced repetition.",
   "license": "GPL-3.0-or-later",
   "author": "",
-  "type": "commonjs",
+  "type": "module",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
