@@ -6,20 +6,20 @@
 - **Start the application**: `npm start`
 
 ### Lint
-- No specific linting commands or configurations were found. Consider adding ESLint for consistent code quality.
+- **Lint the code**: ESLint is configured. Run `npx eslint .` to lint the codebase.
 
 ### Test
-- **Run all tests**: Currently, no test framework is configured. Add a testing framework like Jest or Mocha.
+- **Run all tests**: No test framework is currently configured. Add a testing framework like Jest or Mocha to enable automated tests.
 - **Run a single test**: Not applicable until a test framework is added.
 
 ## Code Style Guidelines
 
 ### General
-- **Module System**: CommonJS (`require` and `module.exports` are used).
+- **Module System**: ES Modules (`import`/`export` syntax is used; see `type: "module"` in package.json).
 - **File Extensions**: Use `.js` for JavaScript files.
 
 ### Imports
-- Use `require` for importing modules.
+- Use `import`/`export` for modules.
 - Group `node:` modules (e.g., `path`, `fs`) at the top, followed by third-party modules, and then local modules.
 
 ### Formatting
@@ -47,7 +47,6 @@
 - Use `contextBridge` in `preload.js` to expose APIs securely.
 
 ## Recommendations
-- Add a `.eslintrc.json` file for linting rules.
 - Configure a test framework like Jest or Mocha.
 - Consider adding TypeScript for type safety.
 - Document additional commands and guidelines as the project evolves.
