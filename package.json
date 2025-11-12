@@ -8,15 +8,19 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "electron-rebuild",
+    "dev": "npm install && electron ."
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "electron": "^38.2.1",
+    "electron-rebuild": "^3.2.9",
     "eslint": "^9.39.1",
     "globals": "^16.5.0"
   },
   "dependencies": {
+    "better-sqlite3": "^12.4.1",
     "sqlite3": "^5.1.7"
   }
 }

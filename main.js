@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain } = require('electron/main')
 const { dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs').promises
-const Database = require('sqlite3')
+const Database = require('better-sqlite3')
 const os = require('os')
 
 function getXdgDataHome() {
@@ -54,45 +54,37 @@ async function initializeCentralDatabase() {
   await fs.mkdir(increviseDataDir, { recursive: true })
   
   console.log('Central database path:', centralDbPath)
-  
-  return new Promise((resolve, reject) => {
-    const db = new Database.Database(centralDbPath, (err) => {
-      if (err) {
-        console.error('Error creating central database:', err)
-        reject(err)
-        return
-      }
+  try {
+    const db = new Database(centralDbPath)
+    
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folder_path TEXT NOT NULL UNIQUE,
+        folder_name TEXT NOT NULL,
+        db_path TEXT NOT NULL,
+        first_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+        open_count INTEGER DEFAULT 1,
+        total_files INTEGER DEFAULT 0,
+        files_due_today INTEGER DEFAULT 0
+      );
       
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS workspace_history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          folder_path TEXT NOT NULL UNIQUE,
-          folder_name TEXT NOT NULL,
-          db_path TEXT NOT NULL,
-          first_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
-          last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
-          open_count INTEGER DEFAULT 1,
-          total_files INTEGER DEFAULT 0,
-          files_due_today INTEGER DEFAULT 0
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_last_opened 
-        ON workspace_history(last_opened DESC);
-        
-        CREATE INDEX IF NOT EXISTS idx_folder_path 
-        ON workspace_history(folder_path);
-      `, (execErr) => {
-        db.close()
-        if (execErr) {
-          console.error('Error creating tables:', execErr)
-          reject(execErr)
-        } else {
-          console.log('Central database initialized successfully')
-          resolve()
-        }
-      })
-    })
-  })
+      CREATE INDEX IF NOT EXISTS idx_last_opened 
+      ON workspace_history(last_opened DESC);
+      
+      CREATE INDEX IF NOT EXISTS idx_folder_path 
+      ON workspace_history(folder_path);
+    `)
+    
+    db.close()
+    console.log('Central database initialized successfully')
+    return true
+    
+  } catch (err) {
+    console.error('Error creating central database:', err)
+    throw err
+  }
 }
 
 const createWindow = () => {
@@ -291,122 +283,89 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('create-database', async (event, dbPath) => {
     try {
-      const oldDbPath = path.join(dbPath, 'db.sqlite');
-      const increviseFolder = path.join(dbPath, '.increvise');
-      const dbFilePath = path.join(increviseFolder, 'db.sqlite');
-      
-      await fs.mkdir(increviseFolder, { recursive: true });
-      
-      console.log('Attempting to create database at:', dbFilePath);
-      
+      const oldDbPath = path.join(dbPath, 'db.sqlite')
+      const increviseFolder = path.join(dbPath, '.increvise')
+      const dbFilePath = path.join(increviseFolder, 'db.sqlite')
+
+      await fs.mkdir(increviseFolder, { recursive: true })
+      console.log('Attempting to create database at:', dbFilePath)
+
       try {
-        await fs.access(oldDbPath);
-        console.log('Found old db.sqlite, migrating to .increvise folder');
-        await fs.rename(oldDbPath, dbFilePath);
-        console.log('Migration complete');
-        return { success: true, path: dbFilePath };
+        await fs.access(oldDbPath)
+        console.log('Found old db.sqlite, migrating to .increvise folder')
+        await fs.rename(oldDbPath, dbFilePath)
+        console.log('Migration complete')
+        return { success: true, path: dbFilePath }
       } catch {}
-      
+
       try {
-        await fs.access(dbFilePath);
-        console.log('Database file already exists');
-        return { success: true, path: dbFilePath };
+        await fs.access(dbFilePath)
+        console.log('Database file already exists')
+        return { success: true, path: dbFilePath }
       } catch {
-        console.log('Creating new database file');
+        console.log('Creating new database file')
       }
-      
-      return new Promise((resolve, reject) => {
-        const db = new Database.Database(dbFilePath, (err) => {
-          if (err) {
-            console.error('Error creating database:', err);
-            reject({ success: false, error: err.message });
-            return;
-          }
-          
-          db.exec(`
-            -- Note Queue table
-            CREATE TABLE IF NOT EXISTS note_queue (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              array_name TEXT NOT NULL,
-              array_of_notes TEXT, -- JSON string containing array of note IDs
-              sr_setting TEXT, -- JSON string for spaced repetition settings
-              created_time DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
 
-            -- File table (notes/files)
-            CREATE TABLE IF NOT EXISTS file (
-              note_id INTEGER PRIMARY KEY AUTOINCREMENT,
-              file_path TEXT NOT NULL UNIQUE,
-              creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-              last_revised_time DATETIME,
-              review_count INTEGER DEFAULT 0,
-              difficulty REAL DEFAULT 0.0, -- Difficulty rating (e.g., 0.0 to 1.0)
-              due_time DATETIME
-            );
+      try {
+        const db = new Database(dbFilePath)
+        db.exec(`
+          -- Note Queue table
+          CREATE TABLE IF NOT EXISTS note_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            array_name TEXT NOT NULL,
+            array_of_notes TEXT, -- JSON string containing array of note IDs
+            sr_setting TEXT, -- JSON string for spaced repetition settings
+            created_time DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
 
-            -- Folder data table
-            CREATE TABLE IF NOT EXISTS folder_data (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              folder_path TEXT NOT NULL UNIQUE,
-              overall_priority INTEGER DEFAULT 0,
-              created_time DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-          `, (execErr) => {
-            if (execErr) {
-              console.error('Error creating table:', execErr);
-              db.close();
-              reject({ success: false, error: execErr.message });
-              return;
-            }
-            
-            console.log('Database table created successfully');
+          -- File table (notes/files)
+          CREATE TABLE IF NOT EXISTS file (
+            note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT NOT NULL UNIQUE,
+            creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_revised_time DATETIME,
+            review_count INTEGER DEFAULT 0,
+            difficulty REAL DEFAULT 0.0, -- Difficulty rating (e.g., 0.0 to 1.0)
+            due_time DATETIME
+          );
 
-            db.close((closeErr) => {
-              if (closeErr) {
-                console.error('Error closing database:', closeErr);
-                reject({ success: false, error: closeErr.message });
-              } else {
-                console.log('Database created successfully at:', dbFilePath);
-                resolve({ success: true, path: dbFilePath });
-              }
-            });
-          });
-        });
-      });
-      
+          -- Folder data table
+          CREATE TABLE IF NOT EXISTS folder_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            folder_path TEXT NOT NULL UNIQUE,
+            overall_priority INTEGER DEFAULT 0,
+            created_time DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `)
+        db.close()
+        console.log('Database created successfully at:', dbFilePath)
+        return { success: true, path: dbFilePath }
+      } catch (err) {
+        console.error('Error creating database:', err)
+        return { success: false, error: err.message }
+      }
     } catch (error) {
-      console.error('Error in create-database handler:', error);
-      return { success: false, error: error.message };
+      console.error('Error in create-database handler:', error)
+      return { success: false, error: error.message }
     }
-  });
+  })
 
   // Add file to revision queue
   ipcMain.handle('check-file-in-queue', async (event, filePath) => {
     try {
       const result = await findIncreviseDatabase(filePath)
-      
       if (!result.found) {
         return { inQueue: false }
       }
-      
-      return new Promise((resolve, reject) => {
-        const db = new Database.Database(result.dbPath, (err) => {
-          if (err) {
-            resolve({ inQueue: false })
-            return
-          }
-          
-          db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
-            db.close()
-            if (queryErr) {
-              resolve({ inQueue: false })
-            } else {
-              resolve({ inQueue: !!row })
-            }
-          })
-        })
-      })
-      
+      try {
+        const db = new Database(result.dbPath)
+        const row = db.prepare('SELECT note_id FROM file WHERE file_path = ?').get(filePath)
+        db.close()
+        return { inQueue: !!row }
+      } catch (err) {
+        console.error('Error in check-file-in-queue handler:', err)
+        return { inQueue: false }
+      }
     } catch (error) {
       console.error('Error in check-file-in-queue handler:', error)
       return { inQueue: false }
@@ -416,67 +375,29 @@ app.whenReady().then(async () => {
   ipcMain.handle('add-file-to-queue', async (event, filePath) => {
     try {
       const result = await findIncreviseDatabase(filePath)
-      
       if (!result.found) {
         return { success: false, error: 'Database not found. Please create a database first.' }
       }
-      
-      return new Promise((resolve, reject) => {
-        const db = new Database.Database(result.dbPath, (err) => {
-          if (err) {
-            reject({ success: false, error: err.message })
-            return
-          }
-          
-          db.get('SELECT note_id FROM file WHERE file_path = ?', [filePath], (queryErr, row) => {
-            if (queryErr) {
-              db.close()
-              reject({ success: false, error: queryErr.message })
-              return
-            }
-            
-            if (row) {
-              db.close()
-              resolve({ success: false, error: 'File already in queue', alreadyExists: true })
-              return
-            }
-            
-            const stmt = db.prepare(`
-              INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
-              VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-            `)
-            
-            stmt.run([filePath], function(runErr) {
-              if (runErr) {
-                stmt.finalize()
-                db.close()
-                reject({ success: false, error: runErr.message })
-                return
-              }
-              
-              const noteId = this.lastID
-              
-              const folderStmt = db.prepare(`
-                INSERT OR IGNORE INTO folder_data (folder_path, overall_priority)
-                VALUES (?, 0)
-              `)
-              
-              folderStmt.run([result.rootPath], (folderErr) => {
-                folderStmt.finalize()
-                stmt.finalize()
-                
-                db.close((closeErr) => {
-                  if (closeErr || folderErr) {
-                    reject({ success: false, error: (closeErr || folderErr).message })
-                  } else {
-                    resolve({ success: true, noteId, message: 'File added to revision queue' })
-                  }
-                })
-              })
-            })
-          })
-        })
-      })
+      try {
+        const db = new Database(result.dbPath)
+        // Check if file already exists
+        const row = db.prepare('SELECT note_id FROM file WHERE file_path = ?').get(filePath)
+        if (row) {
+          db.close()
+          return { success: false, error: 'File already in queue', alreadyExists: true }
+        }
+        // Insert file
+        const insertStmt = db.prepare('INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) VALUES (?, datetime(\'now\'), 0, 0.0, datetime(\'now\'))')
+        const info = insertStmt.run(filePath)
+        const noteId = info.lastInsertRowid
+        // Insert folder if not exists
+        db.prepare('INSERT OR IGNORE INTO folder_data (folder_path, overall_priority) VALUES (?, 0)').run(result.rootPath)
+        db.close()
+        return { success: true, noteId, message: 'File added to revision queue' }
+      } catch (err) {
+        console.error('Error adding file to queue:', err)
+        return { success: false, error: err.message }
+      }
     } catch (error) {
       console.error('Error adding file to queue:', error)
       return { success: false, error: error.message }
@@ -488,133 +409,93 @@ app.whenReady().then(async () => {
     try {
       // Find all db.sqlite files in subdirectories
       const findDatabases = async (dir) => {
-        const databases = [];
-        const items = await fs.readdir(dir, { withFileTypes: true });
-        
+        const databases = []
+        const items = await fs.readdir(dir, { withFileTypes: true })
         for (const item of items) {
-          const fullPath = path.join(dir, item.name);
+          const fullPath = path.join(dir, item.name)
           if (item.isDirectory()) {
             if (item.name === '.increvise') {
-              const dbFile = path.join(fullPath, 'db.sqlite');
+              const dbFile = path.join(fullPath, 'db.sqlite')
               try {
-                await fs.access(dbFile);
-                databases.push(dbFile);
+                await fs.access(dbFile)
+                databases.push(dbFile)
               } catch {}
             } else {
-              databases.push(...await findDatabases(fullPath));
+              databases.push(...await findDatabases(fullPath))
             }
           }
         }
-        return databases;
-      };
-      
-      const dbPaths = await findDatabases(rootPath);
-      console.log('Found databases:', dbPaths);
-      
-      // Aggregate files from all databases
-      const allFiles = [];
-      
-      for (const dbPath of dbPaths) {
-        await new Promise((resolve, reject) => {
-          const db = new Database.Database(dbPath, Database.OPEN_READONLY, (err) => {
-            if (err) {
-              console.error('Error opening database:', dbPath, err);
-              resolve(); // Continue with other databases
-              return;
-            }
-            
-            db.all(`
-              SELECT note_id, file_path, creation_time, last_revised_time, 
-                     review_count, difficulty, due_time
-              FROM file
-              WHERE date(due_time) <= date('now')
-              ORDER BY due_time ASC
-            `, [], (selectErr, rows) => {
-              if (selectErr) {
-                console.error('Error querying database:', selectErr);
-              } else {
-                allFiles.push(...rows.map(row => ({ ...row, dbPath })));
-              }
-              
-              db.close(() => resolve());
-            });
-          });
-        });
+        return databases
       }
-      
-      console.log('Files for revision:', allFiles);
-      return { success: true, files: allFiles };
-      
+      const dbPaths = await findDatabases(rootPath)
+      console.log('Found databases:', dbPaths)
+      // Aggregate files from all databases
+      const allFiles = []
+      for (const dbPath of dbPaths) {
+        try {
+          const db = new Database(dbPath, { readonly: true })
+          const rows = db.prepare(`
+            SELECT note_id, file_path, creation_time, last_revised_time, 
+                   review_count, difficulty, due_time
+            FROM file
+            WHERE date(due_time) <= date('now')
+            ORDER BY due_time ASC
+          `).all()
+          allFiles.push(...rows.map(row => ({ ...row, dbPath })))
+          db.close()
+        } catch (err) {
+          console.error('Error querying database:', dbPath, err)
+        }
+      }
+      console.log('Files for revision:', allFiles)
+      return { success: true, files: allFiles }
     } catch (error) {
-      console.error('Error getting files for revision:', error);
-      return { success: false, error: error.message, files: [] };
+      console.error('Error getting files for revision:', error)
+      return { success: false, error: error.message, files: [] }
     }
-  });
+  })
 
   ipcMain.handle('get-all-files-for-revision', async (event) => {
     try {
       const centralDbPath = getCentralDbPath()
-      
-      const workspaces = await new Promise((resolve, reject) => {
-        const db = new Database.Database(centralDbPath, Database.OPEN_READONLY, (err) => {
-          if (err) {
-            reject(err)
-            return
-          }
-          
-          db.all('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC', [], (queryErr, rows) => {
-            db.close()
-            if (queryErr) {
-              reject(queryErr)
-            } else {
-              resolve(rows || [])
-            }
-          })
-        })
-      })
-      
+      let workspaces = []
+      try {
+        const db = new Database(centralDbPath, { readonly: true })
+        workspaces = db.prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC').all()
+        db.close()
+      } catch (err) {
+        console.error('Error reading workspace history:', err)
+        return { success: false, error: err.message, files: [] }
+      }
       const allFiles = []
-      
       for (const workspace of workspaces) {
         try {
           await fs.access(workspace.db_path)
         } catch {
           continue
         }
-        
-        await new Promise((resolve, reject) => {
-          const db = new Database.Database(workspace.db_path, Database.OPEN_READONLY, (err) => {
-            if (err) {
-              resolve()
-              return
-            }
-            
-            db.all(`
-              SELECT note_id, file_path, creation_time, last_revised_time, 
-                     review_count, difficulty, due_time
-              FROM file
-              WHERE date(due_time) <= date('now')
-              ORDER BY due_time ASC
-            `, [], (selectErr, rows) => {
-              if (!selectErr && rows) {
-                allFiles.push(...rows.map(row => ({
-                  ...row,
-                  dbPath: workspace.db_path,
-                  workspacePath: workspace.folder_path
-                })))
-              }
-              
-              db.close(() => resolve())
-            })
-          })
-        })
+        try {
+          const db = new Database(workspace.db_path, { readonly: true })
+          const rows = db.prepare(`
+            SELECT note_id, file_path, creation_time, last_revised_time, 
+                   review_count, difficulty, due_time
+            FROM file
+            WHERE date(due_time) <= date('now')
+            ORDER BY due_time ASC
+          `).all()
+          allFiles.push(...rows.map(row => ({
+            ...row,
+            dbPath: workspace.db_path,
+            workspacePath: workspace.folder_path
+          })))
+          db.close()
+        } catch (err) {
+          // skip this workspace if error
+        }
       }
-      
       allFiles.sort((a, b) => new Date(a.due_time) - new Date(b.due_time))
-      
       console.log('All files for revision from all workspaces:', allFiles.length)
       return { success: true, files: allFiles }
-      
     } catch (error) {
       console.error('Error getting all files for revision:', error)
       return { success: false, error: error.message, files: [] }
@@ -624,65 +505,49 @@ app.whenReady().then(async () => {
   // Update file after revision (spaced repetition feedback)
   ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
     try {
-      return new Promise((resolve, reject) => {
-        const db = new Database.Database(dbPath, (err) => {
-          if (err) {
-            reject({ success: false, error: err.message });
-            return;
-          }
-          
-          // Calculate next due time based on feedback
-          // feedback: 'easy', 'medium', 'hard', 'again'
-          const intervals = {
-            'again': 0, // Review again today
-            'hard': 1,  // 1 day
-            'medium': 3, // 3 days
-            'easy': 7    // 7 days
-          };
-          
-          const daysToAdd = intervals[feedback] || 1;
-          
-          // Update difficulty based on feedback
-          const difficultyChanges = {
-            'again': 0.2,
-            'hard': 0.1,
-            'medium': 0,
-            'easy': -0.1
-          };
-          
-          const difficultyChange = difficultyChanges[feedback] || 0;
-          
-          const stmt = db.prepare(`
-            UPDATE file
-            SET last_revised_time = datetime('now'),
-                review_count = review_count + 1,
-                difficulty = MAX(0.0, MIN(1.0, difficulty + ?)),
-                due_time = datetime('now', '+' || ? || ' days')
-            WHERE note_id = ?
-          `);
-          
-          stmt.run([difficultyChange, daysToAdd, noteId], function(runErr) {
-            stmt.finalize();
-            
-            db.close((closeErr) => {
-              if (runErr || closeErr) {
-                reject({ success: false, error: (runErr || closeErr).message });
-              } else {
-                resolve({ 
-                  success: true, 
-                  message: `File updated. Next review in ${daysToAdd} day(s)`,
-                  changes: this.changes
-                });
-              }
-            });
-          });
-        });
-      });
+      // Calculate next due time based on feedback
+      // feedback: 'easy', 'medium', 'hard', 'again'
+      const intervals = {
+        'again': 0, // Review again today
+        'hard': 1,  // 1 day
+        'medium': 3, // 3 days
+        'easy': 7    // 7 days
+      }
+      const daysToAdd = intervals[feedback] || 1
+      // Update difficulty based on feedback
+      const difficultyChanges = {
+        'again': 0.2,
+        'hard': 0.1,
+        'medium': 0,
+        'easy': -0.1
+      }
+      const difficultyChange = difficultyChanges[feedback] || 0
+      try {
+        const db = new Database(dbPath)
+        const stmt = db.prepare(`
+          UPDATE file
+          SET last_revised_time = datetime('now'),
+              review_count = review_count + 1,
+              difficulty = MAX(0.0, MIN(1.0, difficulty + ?)),
+              due_time = datetime('now', '+' || ? || ' days')
+          WHERE note_id = ?
+        `)
+        const info = stmt.run(difficultyChange, daysToAdd, noteId)
+        db.close()
+        return {
+          success: true,
+          message: `File updated. Next review in ${daysToAdd} day(s)`,
+          changes: info.changes
+        }
+      } catch (err) {
+        console.error('Error updating revision feedback:', err)
+        return { success: false, error: err.message }
+      }
     } catch (error) {
-      console.error('Error updating revision feedback:', error);
-      return { success: false, error: error.message };
+      console.error('Error updating revision feedback:', error)
+      return { success: false, error: error.message }
     }
-  });
+  })
 
   ipcMain.handle('extract-note', async (event, parentFilePath, selectedText) => {
     try {
@@ -717,7 +582,7 @@ app.whenReady().then(async () => {
         try {
           await fs.access(noteFolderDbPath)
         } catch {
-          const noteDb = new Database.Database(noteFolderDbPath)
+          const noteDb = new Database(noteFolderDbPath)
           await new Promise((resolve, reject) => {
             noteDb.exec(`
               CREATE TABLE IF NOT EXISTS file (
@@ -781,25 +646,16 @@ app.whenReady().then(async () => {
       const result = await findIncreviseDatabase(newFilePath)
       
       if (result.found) {
-        await new Promise((resolve, reject) => {
-          const db = new Database.Database(result.dbPath, (err) => {
-            if (err) {
-              resolve()
-              return
-            }
-            
-            db.run(`
-              INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
-              VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-            `, [newFilePath], function(runErr) {
-              db.close()
-              if (runErr) {
-                console.error('Error adding extracted note to queue:', runErr)
-              }
-              resolve()
-            })
-          })
-        })
+        try {
+          const db = new Database(result.dbPath)
+          db.prepare(`
+            INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
+            VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
+          `).run(newFilePath)
+          db.close()
+        } catch (err) {
+          console.error('Error adding extracted note to queue:', err)
+        }
       }
       
       return {
@@ -838,111 +694,78 @@ app.whenReady().then(async () => {
     const centralDbPath = getCentralDbPath()
     const folderName = path.basename(folderPath)
     const dbPath = path.join(folderPath, '.increvise', 'db.sqlite')
-    
-    return new Promise((resolve, reject) => {
-      const db = new Database.Database(centralDbPath, (err) => {
-        if (err) {
-          reject({ success: false, error: err.message })
-          return
-        }
-        
-        db.run(`
-          INSERT INTO workspace_history 
-          (folder_path, folder_name, db_path, last_opened, open_count)
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
-          ON CONFLICT(folder_path) DO UPDATE SET
-            last_opened = CURRENT_TIMESTAMP,
-            open_count = open_count + 1
-        `, [folderPath, folderName, dbPath], function(runErr) {
-          db.close()
-          if (runErr) {
-            reject({ success: false, error: runErr.message })
-          } else {
-            console.log('Workspace recorded:', folderPath)
-            resolve({ success: true, id: this.lastID })
-          }
-        })
-      })
-    })
+    try {
+      const db = new Database(centralDbPath)
+      const stmt = db.prepare(`
+        INSERT INTO workspace_history 
+        (folder_path, folder_name, db_path, last_opened, open_count)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
+        ON CONFLICT(folder_path) DO UPDATE SET
+          last_opened = CURRENT_TIMESTAMP,
+          open_count = open_count + 1
+      `)
+      const info = stmt.run(folderPath, folderName, dbPath)
+      db.close()
+      console.log('Workspace recorded:', folderPath)
+      return { success: true, id: info.lastInsertRowid }
+    } catch (err) {
+      console.error('Error recording workspace:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('get-recent-workspaces', async (event, limit = 10) => {
     const centralDbPath = getCentralDbPath()
-    
-    return new Promise((resolve, reject) => {
-      const db = new Database.Database(centralDbPath, (err) => {
-        if (err) {
-          reject({ success: false, error: err.message })
-          return
-        }
-        
-        db.all(`
-          SELECT * FROM workspace_history 
-          ORDER BY last_opened DESC 
-          LIMIT ?
-        `, [limit], (queryErr, rows) => {
-          db.close()
-          if (queryErr) {
-            reject(rows || [])
-          } else {
-            resolve(rows || [])
-          }
-        })
-      })
-    })
+    try {
+      const db = new Database(centralDbPath)
+      const rows = db.prepare(`
+        SELECT * FROM workspace_history 
+        ORDER BY last_opened DESC 
+        LIMIT ?
+      `).all(limit)
+      db.close()
+      return rows || []
+    } catch (err) {
+      console.error('Error getting recent workspaces:', err)
+      return []
+    }
   })
 
   ipcMain.handle('update-workspace-stats', async (event, folderPath, totalFiles, filesDueToday) => {
     const centralDbPath = getCentralDbPath()
-    
-    return new Promise((resolve, reject) => {
-      const db = new Database.Database(centralDbPath, (err) => {
-        if (err) {
-          reject({ success: false, error: err.message })
-          return
-        }
-        
-        db.run(`
-          UPDATE workspace_history 
-          SET total_files = ?, files_due_today = ?
-          WHERE folder_path = ?
-        `, [totalFiles, filesDueToday, folderPath], function(runErr) {
-          db.close()
-          if (runErr) {
-            reject({ success: false, error: runErr.message })
-          } else {
-            console.log('Workspace stats updated:', folderPath, totalFiles, filesDueToday)
-            resolve({ success: true, changes: this.changes })
-          }
-        })
-      })
-    })
+    try {
+      const db = new Database(centralDbPath)
+      const stmt = db.prepare(`
+        UPDATE workspace_history 
+        SET total_files = ?, files_due_today = ?
+        WHERE folder_path = ?
+      `)
+      const info = stmt.run(totalFiles, filesDueToday, folderPath)
+      db.close()
+      console.log('Workspace stats updated:', folderPath, totalFiles, filesDueToday)
+      return { success: true, changes: info.changes }
+    } catch (err) {
+      console.error('Error updating workspace stats:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('remove-workspace', async (event, folderPath) => {
     const centralDbPath = getCentralDbPath()
-    
-    return new Promise((resolve, reject) => {
-      const db = new Database.Database(centralDbPath, (err) => {
-        if (err) {
-          reject({ success: false, error: err.message })
-          return
-        }
-        
-        db.run(`
-          DELETE FROM workspace_history 
-          WHERE folder_path = ?
-        `, [folderPath], function(runErr) {
-          db.close()
-          if (runErr) {
-            reject({ success: false, error: runErr.message })
-          } else {
-            console.log('Workspace removed:', folderPath)
-            resolve({ success: true, changes: this.changes })
-          }
-        })
-      })
-    })
+    try {
+      const db = new Database(centralDbPath)
+      const stmt = db.prepare(`
+        DELETE FROM workspace_history 
+        WHERE folder_path = ?
+      `)
+      const info = stmt.run(folderPath)
+      db.close()
+      console.log('Workspace removed:', folderPath)
+      return { success: true, changes: info.changes }
+    } catch (err) {
+      console.error('Error removing workspace:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   createWindow()
