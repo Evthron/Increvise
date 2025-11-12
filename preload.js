@@ -13,17 +13,24 @@ contextBridge.exposeInMainWorld('versions', {
 })
 
 contextBridge.exposeInMainWorld('fileManager', {
+  // 1. File System
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path),
+
+  // 2. Spaced Repetition
   createDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),
   checkFileInQueue: (filePath) => ipcRenderer.invoke('check-file-in-queue', filePath),
   addFileToQueue: (filePath) => ipcRenderer.invoke('add-file-to-queue', filePath),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, noteId, feedback) => ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
-  extractNote: (filePath, selectedText) => ipcRenderer.invoke('extract-note', filePath, selectedText),
+
+  // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
+  extractNote: (filePath, selectedText) => ipcRenderer.invoke('extract-note', filePath, selectedText),
+
+  // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
   getRecentWorkspaces: (limit) => ipcRenderer.invoke('get-recent-workspaces', limit),
   updateWorkspaceStats: (folderPath, totalFiles, filesDueToday) => 
