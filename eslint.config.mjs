@@ -8,7 +8,10 @@ export default defineConfig([
     plugins: {
       js
     },
-    extends: ["js/recommended"],
+    extends: [
+      "js/recommended",
+      "prettier"
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,
