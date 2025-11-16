@@ -33,11 +33,15 @@ export function registerWorkspaceIpc(ipcMain, getCentralDbPath) {
     const centralDbPath = getCentralDbPath()
     try {
       const db = new Database(centralDbPath)
-      const rows = db.prepare(`
+      const rows = db
+        .prepare(
+          `
         SELECT * FROM workspace_history 
         ORDER BY last_opened DESC 
         LIMIT ?
-      `).all(limit)
+      `
+        )
+        .all(limit)
       db.close()
       return rows || []
     } catch (err) {

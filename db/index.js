@@ -30,7 +30,7 @@ export async function findIncreviseDatabase(filePath) {
       return {
         found: true,
         dbPath: dbPath,
-        rootPath: currentDir
+        rootPath: currentDir,
       }
     } catch {}
 
@@ -73,7 +73,6 @@ export async function initializeCentralDatabase() {
     db.close()
     console.log('Central database initialized successfully')
     return true
-
   } catch (err) {
     console.error('Error creating central database:', err)
     throw err

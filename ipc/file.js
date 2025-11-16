@@ -12,7 +12,7 @@ export function registerFileIpc(ipcMain) {
     console.log('select-folder IPC handler invoked')
     try {
       const result = await dialog.showOpenDialog({
-        properties: ['openDirectory']
+        properties: ['openDirectory'],
       })
       console.log('Dialog result:', result)
       return result.filePaths[0] || null
@@ -31,18 +31,19 @@ export function registerFileIpc(ipcMain) {
     const buildTreeFromFlat = (notes) => {
       const map = new Map()
       const roots = []
-      notes.forEach(note => {
-        const hasChildren = notes.some(n =>
-          n.number.length === note.number.length + 1 &&
-          n.number.slice(0, -1).join('.') === note.numberKey
+      notes.forEach((note) => {
+        const hasChildren = notes.some(
+          (n) =>
+            n.number.length === note.number.length + 1 &&
+            n.number.slice(0, -1).join('.') === note.numberKey
         )
         map.set(note.numberKey, {
           ...note,
           children: [],
-          type: hasChildren ? 'note-parent' : 'note-child'
+          type: hasChildren ? 'note-parent' : 'note-child',
         })
       })
-      notes.forEach(note => {
+      notes.forEach((note) => {
         const node = map.get(note.numberKey)
         if (note.number.length === 1) {
           roots.push(node)
@@ -62,13 +63,13 @@ export function registerFileIpc(ipcMain) {
       try {
         const items = await fs.readdir(folderPath, { withFileTypes: true })
         const mdFiles = items
-          .filter(item => item.isFile() && item.name.endsWith('.md'))
-          .map(item => ({
+          .filter((item) => item.isFile() && item.name.endsWith('.md'))
+          .map((item) => ({
             name: item.name,
             number: parseNoteNumber(item.name),
-            path: path.join(folderPath, item.name)
+            path: path.join(folderPath, item.name),
           }))
-          .filter(item => item.number !== null)
+          .filter((item) => item.number !== null)
         if (mdFiles.length === 0) return []
         mdFiles.sort((a, b) => {
           for (let i = 0; i < Math.max(a.number.length, b.number.length); i++) {
@@ -78,9 +79,9 @@ export function registerFileIpc(ipcMain) {
           }
           return 0
         })
-        const notesWithKeys = mdFiles.map(note => ({
+        const notesWithKeys = mdFiles.map((note) => ({
           ...note,
-          numberKey: note.number.join('.')
+          numberKey: note.number.join('.'),
         }))
         return buildTreeFromFlat(notesWithKeys)
       } catch (error) {
@@ -91,10 +92,12 @@ export function registerFileIpc(ipcMain) {
       const items = await fs.readdir(dir, { withFileTypes: true })
       const tree = []
       const fileMap = new Map()
-      items.filter(item => item.isFile()).forEach(item => {
-        const baseName = path.basename(item.name, path.extname(item.name))
-        fileMap.set(baseName, item)
-      })
+      items
+        .filter((item) => item.isFile())
+        .forEach((item) => {
+          const baseName = path.basename(item.name, path.extname(item.name))
+          fileMap.set(baseName, item)
+        })
       for (const item of items) {
         const fullPath = path.join(dir, item.name)
         if (item.isDirectory()) {
@@ -107,7 +110,7 @@ export function registerFileIpc(ipcMain) {
               name: fileItem.name,
               type: 'note-parent',
               path: filePath,
-              children: hierarchy
+              children: hierarchy,
             })
             fileMap.delete(item.name)
           } else {
@@ -115,7 +118,7 @@ export function registerFileIpc(ipcMain) {
               name: item.name,
               type: 'directory',
               path: fullPath,
-              children: null
+              children: null,
             })
           }
         }
@@ -125,7 +128,7 @@ export function registerFileIpc(ipcMain) {
         tree.push({
           name: item.name,
           type: 'file',
-          path: fullPath
+          path: fullPath,
         })
       }
       return tree
@@ -144,13 +147,13 @@ export function registerFileIpc(ipcMain) {
             name: item.name,
             type: 'directory',
             path: fullPath,
-            children: null
+            children: null,
           })
         } else {
           children.push({
             name: item.name,
             type: 'file',
-            path: fullPath
+            path: fullPath,
           })
         }
       }

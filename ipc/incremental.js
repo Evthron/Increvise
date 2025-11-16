@@ -52,7 +52,8 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
         } catch {
           const noteDb = new Database(noteFolderDbPath)
           await new Promise((resolve, reject) => {
-            noteDb.exec(`
+            noteDb.exec(
+              `
               CREATE TABLE IF NOT EXISTS file (
                 note_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_path TEXT NOT NULL UNIQUE,
@@ -62,30 +63,32 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
                 difficulty REAL DEFAULT 0.0,
                 due_time DATETIME
               );
-            `, (err) => {
-              noteDb.close()
-              if (err) reject(err)
-              else resolve()
-            })
+            `,
+              (err) => {
+                noteDb.close()
+                if (err) reject(err)
+                else resolve()
+              }
+            )
           })
         }
         currentPrefix = []
       }
       const existingFiles = await fs.readdir(noteFolder)
-      const mdFiles = existingFiles.filter(f => f.endsWith('.md'))
+      const mdFiles = existingFiles.filter((f) => f.endsWith('.md'))
       const allNumbers = mdFiles
-        .map(f => matchNumber(path.basename(f, '.md')))
-        .filter(n => n !== null)
+        .map((f) => matchNumber(path.basename(f, '.md')))
+        .filter((n) => n !== null)
       let nextNumber
       if (currentPrefix.length === 0) {
         if (allNumbers.length === 0) {
           nextNumber = [1]
         } else {
-          const maxFirstLevel = Math.max(...allNumbers.map(n => n[0]))
+          const maxFirstLevel = Math.max(...allNumbers.map((n) => n[0]))
           nextNumber = [maxFirstLevel + 1]
         }
       } else {
-        const childNumbers = allNumbers.filter(n => {
+        const childNumbers = allNumbers.filter((n) => {
           if (n.length !== currentPrefix.length + 1) return false
           for (let i = 0; i < currentPrefix.length; i++) {
             if (n[i] !== currentPrefix[i]) return false
@@ -95,7 +98,7 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
         if (childNumbers.length === 0) {
           nextNumber = [...currentPrefix, 1]
         } else {
-          const maxLastLevel = Math.max(...childNumbers.map(n => n[n.length - 1]))
+          const maxLastLevel = Math.max(...childNumbers.map((n) => n[n.length - 1]))
           nextNumber = [...currentPrefix, maxLastLevel + 1]
         }
       }
@@ -106,17 +109,19 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
       if (result.found) {
         try {
           const db = new Database(result.dbPath)
-          db.prepare(`
+          db.prepare(
+            `
             INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
             VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-          `).run(newFilePath)
+          `
+          ).run(newFilePath)
           db.close()
         } catch (err) {}
       }
       return {
         success: true,
         fileName: newFileName,
-        filePath: newFilePath
+        filePath: newFilePath,
       }
     } catch (error) {
       return { success: false, error: error.message }

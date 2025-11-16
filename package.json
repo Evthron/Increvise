@@ -17,7 +17,9 @@
     "electron": "^38.2.1",
     "electron-rebuild": "^3.2.9",
     "eslint": "^9.39.1",
-    "globals": "^16.5.0"
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "3.6.2"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

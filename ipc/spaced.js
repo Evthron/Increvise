@@ -89,10 +89,14 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           db.close()
           return { success: false, error: 'File already in queue', alreadyExists: true }
         }
-        const insertStmt = db.prepare('INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) VALUES (?, datetime(\'now\'), 0, 0.0, datetime(\'now\'))')
+        const insertStmt = db.prepare(
+          "INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) VALUES (?, datetime('now'), 0, 0.0, datetime('now'))"
+        )
         const info = insertStmt.run(filePath)
         const noteId = info.lastInsertRowid
-        db.prepare('INSERT OR IGNORE INTO folder_data (folder_path, overall_priority) VALUES (?, 0)').run(result.rootPath)
+        db.prepare(
+          'INSERT OR IGNORE INTO folder_data (folder_path, overall_priority) VALUES (?, 0)'
+        ).run(result.rootPath)
         db.close()
         return { success: true, noteId, message: 'File added to revision queue' }
       } catch (err) {
@@ -118,7 +122,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
                 databases.push(dbFile)
               } catch {}
             } else {
-              databases.push(...await findDatabases(fullPath))
+              databases.push(...(await findDatabases(fullPath)))
             }
           }
         }
@@ -129,14 +133,18 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       for (const dbPath of dbPaths) {
         try {
           const db = new Database(dbPath, { readonly: true })
-          const rows = db.prepare(`
+          const rows = db
+            .prepare(
+              `
             SELECT note_id, file_path, creation_time, last_revised_time, 
                    review_count, difficulty, due_time
             FROM file
             WHERE date(due_time) <= date('now')
             ORDER BY due_time ASC
-          `).all()
-          allFiles.push(...rows.map(row => ({ ...row, dbPath })))
+          `
+            )
+            .all()
+          allFiles.push(...rows.map((row) => ({ ...row, dbPath })))
           db.close()
         } catch (err) {}
       }
@@ -152,7 +160,9 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       let workspaces = []
       try {
         const db = new Database(centralDbPath, { readonly: true })
-        workspaces = db.prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC').all()
+        workspaces = db
+          .prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC')
+          .all()
         db.close()
       } catch (err) {
         return { success: false, error: err.message, files: [] }
@@ -166,18 +176,24 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
         }
         try {
           const db = new Database(workspace.db_path, { readonly: true })
-          const rows = db.prepare(`
+          const rows = db
+            .prepare(
+              `
             SELECT note_id, file_path, creation_time, last_revised_time, 
                    review_count, difficulty, due_time
             FROM file
             WHERE date(due_time) <= date('now')
             ORDER BY due_time ASC
-          `).all()
-          allFiles.push(...rows.map(row => ({
-            ...row,
-            dbPath: workspace.db_path,
-            workspacePath: workspace.folder_path
-          })))
+          `
+            )
+            .all()
+          allFiles.push(
+            ...rows.map((row) => ({
+              ...row,
+              dbPath: workspace.db_path,
+              workspacePath: workspace.folder_path,
+            }))
+          )
           db.close()
         } catch (err) {}
       }
@@ -190,9 +206,9 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
 
   ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
     try {
-      const intervals = { 'again': 0, 'hard': 1, 'medium': 3, 'easy': 7 }
+      const intervals = { again: 0, hard: 1, medium: 3, easy: 7 }
       const daysToAdd = intervals[feedback] || 1
-      const difficultyChanges = { 'again': 0.2, 'hard': 0.1, 'medium': 0, 'easy': -0.1 }
+      const difficultyChanges = { again: 0.2, hard: 0.1, medium: 0, easy: -0.1 }
       const difficultyChange = difficultyChanges[feedback] || 0
       try {
         const db = new Database(dbPath)
@@ -209,7 +225,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
         return {
           success: true,
           message: `File updated. Next review in ${daysToAdd} day(s)`,
-          changes: info.changes
+          changes: info.changes,
         }
       } catch (err) {
         return { success: false, error: err.message }

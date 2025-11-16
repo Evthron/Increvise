@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('versions', {
   node: () => process.versions.node,
   chrome: () => process.versions.chrome,
   electron: () => process.versions.electron,
-  ping: () => ipcRenderer.invoke('ping')
+  ping: () => ipcRenderer.invoke('ping'),
   // we can also expose variables, not just functions
 })
 
@@ -23,17 +23,19 @@ contextBridge.exposeInMainWorld('fileManager', {
   addFileToQueue: (filePath) => ipcRenderer.invoke('add-file-to-queue', filePath),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
-  updateRevisionFeedback: (dbPath, noteId, feedback) => ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
+  updateRevisionFeedback: (dbPath, noteId, feedback) =>
+    ipcRenderer.invoke('update-revision-feedback', dbPath, noteId, feedback),
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
-  extractNote: (filePath, selectedText) => ipcRenderer.invoke('extract-note', filePath, selectedText),
+  extractNote: (filePath, selectedText) =>
+    ipcRenderer.invoke('extract-note', filePath, selectedText),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
   getRecentWorkspaces: (limit) => ipcRenderer.invoke('get-recent-workspaces', limit),
-  updateWorkspaceStats: (folderPath, totalFiles, filesDueToday) => 
+  updateWorkspaceStats: (folderPath, totalFiles, filesDueToday) =>
     ipcRenderer.invoke('update-workspace-stats', folderPath, totalFiles, filesDueToday),
-  removeWorkspace: (folderPath) => ipcRenderer.invoke('remove-workspace', folderPath)
+  removeWorkspace: (folderPath) => ipcRenderer.invoke('remove-workspace', folderPath),
 })

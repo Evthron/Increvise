@@ -10,15 +10,13 @@ import { registerSpacedIpc } from './ipc/spaced.js'
 import { registerIncrementalIpc } from './ipc/incremental.js'
 import { registerWorkspaceIpc } from './ipc/workspace.js'
 
-
-
 const createWindow = () => {
   const win = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(path.dirname(new URL(import.meta.url).pathname), 'preload.js')
-    }
+      preload: path.join(path.dirname(new URL(import.meta.url).pathname), 'preload.js'),
+    },
   })
 
   win.loadFile('index.html')
