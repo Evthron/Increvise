@@ -1,6 +1,6 @@
 # Increvise
 
-Increvise is a electron-based application designed to perform incremental reading.
+Increvise is an electron-based application designed to perform incremental reading.
 
 ## License
 
