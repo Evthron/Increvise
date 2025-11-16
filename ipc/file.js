@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // File System IPC Handlers
 import { dialog } from 'electron'
 import path from 'node:path'

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Spaced Repetition IPC Handlers
 import path from 'node:path'
 import fs from 'node:fs/promises'
