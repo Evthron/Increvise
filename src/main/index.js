@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { app, BrowserWindow, ipcMain } from 'electron/main'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { getCentralDbPath, findIncreviseDatabase, initializeCentralDatabase } from './db/index.js'
 import { registerFileIpc } from './ipc/file.js'
@@ -15,11 +15,16 @@ const createWindow = () => {
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(path.dirname(new URL(import.meta.url).pathname), 'preload.js'),
+      preload: path.join(__dirname, '../preload/index.js'),
     },
   })
 
-  win.loadFile('index.html')
+  // In dev mode, use the dev server; in production, load the built file
+  if (process.env.ELECTRON_RENDERER_URL) {
+    win.loadURL(process.env.ELECTRON_RENDERER_URL)
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'))
+  }
 }
 
 app.whenReady().then(async () => {

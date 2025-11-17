@@ -1,32 +1,28 @@
 {
   "version": "0.2.0",
-  "compounds": [
-    {
-      "name": "Main + renderer",
-      "configurations": ["Main", "Renderer"],
-      "stopAll": true
-    }
-  ],
   "configurations": [
     {
-      "name": "Renderer",
-      "port": 9222,
-      "request": "attach",
-      "type": "chrome",
-      "webRoot": "${workspaceFolder}"
-    },
-    {
-      "name": "Main",
+      "name": "Debug Electron (Main + Renderer)",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
-      "windows": {
-        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite",
+      "runtimeArgs": ["--sourcemap"],
+      "env": {
+        "ELECTRON_ENABLE_LOGGING": "1",
+        "ELECTRON_ENABLE_STACK_DUMPING": "1"
       },
-      "args": [".", "--remote-debugging-port=9222"],
+      "skipFiles": ["<node_internals>/**"],
       "outputCapture": "std",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Attach to Renderer",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}",
+      "timeout": 30000
     }
   ]
 }
