@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     />
     <title>Increvise</title>
     <link rel="stylesheet" href="./style.css" />
@@ -55,16 +55,13 @@
               <span id="current-file-path"></span>
             </div>
             <div class="toolbar-right">
-              <button id="extract-btn" disabled>Extract</button>
+              <button id="extract-btn">Extract</button>
               <button id="save-file-btn">Save</button>
               <button id="toggle-edit-btn">Edit</button>
             </div>
           </div>
           <div class="editor-content">
-            <textarea id="file-editor" class="file-editor hidden" spellcheck="false"></textarea>
-            <div id="file-preview" class="file-preview">
-              <p>Select a file to view</p>
-            </div>
+            <codemirror-viewer content="Select a file to revise"> </codemirror-viewer>
           </div>
           <div id="revision-controls" class="hidden">
             <div id="current-file-name"></div>

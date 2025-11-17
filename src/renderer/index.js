@@ -7,8 +7,7 @@ import './ui/fileTree.js'
 import './ui/revisionList.js'
 import { initializeResizeHandles } from './ui/resize.js'
 import { loadRecentWorkspaces } from './ui/workspace.js'
-
-console.log('Renderer index.js loaded')
+import './ui/codemirror-viewer.js'
 
 initializeResizeHandles()
 loadRecentWorkspaces()

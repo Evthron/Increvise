@@ -5,13 +5,12 @@
 // Editor UI logic extracted from renderer.js
 // Handles file editor, preview, and related events
 
-const fileEditor = document.getElementById('file-editor')
-const filePreview = document.getElementById('file-preview')
 const currentFilePath = document.getElementById('current-file-path')
 const saveFileBtn = document.getElementById('save-file-btn')
 const toggleEditBtn = document.getElementById('toggle-edit-btn')
 const extractBtn = document.getElementById('extract-btn')
 const editorToolbar = document.getElementById('editor-toolbar')
+const codeMirrorEditor = document.querySelector('codemirror-viewer')
 
 // Editor state
 let currentOpenFile = null
@@ -31,15 +30,17 @@ export async function openFile(filePath) {
     const result = await window.fileManager.readFile(filePath)
     if (result.success) {
       currentOpenFile = filePath
-      filePreview.textContent = result.content
-      fileEditor.value = result.content
       currentFilePath.textContent = filePath
       editorToolbar.classList.remove('hidden')
-      filePreview.classList.remove('hidden')
-      fileEditor.classList.add('hidden')
       isEditMode = false
       hasUnsavedChanges = false
       toggleEditBtn.textContent = 'Edit'
+
+      if (codeMirrorEditor) {
+        codeMirrorEditor.setContent(result.content)
+        codeMirrorEditor.clearLockedLines()
+        codeMirrorEditor.disableEditing()
+      }
     } else {
       alert(`Error reading file: ${result.error}`)
     }
@@ -60,25 +61,20 @@ function showToast(message, isError = false) {
 }
 
 function updateExtractButtonState() {
-  if (!isEditMode || !currentOpenFile) {
+  if (!currentOpenFile) {
     extractBtn.disabled = true
     return
   }
-  const selectedText = fileEditor.value.substring(
-    fileEditor.selectionStart,
-    fileEditor.selectionEnd
-  )
-  extractBtn.disabled = selectedText.trim().length === 0
+  extractBtn.disabled = false
 }
 
 saveFileBtn.addEventListener('click', async () => {
   if (!currentOpenFile) return
   try {
-    const content = fileEditor.value
+    const content = codeMirrorEditor.editorView.state.doc.toString()
     const result = await window.fileManager.writeFile(currentOpenFile, content)
     if (result.success) {
       hasUnsavedChanges = false
-      filePreview.textContent = content
       showToast('File saved successfully!')
     } else {
       showToast(`Error saving file: ${result.error}`, true)
@@ -91,45 +87,54 @@ saveFileBtn.addEventListener('click', async () => {
 
 toggleEditBtn.addEventListener('click', () => {
   if (!currentOpenFile) return
+
+  if (!codeMirrorEditor) return
+
   isEditMode = !isEditMode
+
   if (isEditMode) {
-    filePreview.classList.add('hidden')
-    fileEditor.classList.remove('hidden')
+    codeMirrorEditor.enableEditing()
     toggleEditBtn.textContent = 'Preview'
-    fileEditor.focus()
   } else {
-    fileEditor.classList.add('hidden')
-    filePreview.classList.remove('hidden')
+    codeMirrorEditor.disableEditing()
     toggleEditBtn.textContent = 'Edit'
   }
 })
 
-fileEditor.addEventListener('input', () => {
-  if (currentOpenFile) {
-    hasUnsavedChanges = true
-  }
-})
-
-fileEditor.addEventListener('mouseup', updateExtractButtonState)
-fileEditor.addEventListener('keyup', updateExtractButtonState)
-fileEditor.addEventListener('select', updateExtractButtonState)
+// codeMirrorEditor.addEventListener('input', () => {
+//   if (currentOpenFile) {
+//     hasUnsavedChanges = true
+//   }
+// })
 
 extractBtn.addEventListener('click', async () => {
-  if (!isEditMode || !currentOpenFile) {
-    showToast('Please enter edit mode first', true)
+  if (!currentOpenFile) {
+    showToast('Please open a file first', true)
     return
   }
-  const selectedText = fileEditor.value.substring(
-    fileEditor.selectionStart,
-    fileEditor.selectionEnd
-  )
+
+  if (!codeMirrorEditor) {
+    showToast('CodeMirror editor not found', true)
+    return
+  }
+
+  const selectedLines = codeMirrorEditor.getSelectedLines()
+  if (!selectedLines || selectedLines.length === 0) {
+    showToast('Please select lines to extract', true)
+    return
+  }
+
+  const selectedText = selectedLines.map((line) => line.text).join('\n')
+
   if (!selectedText.trim()) {
     showToast('Please select text to extract', true)
     return
   }
+
   try {
     const result = await window.fileManager.extractNote(currentOpenFile, selectedText)
     if (result.success) {
+      codeMirrorEditor.lockSelectedLines()
       showToast(`Note extracted to ${result.fileName}`)
       // Optionally, refresh the file tree here if needed
     } else {
