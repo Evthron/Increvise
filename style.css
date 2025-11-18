@@ -241,6 +241,13 @@ button:active {
   color: var(--text-primary);
 }
 
+revision-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 #revision-list {
   flex: 1;
   overflow-y: auto;

@@ -2,83 +2,257 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Revision list and review controls logic extracted from renderer.js
+// Revision list and review controls as a Lit component
 // Handles revision file listing, review navigation, and feedback
 
-const reviseFilesBtn = document.getElementById('revise-files')
-const revisionList = document.getElementById('revision-list')
-const revisionControls = document.getElementById('revision-controls')
-const currentFileName = document.getElementById('current-file-name')
+import { LitElement, html, css } from 'lit'
 
-let revisionFiles = []
-let currentRevisionIndex = 0
-
-function showToast(message, isError = false) {
-  const toast = document.getElementById('toast')
-  toast.textContent = message
-  toast.classList.toggle('error', isError)
-  toast.classList.add('show')
-  setTimeout(() => {
-    toast.classList.remove('show')
-  }, 3000)
-}
-
-export function displayRevisionList(files) {
-  revisionList.innerHTML = ''
-  const header = document.createElement('div')
-  header.classList.add('revision-list-header')
-  header.innerHTML = `
-    <div class="revision-count">${files.length} file${files.length !== 1 ? 's' : ''}</div>
-    <div class="revision-subtitle">Due for review</div>
-  `
-  revisionList.appendChild(header)
-  if (files.length === 0) {
-    const emptyState = document.createElement('div')
-    emptyState.classList.add('empty-state')
-    emptyState.innerHTML = `
-      <div class="empty-icon">🎉</div>
-      <div class="empty-text">All caught up!</div>
-      <div class="empty-subtext">No files due for revision</div>
-    `
-    revisionList.appendChild(emptyState)
-    return
+export class RevisionList extends LitElement {
+  static properties = {
+    files: { type: Array },
+    currentIndex: { type: Number },
   }
-  const groupedFiles = {}
-  files.forEach((file) => {
-    const workspace = file.workspacePath || 'Unknown'
-    if (!groupedFiles[workspace]) groupedFiles[workspace] = []
-    groupedFiles[workspace].push(file)
-  })
-  const listContainer = document.createElement('div')
-  listContainer.classList.add('revision-list-container')
-  Object.entries(groupedFiles).forEach(([workspace, workspaceFiles]) => {
-    const workspaceGroup = document.createElement('div')
-    workspaceGroup.classList.add('workspace-group')
-    const workspaceHeader = document.createElement('div')
-    workspaceHeader.classList.add('workspace-group-header')
-    const workspaceName = workspace.split('/').pop()
-    workspaceHeader.innerHTML = `
-      <span class="workspace-icon">📁</span>
-      <span class="workspace-group-name">${workspaceName}</span>
-      <span class="workspace-file-count">${workspaceFiles.length}</span>
+
+  static styles = css`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .revision-list-header {
+      padding: 16px;
+      background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .revision-count {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-color);
+      margin-bottom: 4px;
+    }
+
+    .revision-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+      text-align: center;
+      flex: 1;
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .empty-subtext {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .revision-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .workspace-group {
+      margin-bottom: 16px;
+    }
+
+    .workspace-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .workspace-icon {
+      font-size: 14px;
+    }
+
+    .workspace-group-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .workspace-file-count {
+      background-color: var(--accent-color);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .revision-item {
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .revision-item:hover {
+      background-color: var(--bg-secondary);
+      border-color: var(--accent-color);
+      transform: translateX(2px);
+    }
+
+    .revision-item.active {
+      background-color: rgba(0, 122, 255, 0.08);
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.1);
+    }
+
+    .revision-item-main {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .revision-item-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .revision-item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .revision-item-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .revision-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .revision-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .meta-icon {
+      font-size: 12px;
+    }
+
+    .meta-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+  `
+
+  constructor() {
+    super()
+    this.files = []
+    this.currentIndex = 0
+  }
+
+  getDifficultyColor(difficulty) {
+    if (difficulty > 0.6) return '#ff3b30'
+    if (difficulty > 0.3) return '#ff9500'
+    return '#34c759'
+  }
+
+  getDifficultyLabel(difficulty) {
+    if (difficulty > 0.6) return 'Hard'
+    if (difficulty > 0.3) return 'Medium'
+    return 'Easy'
+  }
+
+  groupFilesByWorkspace() {
+    const grouped = {}
+    this.files.forEach((file) => {
+      const workspace = file.workspacePath || 'Unknown'
+      if (!grouped[workspace]) grouped[workspace] = []
+      grouped[workspace].push(file)
+    })
+    return grouped
+  }
+
+  async handleFileClick(file, globalIndex) {
+    this.currentIndex = globalIndex
+    this.requestUpdate()
+
+    // Import and call openFile
+    const { openFile } = await import('./editor.js')
+    await openFile(file.file_path)
+  }
+
+  renderEmptyState() {
+    return html`
+      <div class="empty-state">
+        <div class="empty-subtext">Select a file to start revision</div>
+      </div>
     `
-    workspaceGroup.appendChild(workspaceHeader)
-    workspaceFiles.forEach((file, fileIndex) => {
-      const globalIndex = files.indexOf(file)
-      const item = document.createElement('div')
-      item.classList.add('revision-item')
-      if (globalIndex === currentRevisionIndex) item.classList.add('active')
-      const fileName = file.file_path.split('/').pop()
-      const filePath = file.file_path
-      const difficultyColor =
-        file.difficulty > 0.6 ? '#ff3b30' : file.difficulty > 0.3 ? '#ff9500' : '#34c759'
-      const difficultyLabel =
-        file.difficulty > 0.6 ? 'Hard' : file.difficulty > 0.3 ? 'Medium' : 'Easy'
-      item.innerHTML = `
+  }
+
+  renderFileItem(file, globalIndex) {
+    const fileName = file.file_path.split('/').pop()
+    const filePath = file.file_path
+    const difficultyColor = this.getDifficultyColor(file.difficulty)
+    const difficultyLabel = this.getDifficultyLabel(file.difficulty)
+    const isActive = globalIndex === this.currentIndex
+
+    return html`
+      <div
+        class="revision-item ${isActive ? 'active' : ''}"
+        @click=${() => this.handleFileClick(file, globalIndex)}
+        title="${filePath}"
+      >
         <div class="revision-item-main">
           <div class="revision-item-icon">📄</div>
           <div class="revision-item-content">
-            <div class="revision-item-name" title="${filePath}">${fileName}</div>
+            <div class="revision-item-name">${fileName}</div>
             <div class="revision-item-meta">
               <span class="revision-meta-item">
                 <span class="meta-icon">🔄</span>
@@ -91,118 +265,50 @@ export function displayRevisionList(files) {
             </div>
           </div>
         </div>
-      `
-      item.addEventListener('click', async () => {
-        document.querySelectorAll('.revision-item').forEach((el) => el.classList.remove('active'))
-        item.classList.add('active')
-        currentRevisionIndex = globalIndex
-        showRevisionFile(globalIndex)
-        const { openFile } = await import('./editor.js')
-        await openFile(file.file_path)
-      })
-      workspaceGroup.appendChild(item)
-    })
-    listContainer.appendChild(workspaceGroup)
-  })
-  revisionList.appendChild(listContainer)
-}
-
-export function showRevisionFile(index) {
-  if (index >= revisionFiles.length) return
-  const file = revisionFiles[index]
-  const fileName = file.file_path.split('/').pop()
-  const workspaceName = file.workspacePath ? file.workspacePath.split('/').pop() : 'Unknown'
-  currentFileName.innerHTML = `
-    <div class="current-file-header">
-      <div class="current-file-title">${fileName}</div>
-      <div class="current-file-meta">
-        <span class="file-meta-item">
-          <span class="meta-icon">📁</span>
-          <span>${workspaceName}</span>
-        </span>
-        <span class="file-meta-separator">•</span>
-        <span class="file-meta-item">
-          <span class="meta-icon">📊</span>
-          <span>${index + 1} of ${revisionFiles.length}</span>
-        </span>
       </div>
-    </div>
-  `
-  revisionControls.style.display = 'block'
+    `
+  }
+
+  renderWorkspaceGroup(workspace, workspaceFiles) {
+    const workspaceName = workspace.split('/').pop()
+
+    return html`
+      <div class="workspace-group">
+        <div class="workspace-group-header">
+          <span class="workspace-icon">📁</span>
+          <span class="workspace-group-name">${workspaceName}</span>
+          <span class="workspace-file-count">${workspaceFiles.length}</span>
+        </div>
+        ${workspaceFiles.map((file) => {
+          const globalIndex = this.files.indexOf(file)
+          return this.renderFileItem(file, globalIndex)
+        })}
+      </div>
+    `
+  }
+
+  render() {
+    const groupedFiles = this.groupFilesByWorkspace()
+
+    return html`
+      <div class="revision-list-header">
+        <div class="revision-count">
+          ${this.files.length} file${this.files.length !== 1 ? 's' : ''}
+        </div>
+        <div class="revision-subtitle">Due for review</div>
+      </div>
+
+      ${this.files.length === 0
+        ? this.renderEmptyState()
+        : html`
+            <div class="revision-list-container">
+              ${Object.entries(groupedFiles).map(([workspace, workspaceFiles]) =>
+                this.renderWorkspaceGroup(workspace, workspaceFiles)
+              )}
+            </div>
+          `}
+    `
+  }
 }
 
-reviseFilesBtn.addEventListener('click', async () => {
-  try {
-    const result = await window.fileManager.getAllFilesForRevision()
-    if (result.success && result.files.length > 0) {
-      revisionFiles = result.files
-      currentRevisionIndex = 0
-      displayRevisionList(result.files)
-      showRevisionFile(0)
-      const { openFile } = await import('./editor.js')
-      await openFile(result.files[0].file_path)
-      // Update workspace stats
-      const workspaceCounts = {}
-      for (const file of result.files) {
-        workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
-      }
-      for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
-        await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
-      }
-    } else if (result.success && result.files.length === 0) {
-      showToast('No files due for revision today! 🎉')
-      revisionList.innerHTML = '<p>No files due for revision today! 🎉</p>'
-    } else {
-      showToast(`Error: ${result.error}`, true)
-    }
-  } catch (error) {
-    console.error('Error getting revision files:', error)
-  }
-})
-
-document.addEventListener('click', async (e) => {
-  if (e.target.classList.contains('feedback-btn')) {
-    const feedback = e.target.dataset.feedback
-    const currentFile = revisionFiles[currentRevisionIndex]
-    if (!currentFile) return
-    try {
-      const result = await window.fileManager.updateRevisionFeedback(
-        currentFile.dbPath,
-        currentFile.note_id,
-        feedback
-      )
-      if (result.success) {
-        revisionFiles.splice(currentRevisionIndex, 1)
-        displayRevisionList(revisionFiles)
-        // Update workspace stats
-        const workspaceCounts = {}
-        for (const file of revisionFiles) {
-          workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
-        }
-        for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
-          await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
-        }
-        if (revisionFiles.length > 0) {
-          if (currentRevisionIndex >= revisionFiles.length) {
-            currentRevisionIndex = revisionFiles.length - 1
-          }
-          showRevisionFile(currentRevisionIndex)
-          const { openFile } = await import('./editor.js')
-          await openFile(revisionFiles[currentRevisionIndex].file_path)
-        } else {
-          showToast('All files reviewed! Great job! 🎉')
-          revisionControls.style.display = 'none'
-          revisionList.innerHTML = '<p>All files reviewed! 🎉</p>'
-          const { hideToolbar } = await import('./toolbar.js')
-          hideToolbar()
-          const filePreview = document.getElementById('file-preview')
-          filePreview.textContent = ''
-        }
-      } else {
-        showToast(`Error: ${result.error}`, true)
-      }
-    } catch (error) {
-      console.error('Error updating feedback:', error)
-    }
-  }
-})
+customElements.define('revision-list', RevisionList)

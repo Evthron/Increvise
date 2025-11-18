@@ -5,9 +5,11 @@
 import './ui/editor.js'
 import './ui/fileTree.js'
 import './ui/revisionList.js'
+import { initFeedbackButtons } from './ui/feedbackButtons.js'
 import { initializeResizeHandles } from './ui/resize.js'
 import { loadRecentWorkspaces } from './ui/workspace.js'
 import './ui/codemirror-viewer.js'
 
 initializeResizeHandles()
 loadRecentWorkspaces()
+initFeedbackButtons()
