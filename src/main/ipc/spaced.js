@@ -8,45 +8,73 @@ import fs from 'node:fs/promises'
 import Database from 'better-sqlite3'
 
 export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
-  ipcMain.handle('create-database', async (event, dbPath) => {
+  ipcMain.handle('create-database', async (event, folderPath) => {
     try {
-      const oldDbPath = path.join(dbPath, 'db.sqlite')
-      const increviseFolder = path.join(dbPath, '.increvise')
+      const increviseFolder = path.join(folderPath, '.increvise')
       const dbFilePath = path.join(increviseFolder, 'db.sqlite')
       await fs.mkdir(increviseFolder, { recursive: true })
       try {
-        await fs.access(oldDbPath)
-        await fs.rename(oldDbPath, dbFilePath)
-        return { success: true, path: dbFilePath }
-      } catch {}
-      try {
+        // Database already exists
         await fs.access(dbFilePath)
         return { success: true, path: dbFilePath }
       } catch {}
       try {
+        // Create and initialize the database
         const db = new Database(dbFilePath)
         db.exec(`
-          CREATE TABLE IF NOT EXISTS note_queue (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            array_name TEXT NOT NULL,
-            array_of_notes TEXT,
-            sr_setting TEXT,
-            created_time DATETIME DEFAULT CURRENT_TIMESTAMP
+          CREATE TABLE library (
+              library_id TEXT PRIMARY KEY,
+              library_name TEXT NOT NULL,
+              created_time DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE TABLE review_queues (
+            library_id TEXT NOT NULL,
+            queue_name TEXT NOT NULL,
+            description TEXT,
+            created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+            PRIMARY KEY (library_id, queue_name),
+            FOREIGN KEY (library_id) REFERENCES library(library_id)
+          );
+          CREATE TABLE queue_memberships (
+              library_id TEXT NOT NULL,
+              queue_name TEXT NOT NULL,
+              relative_path TEXT NOT NULL,
+
+              PRIMARY KEY (library_id, relative_path),
+              FOREIGN KEY (library_id, relative_path)
+                REFERENCES file(library_id, relative_path),
+              FOREIGN KEY (library_id, queue_name)
+                REFERENCES review_queues(library_id, queue_name)
           );
           CREATE TABLE IF NOT EXISTS file (
-            note_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_path TEXT NOT NULL UNIQUE,
-            creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_revised_time DATETIME,
-            review_count INTEGER DEFAULT 0,
-            difficulty REAL DEFAULT 0.0,
-            due_time DATETIME
+              library_id TEXT NOT NULL,
+              relative_path TEXT NOT NULL,
+              added_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+              last_revised_time DATETIME,
+              review_count INTEGER DEFAULT 0,
+              difficulty REAL DEFAULT 0.0,
+              importance REAL DEFAULT 70.0,
+              due_time DATETIME,
+
+              PRIMARY KEY (library_id, relative_path),
+              FOREIGN KEY (library_id) REFERENCES library(library_id)
           );
-          CREATE TABLE IF NOT EXISTS folder_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            folder_path TEXT NOT NULL UNIQUE,
-            overall_priority INTEGER DEFAULT 0,
-            created_time DATETIME DEFAULT CURRENT_TIMESTAMP
+
+          CREATE TABLE IF NOT EXISTS note_hierarchies (
+              library_id TEXT NOT NULL,
+              child_relative_path TEXT NOT NULL,
+              parent_relative_path TEXT NOT NULL,
+              start_line INTEGER NOT NULL,
+              end_line INTEGER NOT NULL,
+              parent_original_hash TEXT NOT NULL,
+              created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+              PRIMARY KEY (library_id, child_relative_path),
+              FOREIGN KEY (library_id, child_relative_path) 
+                  REFERENCES file(library_id, relative_path),
+              FOREIGN KEY (library_id, parent_relative_path) 
+                  REFERENCES file(library_id, relative_path)
           );
         `)
         db.close()
@@ -90,7 +118,8 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           return { success: false, error: 'File already in queue', alreadyExists: true }
         }
         const insertStmt = db.prepare(
-          "INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) VALUES (?, datetime('now'), 0, 0.0, datetime('now'))"
+          `INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) 
+           VALUES (?, datetime('now'), 0, 0.0, datetime('now'))`
         )
         const info = insertStmt.run(filePath)
         const noteId = info.lastInsertRowid
