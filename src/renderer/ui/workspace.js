@@ -6,6 +6,7 @@
 // Handles workspace history, sidebar DOM, and related events
 
 const workspaceHistoryList = document.getElementById('workspace-history-list')
+const selectFolderBtn = document.getElementById('select-folder')
 
 export async function loadRecentWorkspaces() {
   try {
@@ -79,4 +80,19 @@ function getTimeAgo(date) {
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
   if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`
   return `${Math.floor(seconds / 2592000)}mo ago`
+}
+
+// Initialize select folder button event listener
+if (selectFolderBtn) {
+  selectFolderBtn.addEventListener('click', async () => {
+    try {
+      const folderPath = await window.fileManager.selectFolder()
+      if (folderPath) {
+        await openWorkspace(folderPath)
+      }
+    } catch (error) {
+      console.error('Error selecting folder:', error)
+      alert(`Error selecting folder: ${error.message}`)
+    }
+  })
 }
