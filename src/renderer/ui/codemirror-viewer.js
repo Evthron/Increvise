@@ -38,10 +38,10 @@ export class CodeMirrorViewer extends LitElement {
 
   constructor() {
     super()
-    this.content = '// 默認內容\nconsole.log("Hello, World!");'
+    this.content = '// Default content\nconsole.log("Hello, World!");'
     this.language = 'javascript'
     this.editorView = null
-    this.lockedLines = new Set() // 儲存已鎖定的行號
+    this.lockedLines = new Set() // store locked line numbers
     this.isEditable = false
     this.editableCompartment = new Compartment()
     this.lineSelectionCompartment = new Compartment()
@@ -60,10 +60,10 @@ export class CodeMirrorViewer extends LitElement {
   initializeEditor() {
     const container = this.shadowRoot.getElementById('editor-container')
 
-    // 創建添加鎖定行的 Effect
+    // Create an effect for adding locked lines
     const addLockedLineEffect = StateEffect.define()
 
-    // 儲存鎖定行的 StateField
+    // StateField that stores locked line decorations
     const lockedLinesField = StateField.define({
       create() {
         return Decoration.none
@@ -89,7 +89,7 @@ export class CodeMirrorViewer extends LitElement {
       provide: (f) => EditorView.decorations.from(f),
     })
 
-    // 整行選取擴展（檢查鎖定狀態）
+    // Whole-line selection extension (checks lock status)
     const lineSelectionExtension = EditorState.transactionFilter.of((tr) => {
       if (!tr.selection || !tr.isUserEvent('select')) {
         return tr
@@ -101,10 +101,10 @@ export class CodeMirrorViewer extends LitElement {
       const lineFrom = doc.lineAt(main.from)
       const lineTo = doc.lineAt(main.to)
 
-      // 檢查是否嘗試選取已鎖定的行
+      // Check whether the selection attempts to include locked lines
       for (let i = lineFrom.number; i <= lineTo.number; i++) {
         if (this.lockedLines.has(i)) {
-          // 如果包含鎖定的行，取消這次選取
+          // If the selection includes locked lines, cancel this selection
           return []
         }
       }
@@ -121,7 +121,7 @@ export class CodeMirrorViewer extends LitElement {
       return tr
     })
 
-    // 滑鼠點擊選取整行（檢查鎖定狀態）
+    // Mouse click selects the entire line (checks lock status)
     const lineClickHandler = EditorView.domEventHandlers({
       mousedown: (event, view) => {
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
@@ -129,7 +129,7 @@ export class CodeMirrorViewer extends LitElement {
           const line = view.state.doc.lineAt(pos)
           const lineNum = line.number
 
-          // 檢查是否點擊已鎖定的行
+          // Check if the clicked line is locked
           if (this.lockedLines.has(lineNum)) {
             event.preventDefault()
             return true
@@ -141,7 +141,7 @@ export class CodeMirrorViewer extends LitElement {
         }
         return false
       },
-      // 禁止拖放操作
+      // Prevent drag-and-drop operations
       dragstart(event, view) {
         event.preventDefault()
         return true
@@ -156,11 +156,11 @@ export class CodeMirrorViewer extends LitElement {
       },
     })
 
-    // 儲存擴展以便後續重新配置
+    // Save the extensions so they can be reconfigured later
     this.lineSelectionExtension = lineSelectionExtension
     this.lineClickHandler = lineClickHandler
 
-    // 整行高亮樣式（包含鎖定行樣式）
+    // Whole-line highlight theme (includes locked line style)
     const lineHighlightTheme = EditorView.theme({
       '.cm-selectionBackground': {
         backgroundColor: '#3d5a80 !important',
@@ -173,18 +173,18 @@ export class CodeMirrorViewer extends LitElement {
         backgroundColor: '#4a6fa5 !important',
       },
       '.cm-locked-line': {
-        backgroundColor: '#2d4a3e !important', // 綠色背景表示已鎖定
-        borderLeft: '3px solid #4ade80', // 左邊綠色邊框
+        backgroundColor: '#2d4a3e !important', // green background indicates locked
+        borderLeft: '3px solid #4ade80', // green left border
       },
     })
 
-    // 獲取語言模式
+    // Get language mode
     const languageExtension = this.getLanguageExtension()
 
-    // 儲存 addLockedLineEffect 以便後續使用
+    // Store addLockedLineEffect for later use
     this.addLockedLineEffect = addLockedLineEffect
 
-    // 創建編輯器狀態
+    // Create the editor state
     const startState = EditorState.create({
       doc: this.content,
       extensions: [
@@ -200,7 +200,7 @@ export class CodeMirrorViewer extends LitElement {
       ],
     })
 
-    // 創建編輯器視圖
+    // Create the editor view
     this.editorView = new EditorView({
       state: startState,
       parent: container,
@@ -229,7 +229,7 @@ export class CodeMirrorViewer extends LitElement {
     })
   }
 
-  // 提供公共方法獲取選中的行
+  // Public method to get selected lines
   getSelectedLines() {
     if (!this.editorView) return []
 
@@ -252,31 +252,29 @@ export class CodeMirrorViewer extends LitElement {
     return lines
   }
 
-  // 鎖定當前選中的行
+  // Lock the currently selected lines
   lockSelectedLines() {
     if (!this.editorView) return []
 
     const selectedLines = this.getSelectedLines()
     if (selectedLines.length === 0) return []
-
-    // 添加到鎖定行集合
-    const lineNumbers = selectedLines.map((l) => l.number)
-    lineNumbers.forEach((num) => this.lockedLines.add(num))
-
-    // 更新編輯器裝飾
+    // Update editor decorations
     this.editorView.dispatch({
       effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
     })
 
-    // 清除當前選取
+    // Add the selected line numbers to the lockedLines set
+    const lineNumbers = selectedLines.map((l) => l.number)
+    lineNumbers.forEach((num) => this.lockedLines.add(num))
+
+    // Clear the current selection
     this.editorView.dispatch({
       selection: EditorSelection.single(0, 0),
     })
-
     return selectedLines
   }
 
-  // 獲取所有已鎖定的行
+  // Get all locked lines
   getLockedLines() {
     if (!this.editorView) return []
 
@@ -298,7 +296,7 @@ export class CodeMirrorViewer extends LitElement {
     return lockedLines
   }
 
-  // 清除所有鎖定
+  // Clear all locked lines
   clearLockedLines() {
     this.lockedLines.clear()
     if (this.editorView) {
@@ -308,12 +306,12 @@ export class CodeMirrorViewer extends LitElement {
     }
   }
 
-  // 提供公共方法設置內容
+  // Public method to set content
   setContent(newContent) {
     this.content = newContent
   }
 
-  // 啟用編輯模式
+  // Enable edit mode
   enableEditing() {
     if (!this.editorView || this.isEditable) return
 
@@ -324,12 +322,12 @@ export class CodeMirrorViewer extends LitElement {
           EditorState.readOnly.of(false),
           EditorView.editable.of(true),
         ]),
-        this.lineSelectionCompartment.reconfigure([]), // 禁用整行選取
+        this.lineSelectionCompartment.reconfigure([]), // disable whole-line selection
       ],
     })
   }
 
-  // 禁用編輯模式
+  // Disable edit mode
   disableEditing() {
     if (!this.editorView || !this.isEditable) return
 
@@ -343,12 +341,12 @@ export class CodeMirrorViewer extends LitElement {
         this.lineSelectionCompartment.reconfigure([
           this.lineSelectionExtension,
           this.lineClickHandler,
-        ]), // 重新啟用整行選取
+        ]), // re-enable whole-line selection
       ],
     })
   }
 
-  // 檢查是否處於編輯模式
+  // Check whether the viewer is in edit mode
   isEditMode() {
     return this.isEditable
   }
@@ -365,5 +363,5 @@ export class CodeMirrorViewer extends LitElement {
   }
 }
 
-// 註冊自定義元素
+// Register custom element
 customElements.define('codemirror-viewer', CodeMirrorViewer)
