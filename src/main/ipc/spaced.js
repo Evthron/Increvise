@@ -109,14 +109,16 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
   ipcMain.handle('check-file-in-queue', async (event, filePath) => {
     try {
       const result = await findIncreviseDatabase(filePath)
-      if (!result.found) return { inQueue: false }
+      if (!result.found) {
+        return { inQueue: false, error: 'Database not found. Please create a database first.' }
+      }
       try {
         const db = new Database(result.dbPath)
         const relativePath = path.relative(result.rootPath, filePath)
         const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
         if (!libraryId) {
           db.close()
-          return { inQueue: false }
+          return { inQueue: false, error: 'Database library entry not found' }
         }
         const { exists_flag } = db
           .prepare(
@@ -146,7 +148,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
         const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
         if (!libraryId) {
           db.close()
-          return { success: false, error: 'Library not found' }
+          return { success: false, error: 'Database library entry not found' }
         }
 
         const { exists_flag } = db
@@ -176,6 +178,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
   })
 
   ipcMain.handle('get-files-for-revision', async (event, rootPath) => {
+    // Get all the increvise database under the specfied rootPath
     try {
       const findDatabases = async (dir) => {
         const databases = []

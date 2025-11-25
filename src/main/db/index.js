@@ -18,6 +18,7 @@ export function getIncreviseDataDir() {
 }
 
 export async function findIncreviseDatabase(filePath) {
+  // .increvise/db.sqlite should be located in some ancestor directory
   let currentDir = path.dirname(filePath)
   const rootDir = path.parse(currentDir).root
 
