@@ -74,6 +74,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           CREATE TABLE note_source (
               library_id TEXT NOT NULL,
               relative_path TEXT NOT NULL,
+              parent_path TEXT,
               extract_type TEXT NOT NULL,
               range_start TEXT,
               range_end TEXT,
@@ -83,6 +84,9 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
               FOREIGN KEY (library_id, relative_path) 
                   REFERENCES file(library_id, relative_path)
           );
+
+          CREATE INDEX idx_note_source_parent ON note_source(library_id, parent_path);
+          CREATE INDEX idx_note_source_hash ON note_source(library_id, source_hash);
         `)
 
         // Insert library record with hash-based ID

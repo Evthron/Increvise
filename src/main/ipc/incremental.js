@@ -9,59 +9,131 @@ import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 
 /**
- * Find the source file for a note folder
- * For "tutorial/1.md" -> looks for "tutorial.md" in parent directory
- * For "tutorial/1.1.md" -> looks for "tutorial/1.md" in same directory
- * @param {string} noteFilePath - Path to the note file
- * @returns {Promise<string|null>} - Path to source file, or null if not found
+ * Parse a hierarchical note filename
+ * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
+ * Example: "10-20-introduction-to.15-18-core-concepts.md"
+ * @param {string} fileName - The note filename without extension
+ * @returns {Array|null} - Array of layer objects [{range: [10, 20], name: 'introduction-to'}, ...] or null
  */
-async function findSourceFile(noteFilePath) {
-  const noteDir = path.dirname(noteFilePath)
-  const noteFileName = path.basename(noteFilePath, path.extname(noteFilePath))
+function parseNoteFileName(fileName) {
+  // Split by dots to get each layer
+  const layers = fileName.split('.')
+  const parsed = []
 
-  // Check if this is a numbered note (e.g., "1" or "1.1")
-  const isNumberedNote = /^(\d+(?:\.\d+)*)$/.test(noteFileName)
+  for (const layer of layers) {
+    // Match pattern: rangeStart-rangeEnd-name
+    const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
+    if (!match) return null
 
-  if (!isNumberedNote) {
-    // Not a numbered note, no source to find
-    return null
+    parsed.push({
+      rangeStart: parseInt(match[1]),
+      rangeEnd: parseInt(match[2]),
+      name: match[3],
+    })
   }
 
-  // Parse the note number (e.g., "1.1" -> [1, 1])
-  const noteParts = noteFileName.split('.').map(Number)
+  return parsed.length > 0 ? parsed : null
+}
 
-  let sourceFileName
-  let sourceDir
+/**
+ * Generate filename for a new child note (Option B: go back 2 layers)
+ * @param {string} parentFilePath - Path to parent note file
+ * @param {number} rangeStart - Start line of extracted text
+ * @param {number} rangeEnd - End line of extracted text
+ * @param {string} extractedText - The extracted text to generate name from
+ * @returns {string} - New filename without extension
+ */
+function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedText) {
+  const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+  const parentLayers = parseNoteFileName(parentFileName)
 
-  if (noteParts.length === 1) {
-    // Top-level note like "tutorial/1.md" -> source is "tutorial.md"
-    sourceDir = path.dirname(noteDir)
-    sourceFileName = path.basename(noteDir)
-  } else {
-    // Nested note like "tutorial/1.1.md" -> source is "tutorial/1.md"
-    sourceDir = noteDir
-    sourceFileName = noteParts.slice(0, -1).join('.')
+  // Generate name from first 3 words of extracted text - optimized
+  let words = ''
+  const text = extractedText.trim()
+  let wordCount = 0
+  let currentWord = ''
+
+  for (let i = 0; i < text.length && wordCount < 3; i++) {
+    const char = text[i]
+    const lower = char.toLowerCase()
+    const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+    if (isAlphaNum) {
+      currentWord += lower
+    } else if (currentWord.length > 0) {
+      if (words) words += '-'
+      words += currentWord
+      currentWord = ''
+      wordCount++
+    }
+  }
+  // Add last word if exists
+  if (currentWord.length > 0 && wordCount < 3) {
+    if (words) words += '-'
+    words += currentWord
   }
 
-  // Look for a file with matching basename (any extension)
-  try {
-    const files = await fs.readdir(sourceDir)
-    for (const file of files) {
-      const fileBaseName = path.basename(file, path.extname(file))
-      if (fileBaseName === sourceFileName) {
-        const sourcePath = path.join(sourceDir, file)
-        // Verify it's a file, not a directory
-        const stat = await fs.stat(sourcePath)
-        if (stat.isFile()) {
-          return sourcePath
-        }
+  if (!parentLayers) {
+    // Parent is a top-level file - extract name from filename
+    let parentName = ''
+    wordCount = 0
+    currentWord = ''
+
+    for (let i = 0; i < parentFileName.length && wordCount < 3; i++) {
+      const char = parentFileName[i]
+      const lower = char.toLowerCase()
+      const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+      if (isAlphaNum || char === '-') {
+        currentWord += lower
+      } else if (currentWord.length > 0) {
+        if (parentName) parentName += '-'
+        parentName += currentWord
+        currentWord = ''
+        wordCount++
       }
     }
+    if (currentWord.length > 0 && wordCount < 3) {
+      if (parentName) parentName += '-'
+      parentName += currentWord
+    }
+
+    return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+  } else {
+    // Parent has layers - implement Option B (go back 2 layers)
+    const layersToKeep = Math.max(0, parentLayers.length - 2)
+    const allLayers = [
+      ...parentLayers.slice(layersToKeep),
+      { rangeStart, rangeEnd, name: words || 'note' },
+    ]
+    return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+  }
+}
+
+/**
+ * Find the parent source file path for a given note
+ * @param {string} noteFilePath - Path to the note file
+ * @param {Object} db - Database instance
+ * @param {string} libraryId - Library ID
+ * @param {string} rootPath - Root path of the workspace
+ * @returns {Promise<string|null>} - Parent file path or null
+ */
+async function findParentPath(noteFilePath, db, libraryId, rootPath) {
+  try {
+    const relativePath = path.relative(rootPath, noteFilePath)
+    const result = db
+      .prepare(
+        `
+      SELECT parent_path FROM note_source 
+      WHERE library_id = ? AND relative_path = ?
+    `
+      )
+      .get(libraryId, relativePath)
+
+    return result?.parent_path || null
   } catch {
     return null
   }
-
-  return null
 }
 
 export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
@@ -89,67 +161,53 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
       try {
         const parentDir = path.dirname(parentFilePath)
         const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
-        const matchNumber = (filename) => {
-          const match = filename.match(/^(\d+(?:\.\d+)*)$/)
-          if (!match) return null
-          return match[1].split('.').map(Number)
-        }
-        const currentNumber = matchNumber(parentFileName)
-        const isAlreadyInNoteFolder = currentNumber !== null
-        let noteFolder, currentPrefix
-        if (isAlreadyInNoteFolder) {
-          noteFolder = parentDir
-          currentPrefix = currentNumber
-        } else {
-          noteFolder = path.join(parentDir, parentFileName)
-          await fs.mkdir(noteFolder, { recursive: true })
-          const increviseDir = path.join(parentDir, '.increvise')
-          const noteFolderDbPath = path.join(increviseDir, 'db.sqlite')
-          await fs.mkdir(increviseDir, { recursive: true })
-          try {
-            await fs.access(noteFolderDbPath)
-          } catch (error) {
-            return { success: false, error: error.message }
-          }
-          currentPrefix = []
-        }
-        const existingFiles = await fs.readdir(noteFolder)
-        const mdFiles = existingFiles.filter((f) => f.endsWith('.md'))
-        const allNumbers = mdFiles
-          .map((f) => matchNumber(path.basename(f, '.md')))
-          .filter((n) => n !== null)
-        let nextNumber
-        if (currentPrefix.length === 0) {
-          if (allNumbers.length === 0) {
-            nextNumber = [1]
-          } else {
-            const maxFirstLevel = Math.max(...allNumbers.map((n) => n[0]))
-            nextNumber = [maxFirstLevel + 1]
-          }
-        } else {
-          const childNumbers = allNumbers.filter((n) => {
-            if (n.length !== currentPrefix.length + 1) return false
-            for (let i = 0; i < currentPrefix.length; i++) {
-              if (n[i] !== currentPrefix[i]) return false
-            }
-            return true
-          })
-          if (childNumbers.length === 0) {
-            nextNumber = [...currentPrefix, 1]
-          } else {
-            const maxLastLevel = Math.max(...childNumbers.map((n) => n[n.length - 1]))
-            nextNumber = [...currentPrefix, maxLastLevel + 1]
+
+        // Determine the note folder: same-name folder next to parent file
+        const noteFolder = path.join(parentDir, parentFileName)
+
+        // Create note folder if it doesn't exist
+        await fs.mkdir(noteFolder, { recursive: true })
+
+        // Verify database exists
+        const increviseDir = path.join(parentDir, '.increvise')
+        const noteFolderDbPath = path.join(increviseDir, 'db.sqlite')
+        try {
+          await fs.access(noteFolderDbPath)
+        } catch (error) {
+          return {
+            success: false,
+            error: 'Database not found. Please create a database first.',
           }
         }
-        const newFileName = nextNumber.join('.') + '.md'
+
+        // Generate new filename using hierarchical naming scheme
+        const newFileName =
+          generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
         const newFilePath = path.join(noteFolder, newFileName)
+
+        // Check if file already exists
+        try {
+          await fs.access(newFilePath)
+          return {
+            success: false,
+            error: 'A note with this name already exists. Please select different lines.',
+          }
+        } catch {
+          // File doesn't exist, good to proceed
+        }
+
+        // Write the new note file
         await fs.writeFile(newFilePath, selectedText, 'utf-8')
+
+        // Update database
         const result = await findIncreviseDatabase(newFilePath)
         if (result.found) {
           try {
             const db = new Database(result.dbPath)
             const relativePath = path.relative(result.rootPath, newFilePath)
+            const parentRelativePath = path.relative(result.rootPath, parentFilePath)
             const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+
             if (libraryId) {
               // Insert file record
               db.prepare(
@@ -159,36 +217,35 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
             `
               ).run(libraryId, relativePath)
 
-              // Try to insert note_source record if we have range info and can find source
+              // Insert note_source record with parent_path
               if (rangeStart && rangeEnd) {
-                const sourceFilePath = await findSourceFile(newFilePath)
-                if (sourceFilePath) {
-                  // Hash the extracted text content, not the entire file
-                  const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-                  try {
-                    db.prepare(
-                      `
-                      INSERT INTO note_source (library_id, relative_path, extract_type, range_start, range_end, source_hash)
-                      VALUES (?, ?, ?, ?, ?, ?)
+                const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+                try {
+                  db.prepare(
                     `
-                    ).run(
-                      libraryId,
-                      relativePath,
-                      'text-lines',
-                      String(rangeStart),
-                      String(rangeEnd),
-                      sourceHash
-                    )
-                  } catch (err) {
-                    // Ignore errors in note_source insertion (optional metadata)
-                    console.error('Failed to insert note_source record:', err.message)
-                  }
+                    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                  `
+                  ).run(
+                    libraryId,
+                    relativePath,
+                    parentRelativePath,
+                    'text-lines',
+                    String(rangeStart),
+                    String(rangeEnd),
+                    sourceHash
+                  )
+                } catch (err) {
+                  console.error('Failed to insert note_source record:', err.message)
                 }
               }
             }
             db.close()
-          } catch (err) {}
+          } catch (err) {
+            console.error('Database error:', err)
+          }
         }
+
         return {
           success: true,
           fileName: newFileName,
