@@ -23,68 +23,95 @@ export function registerFileIpc(ipcMain) {
   })
 
   ipcMain.handle('get-directory-tree', async (event, dirPath) => {
-    const parseNoteNumber = (filename) => {
-      const match = filename.match(/^(\d+(?:\.\d+)*)\.md$/)
-      if (!match) return null
-      return match[1].split('.').map(Number)
-    }
-    const buildTreeFromFlat = (notes) => {
-      const map = new Map()
-      const roots = []
-      notes.forEach((note) => {
-        const hasChildren = notes.some(
-          (n) =>
-            n.number.length === note.number.length + 1 &&
-            n.number.slice(0, -1).join('.') === note.numberKey
-        )
-        map.set(note.numberKey, {
-          ...note,
-          children: [],
-          type: hasChildren ? 'note-parent' : 'note-child',
+    /**
+     * Parse hierarchical note filename
+     * Format: rangeStart-rangeEnd-name.rangeStart-rangeEnd-name.md
+     * Returns array of layers with depth info
+     */
+    const parseHierarchicalNote = (filename) => {
+      const baseName = filename.replace(/\.md$/, '')
+      const layers = baseName.split('.')
+
+      const parsed = []
+      for (const layer of layers) {
+        const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
+        if (!match) return null
+        parsed.push({
+          rangeStart: parseInt(match[1]),
+          rangeEnd: parseInt(match[2]),
+          name: match[3],
         })
-      })
-      notes.forEach((note) => {
-        const node = map.get(note.numberKey)
-        if (note.number.length === 1) {
-          roots.push(node)
-        } else {
-          const parentKey = note.number.slice(0, -1).join('.')
-          const parent = map.get(parentKey)
-          if (parent) {
-            parent.children.push(node)
-          } else {
-            roots.push(node)
-          }
-        }
-      })
-      return roots
+      }
+      return parsed.length > 0 ? parsed : null
     }
+
     const buildNoteHierarchy = async (folderPath, baseName) => {
       try {
         const items = await fs.readdir(folderPath, { withFileTypes: true })
         const mdFiles = items
           .filter((item) => item.isFile() && item.name.endsWith('.md'))
-          .map((item) => ({
-            name: item.name,
-            number: parseNoteNumber(item.name),
-            path: path.join(folderPath, item.name),
-          }))
-          .filter((item) => item.number !== null)
+          .map((item) => {
+            const layers = parseHierarchicalNote(item.name)
+            return {
+              name: item.name,
+              layers: layers,
+              depth: layers ? layers.length : 0,
+              path: path.join(folderPath, item.name),
+            }
+          })
+          .filter((item) => item.layers !== null)
+
         if (mdFiles.length === 0) return []
+
+        // Sort by depth first, then by range
         mdFiles.sort((a, b) => {
-          for (let i = 0; i < Math.max(a.number.length, b.number.length); i++) {
-            const aNum = a.number[i] || 0
-            const bNum = b.number[i] || 0
-            if (aNum !== bNum) return aNum - bNum
-          }
-          return 0
+          if (a.depth !== b.depth) return a.depth - b.depth
+          const aRange = a.layers[0].rangeStart
+          const bRange = b.layers[0].rangeStart
+          return aRange - bRange
         })
-        const notesWithKeys = mdFiles.map((note) => ({
-          ...note,
-          numberKey: note.number.join('.'),
-        }))
-        return buildTreeFromFlat(notesWithKeys)
+
+        // Build tree structure using optimized O(n) algorithm
+        // Use a Map with layer signature as key for O(1) parent lookup
+        const layerSignature = (layers) => {
+          return layers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+        }
+
+        const nodesBySignature = new Map()
+        const roots = []
+
+        for (const note of mdFiles) {
+          const noteNode = {
+            name: note.name,
+            path: note.path,
+            layers: note.layers,
+            children: [],
+            type: 'note-child',
+          }
+
+          // Store by signature for fast lookup
+          const signature = layerSignature(note.layers)
+          nodesBySignature.set(signature, noteNode)
+
+          if (note.depth === 1) {
+            roots.push(noteNode)
+          } else {
+            // Build parent signature (all layers except last one)
+            const parentSignature = layerSignature(note.layers.slice(0, -1))
+            const parent = nodesBySignature.get(parentSignature)
+
+            if (parent) {
+              parent.children.push(noteNode)
+              parent.type = 'note-parent'
+            } else {
+              roots.push(noteNode)
+            }
+          }
+        }
+
+        return roots
       } catch (error) {
+        console.error('Error building note hierarchy:', error)
         return []
       }
     }
