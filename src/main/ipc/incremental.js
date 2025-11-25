@@ -100,7 +100,6 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 
     return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
   } else {
-    // Parent has layers - implement Option B (go back 2 layers)
     const layersToKeep = Math.max(0, parentLayers.length - 2)
     const allLayers = [
       ...parentLayers.slice(layersToKeep),
@@ -159,6 +158,15 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
     'extract-note',
     async (event, parentFilePath, selectedText, rangeStart, rangeEnd) => {
       try {
+        // Verify database exists first
+        const result = await findIncreviseDatabase(parentFilePath)
+        if (!result.found) {
+          return {
+            success: false,
+            error: 'Database not found. Please create a database first.',
+          }
+        }
+
         const parentDir = path.dirname(parentFilePath)
         const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
 
@@ -167,18 +175,6 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
 
         // Create note folder if it doesn't exist
         await fs.mkdir(noteFolder, { recursive: true })
-
-        // Verify database exists
-        const increviseDir = path.join(parentDir, '.increvise')
-        const noteFolderDbPath = path.join(increviseDir, 'db.sqlite')
-        try {
-          await fs.access(noteFolderDbPath)
-        } catch (error) {
-          return {
-            success: false,
-            error: 'Database not found. Please create a database first.',
-          }
-        }
 
         // Generate new filename using hierarchical naming scheme
         const newFileName =
@@ -199,51 +195,48 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
         // Write the new note file
         await fs.writeFile(newFilePath, selectedText, 'utf-8')
 
-        // Update database
-        const result = await findIncreviseDatabase(newFilePath)
-        if (result.found) {
-          try {
-            const db = new Database(result.dbPath)
-            const relativePath = path.relative(result.rootPath, newFilePath)
-            const parentRelativePath = path.relative(result.rootPath, parentFilePath)
-            const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+        // Update database (use result from earlier check)
+        try {
+          const db = new Database(result.dbPath)
+          const relativePath = path.relative(result.rootPath, newFilePath)
+          const parentRelativePath = path.relative(result.rootPath, parentFilePath)
+          const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
 
-            if (libraryId) {
-              // Insert file record
-              db.prepare(
-                `
+          if (libraryId) {
+            // Insert file record
+            db.prepare(
+              `
               INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, importance, due_time)
               VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
             `
-              ).run(libraryId, relativePath)
+            ).run(libraryId, relativePath)
 
-              // Insert note_source record with parent_path
-              if (rangeStart && rangeEnd) {
-                const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-                try {
-                  db.prepare(
-                    `
-                    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+            // Insert note_source record with parent_path
+            if (rangeStart && rangeEnd) {
+              const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+              try {
+                db.prepare(
                   `
-                  ).run(
-                    libraryId,
-                    relativePath,
-                    parentRelativePath,
-                    'text-lines',
-                    String(rangeStart),
-                    String(rangeEnd),
-                    sourceHash
-                  )
-                } catch (err) {
-                  console.error('Failed to insert note_source record:', err.message)
-                }
+                  INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
+                `
+                ).run(
+                  libraryId,
+                  relativePath,
+                  parentRelativePath,
+                  'text-lines',
+                  String(rangeStart),
+                  String(rangeEnd),
+                  sourceHash
+                )
+              } catch (err) {
+                console.error('Failed to insert note_source record:', err.message)
               }
             }
-            db.close()
-          } catch (err) {
-            console.error('Database error:', err)
           }
+          db.close()
+        } catch (err) {
+          console.error('Database error:', err)
         }
 
         return {
