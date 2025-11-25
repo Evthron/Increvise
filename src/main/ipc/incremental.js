@@ -49,28 +49,8 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
         await fs.mkdir(increviseDir, { recursive: true })
         try {
           await fs.access(noteFolderDbPath)
-        } catch {
-          const noteDb = new Database(noteFolderDbPath)
-          await new Promise((resolve, reject) => {
-            noteDb.exec(
-              `
-              CREATE TABLE IF NOT EXISTS file (
-                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL UNIQUE,
-                creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_revised_time DATETIME,
-                review_count INTEGER DEFAULT 0,
-                difficulty REAL DEFAULT 0.0,
-                due_time DATETIME
-              );
-            `,
-              (err) => {
-                noteDb.close()
-                if (err) reject(err)
-                else resolve()
-              }
-            )
-          })
+        } catch (error) {
+          return { success: false, error: error.message }
         }
         currentPrefix = []
       }
@@ -109,12 +89,16 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
       if (result.found) {
         try {
           const db = new Database(result.dbPath)
-          db.prepare(
+          const relativePath = path.relative(result.rootPath, newFilePath)
+          const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+          if (libraryId) {
+            db.prepare(
+              `
+              INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, importance, due_time)
+              VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
             `
-            INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time)
-            VALUES (?, datetime('now'), 0, 0.0, datetime('now'))
-          `
-          ).run(newFilePath)
+            ).run(libraryId, relativePath)
+          }
           db.close()
         } catch (err) {}
       }

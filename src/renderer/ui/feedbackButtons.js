@@ -81,7 +81,8 @@ export function initFeedbackButtons() {
       try {
         const result = await window.fileManager.updateRevisionFeedback(
           currentFile.dbPath,
-          currentFile.note_id,
+          currentFile.library_id,
+          currentFile.relative_path,
           feedback
         )
 

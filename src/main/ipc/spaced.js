@@ -5,7 +5,14 @@
 // Spaced Repetition IPC Handlers
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
+
+// Helper function to create a short hash from a file path
+function createLibraryId(folderPath) {
+  const hash = crypto.createHash('sha256').update(folderPath).digest('hex')
+  return hash.substring(0, 16) // Use first 16 characters for shorter ID
+}
 
 export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
   ipcMain.handle('create-database', async (event, folderPath) => {
@@ -27,27 +34,8 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
               library_name TEXT NOT NULL,
               created_time DATETIME DEFAULT CURRENT_TIMESTAMP
           );
-          CREATE TABLE review_queues (
-            library_id TEXT NOT NULL,
-            queue_name TEXT NOT NULL,
-            description TEXT,
-            created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
 
-            PRIMARY KEY (library_id, queue_name),
-            FOREIGN KEY (library_id) REFERENCES library(library_id)
-          );
-          CREATE TABLE queue_memberships (
-              library_id TEXT NOT NULL,
-              queue_name TEXT NOT NULL,
-              relative_path TEXT NOT NULL,
-
-              PRIMARY KEY (library_id, relative_path),
-              FOREIGN KEY (library_id, relative_path)
-                REFERENCES file(library_id, relative_path),
-              FOREIGN KEY (library_id, queue_name)
-                REFERENCES review_queues(library_id, queue_name)
-          );
-          CREATE TABLE IF NOT EXISTS file (
+          CREATE TABLE file (
               library_id TEXT NOT NULL,
               relative_path TEXT NOT NULL,
               added_time DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -61,7 +49,29 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
               FOREIGN KEY (library_id) REFERENCES library(library_id)
           );
 
-          CREATE TABLE IF NOT EXISTS note_hierarchies (
+          CREATE TABLE review_queue (
+              library_id TEXT NOT NULL,
+              queue_name TEXT NOT NULL,
+              description TEXT,
+              created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+              PRIMARY KEY (library_id, queue_name),
+              FOREIGN KEY (library_id) REFERENCES library(library_id)
+          );
+
+          CREATE TABLE queue_membership (
+              library_id TEXT NOT NULL,
+              queue_name TEXT NOT NULL,
+              relative_path TEXT NOT NULL,
+
+              PRIMARY KEY (library_id, relative_path),
+              FOREIGN KEY (library_id, relative_path)
+                REFERENCES file(library_id, relative_path),
+              FOREIGN KEY (library_id, queue_name)
+                REFERENCES review_queue(library_id, queue_name)
+          );
+
+          CREATE TABLE note_hierarchy (
               library_id TEXT NOT NULL,
               child_relative_path TEXT NOT NULL,
               parent_relative_path TEXT NOT NULL,
@@ -77,6 +87,15 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
                   REFERENCES file(library_id, relative_path)
           );
         `)
+
+        // Insert library record with hash-based ID
+        const libraryId = createLibraryId(folderPath)
+        const libraryName = path.basename(folderPath)
+        db.prepare('INSERT INTO library (library_id, library_name) VALUES (?, ?)').run(
+          libraryId,
+          libraryName
+        )
+
         db.close()
         return { success: true, path: dbFilePath }
       } catch (err) {
@@ -93,9 +112,20 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       if (!result.found) return { inQueue: false }
       try {
         const db = new Database(result.dbPath)
-        const row = db.prepare('SELECT note_id FROM file WHERE file_path = ?').get(filePath)
+        const relativePath = path.relative(result.rootPath, filePath)
+        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+        if (!libraryId) {
+          db.close()
+          return { inQueue: false }
+        }
+        const { exists_flag } = db
+          .prepare(
+            'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+          )
+          .get(libraryId, relativePath)
+        const exists = exists_flag === 1
         db.close()
-        return { inQueue: !!row }
+        return { inQueue: exists }
       } catch (err) {
         return { inQueue: false }
       }
@@ -112,22 +142,31 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       }
       try {
         const db = new Database(result.dbPath)
-        const row = db.prepare('SELECT note_id FROM file WHERE file_path = ?').get(filePath)
-        if (row) {
+        const relativePath = path.relative(result.rootPath, filePath)
+        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+        if (!libraryId) {
+          db.close()
+          return { success: false, error: 'Library not found' }
+        }
+
+        const { exists_flag } = db
+          .prepare(
+            'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+          )
+          .get(libraryId, relativePath)
+        const exists = exists_flag === 1
+        if (exists) {
           db.close()
           return { success: false, error: 'File already in queue', alreadyExists: true }
         }
-        const insertStmt = db.prepare(
-          `INSERT INTO file (file_path, creation_time, review_count, difficulty, due_time) 
-           VALUES (?, datetime('now'), 0, 0.0, datetime('now'))`
-        )
-        const info = insertStmt.run(filePath)
-        const noteId = info.lastInsertRowid
+
         db.prepare(
-          'INSERT OR IGNORE INTO folder_data (folder_path, overall_priority) VALUES (?, 0)'
-        ).run(result.rootPath)
+          `INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, importance, due_time)
+          VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))`
+        ).run(libraryId, relativePath)
+
         db.close()
-        return { success: true, noteId, message: 'File added to revision queue' }
+        return { success: true, message: 'File added to revision queue' }
       } catch (err) {
         return { success: false, error: err.message }
       }
@@ -162,10 +201,11 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       for (const dbPath of dbPaths) {
         try {
           const db = new Database(dbPath, { readonly: true })
+          const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
           const rows = db
             .prepare(
               `
-            SELECT note_id, file_path, creation_time, last_revised_time, 
+            SELECT library_id, relative_path, added_time, last_revised_time, 
                    review_count, difficulty, due_time
             FROM file
             WHERE date(due_time) <= date('now')
@@ -173,7 +213,13 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           `
             )
             .all()
-          allFiles.push(...rows.map((row) => ({ ...row, dbPath })))
+          allFiles.push(
+            ...rows.map((row) => ({
+              ...row,
+              file_path: path.join(dbRootPath, row.relative_path),
+              dbPath,
+            }))
+          )
           db.close()
         } catch (err) {}
       }
@@ -208,7 +254,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           const rows = db
             .prepare(
               `
-            SELECT note_id, file_path, creation_time, last_revised_time, 
+            SELECT library_id, relative_path, added_time, last_revised_time, 
                    review_count, difficulty, due_time
             FROM file
             WHERE date(due_time) <= date('now')
@@ -219,6 +265,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           allFiles.push(
             ...rows.map((row) => ({
               ...row,
+              file_path: path.join(workspace.folder_path, row.relative_path),
               dbPath: workspace.db_path,
               workspacePath: workspace.folder_path,
             }))
@@ -233,34 +280,37 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
     }
   })
 
-  ipcMain.handle('update-revision-feedback', async (event, dbPath, noteId, feedback) => {
-    try {
-      const intervals = { again: 0, hard: 1, medium: 3, easy: 7 }
-      const daysToAdd = intervals[feedback] || 1
-      const difficultyChanges = { again: 0.2, hard: 0.1, medium: 0, easy: -0.1 }
-      const difficultyChange = difficultyChanges[feedback] || 0
+  ipcMain.handle(
+    'update-revision-feedback',
+    async (event, dbPath, libraryId, relativePath, feedback) => {
       try {
-        const db = new Database(dbPath)
-        const stmt = db.prepare(`
+        const intervals = { again: 0, hard: 1, medium: 3, easy: 7 }
+        const daysToAdd = intervals[feedback] || 1
+        const difficultyChanges = { again: 0.2, hard: 0.1, medium: 0, easy: -0.1 }
+        const difficultyChange = difficultyChanges[feedback] || 0
+        try {
+          const db = new Database(dbPath)
+          const stmt = db.prepare(`
           UPDATE file
           SET last_revised_time = datetime('now'),
               review_count = review_count + 1,
               difficulty = MAX(0.0, MIN(1.0, difficulty + ?)),
               due_time = datetime('now', '+' || ? || ' days')
-          WHERE note_id = ?
+          WHERE library_id = ? AND relative_path = ?
         `)
-        const info = stmt.run(difficultyChange, daysToAdd, noteId)
-        db.close()
-        return {
-          success: true,
-          message: `File updated. Next review in ${daysToAdd} day(s)`,
-          changes: info.changes,
+          const info = stmt.run(difficultyChange, daysToAdd, libraryId, relativePath)
+          db.close()
+          return {
+            success: true,
+            message: `File updated. Next review in ${daysToAdd} day(s)`,
+            changes: info.changes,
+          }
+        } catch (err) {
+          return { success: false, error: err.message }
         }
-      } catch (err) {
-        return { success: false, error: err.message }
+      } catch (error) {
+        return { success: false, error: error.message }
       }
-    } catch (error) {
-      return { success: false, error: error.message }
     }
-  })
+  )
 }
