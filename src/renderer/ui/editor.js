@@ -131,8 +131,17 @@ extractBtn.addEventListener('click', async () => {
     return
   }
 
+  // Extract line numbers for range tracking
+  const rangeStart = selectedLines[0].number
+  const rangeEnd = selectedLines[selectedLines.length - 1].number
+
   try {
-    const result = await window.fileManager.extractNote(currentOpenFile, selectedText)
+    const result = await window.fileManager.extractNote(
+      currentOpenFile,
+      selectedText,
+      rangeStart,
+      rangeEnd
+    )
     if (result.success) {
       codeMirrorEditor.lockSelectedLines()
       showToast(`Note extracted to ${result.fileName}`)

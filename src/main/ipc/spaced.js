@@ -71,19 +71,16 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
                 REFERENCES review_queue(library_id, queue_name)
           );
 
-          CREATE TABLE note_hierarchy (
+          CREATE TABLE note_source (
               library_id TEXT NOT NULL,
-              child_relative_path TEXT NOT NULL,
-              parent_relative_path TEXT NOT NULL,
-              start_line INTEGER NOT NULL,
-              end_line INTEGER NOT NULL,
-              parent_original_hash TEXT NOT NULL,
-              created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+              relative_path TEXT NOT NULL,
+              extract_type TEXT NOT NULL,
+              range_start TEXT,
+              range_end TEXT,
+              source_hash TEXT,
 
-              PRIMARY KEY (library_id, child_relative_path),
-              FOREIGN KEY (library_id, child_relative_path) 
-                  REFERENCES file(library_id, relative_path),
-              FOREIGN KEY (library_id, parent_relative_path) 
+              PRIMARY KEY (library_id, relative_path),
+              FOREIGN KEY (library_id, relative_path) 
                   REFERENCES file(library_id, relative_path)
           );
         `)

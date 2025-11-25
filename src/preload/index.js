@@ -29,8 +29,8 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
-  extractNote: (filePath, selectedText) =>
-    ipcRenderer.invoke('extract-note', filePath, selectedText),
+  extractNote: (filePath, selectedText, rangeStart, rangeEnd) =>
+    ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
