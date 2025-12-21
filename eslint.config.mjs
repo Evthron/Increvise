@@ -1,27 +1,33 @@
 import js from '@eslint/js'
-import globals from 'globals'
-import { defineConfig } from 'eslint/config'
 
-export default defineConfig([
+export default [
+  js.configs.recommended,
   {
-    files: ['**/*.{js,mjs,cjs}'],
-    plugins: {
-      js,
-    },
-    extends: ['js/recommended', 'prettier'],
     languageOptions: {
-      globals: {
-        ...globals.browser,
-        ...globals.node,
-        ...globals.es2021,
-      },
-      ecmaVersion: 'latest',
+      ecmaVersion: 2022,
       sourceType: 'module',
+      globals: {
+        // Node.js globals
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        // Browser globals
+        window: 'readonly',
+        document: 'readonly',
+        console: 'readonly',
+        alert: 'readonly',
+        confirm: 'readonly',
+      },
     },
     rules: {
-      indent: ['error', 2],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-console': 'off',
       semi: ['error', 'never'],
-      'prefer-const': 'error',
+      quotes: ['error', 'single'],
+      indent: ['error', 2],
     },
   },
-])
+  {
+    ignores: ['node_modules/**', 'dist/**', 'out/**'],
+  },
+]
