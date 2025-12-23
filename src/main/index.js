@@ -4,7 +4,7 @@
 
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
-import { getCentralDbPath, findIncreviseDatabase, initializeCentralDatabase } from './db/index.js'
+import { getCentralDbPath, initializeCentralDatabase } from './db/index.js'
 import { registerFileIpc } from './ipc/file.js'
 import { registerSpacedIpc } from './ipc/spaced.js'
 import { registerIncrementalIpc } from './ipc/incremental.js'
@@ -37,8 +37,8 @@ app.whenReady().then(async () => {
 
   // Register IPC handlers
   registerFileIpc(ipcMain)
-  registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath)
-  registerIncrementalIpc(ipcMain, findIncreviseDatabase)
+  registerSpacedIpc(ipcMain, getCentralDbPath)
+  registerIncrementalIpc(ipcMain, getCentralDbPath)
   registerWorkspaceIpc(ipcMain, getCentralDbPath)
   createWindow()
 

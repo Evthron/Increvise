@@ -17,30 +17,6 @@ export function getIncreviseDataDir() {
   return path.join(dataHome, 'increvise')
 }
 
-export async function findIncreviseDatabase(filePath) {
-  // .increvise/db.sqlite should be located in some ancestor directory
-  let currentDir = path.dirname(filePath)
-  const rootDir = path.parse(currentDir).root
-
-  while (currentDir !== rootDir) {
-    const increviseDir = path.join(currentDir, '.increvise')
-    const dbPath = path.join(increviseDir, 'db.sqlite')
-
-    try {
-      await fs.access(dbPath)
-      return {
-        found: true,
-        dbPath: dbPath,
-        rootPath: currentDir,
-      }
-    } catch {}
-
-    currentDir = path.dirname(currentDir)
-  }
-
-  return { found: false, dbPath: null, rootPath: null }
-}
-
 export async function initializeCentralDatabase() {
   const increviseDataDir = getIncreviseDataDir()
   const centralDbPath = getCentralDbPath()
@@ -53,7 +29,7 @@ export async function initializeCentralDatabase() {
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS workspace_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        library_id TEXT PRIMARY KEY,
         folder_path TEXT NOT NULL UNIQUE,
         folder_name TEXT NOT NULL,
         db_path TEXT NOT NULL,
@@ -77,5 +53,37 @@ export async function initializeCentralDatabase() {
   } catch (err) {
     console.error('Error creating central database:', err)
     throw err
+  }
+}
+
+// Get workspace database path by library UUID
+export async function getWorkspaceDbPath(libraryId, getCentralDbPath) {
+  try {
+    const centralDbPath = getCentralDbPath()
+    const db = new Database(centralDbPath, { readonly: true })
+
+    const result = db
+      .prepare('SELECT db_path, folder_path FROM workspace_history WHERE library_id = ?')
+      .get(libraryId)
+
+    db.close()
+
+    if (result) {
+      // Verify database file still exists
+      try {
+        await fs.access(result.db_path)
+        return {
+          found: true,
+          dbPath: result.db_path,
+          folderPath: result.folder_path,
+        }
+      } catch {
+        return { found: false, error: 'Database file not found at registered path' }
+      }
+    }
+
+    return { found: false, error: 'Library ID not found in central database' }
+  } catch (err) {
+    return { found: false, error: err.message }
   }
 }

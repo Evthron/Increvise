@@ -22,6 +22,9 @@ const TEST_WORKSPACE = path.join(__dirname, 'test-workspace')
 const TEST_DB_PATH = path.join(TEST_WORKSPACE, '.increvise', 'db.sqlite')
 const CENTRAL_DB_PATH = path.join(__dirname, 'test-central.sqlite')
 
+// Mock getCentralDbPath function
+const getCentralDbPath = () => CENTRAL_DB_PATH
+
 function printSeparator(title) {
   console.log(`\n${title}`)
 }
@@ -65,12 +68,30 @@ function getLibraryId(dbPath) {
 async function test1_CreateDatabase() {
   printSeparator('Test 1: createDatabase')
 
-  // Clean up old test workspace
+  // Clean up old test workspace and central DB
   try {
     await fs.rm(TEST_WORKSPACE, { recursive: true, force: true })
+    await fs.unlink(CENTRAL_DB_PATH)
   } catch {}
 
-  const result = await createDatabase(TEST_WORKSPACE)
+  // Create central database first
+  const centralDb = new Database(CENTRAL_DB_PATH)
+  centralDb.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_history (
+      library_id TEXT PRIMARY KEY,
+      folder_path TEXT NOT NULL UNIQUE,
+      folder_name TEXT NOT NULL,
+      db_path TEXT NOT NULL,
+      first_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
+      open_count INTEGER DEFAULT 1,
+      total_files INTEGER DEFAULT 0,
+      files_due_today INTEGER DEFAULT 0
+    )
+  `)
+  centralDb.close()
+
+  const result = await createDatabase(TEST_WORKSPACE, getCentralDbPath)
 
   if (result.success) {
     const db = new Database(result.path, { readonly: true })
@@ -82,6 +103,7 @@ async function test1_CreateDatabase() {
 
     console.log(`  ✓ Created database with ${tables.length} tables`)
     console.log(`  ✓ Library: ${library.library_name} (${library.library_id})`)
+    console.log(`  ✓ Registered in central database`)
 
     // Insert test data for subsequent tests
     insertTestData(result.path, library.library_id)
@@ -241,23 +263,14 @@ async function test6_CheckFileInQueue() {
 
   const libraryId = getLibraryId(TEST_DB_PATH)
 
-  // Mock findIncreviseDatabase function
-  const findIncreviseDatabase = async (filePath) => {
-    return {
-      found: true,
-      dbPath: TEST_DB_PATH,
-      rootPath: TEST_WORKSPACE,
-    }
-  }
-
   // Test existing file
   const existingFile = path.join(TEST_WORKSPACE, 'new-file.md')
-  const result1 = await checkFileInQueue(existingFile, findIncreviseDatabase)
+  const result1 = await checkFileInQueue(existingFile, libraryId, getCentralDbPath)
   console.log(`  File in queue (new-file.md): ${result1.inQueue}`)
 
   // Test non-existing file
   const nonExistingFile = path.join(TEST_WORKSPACE, 'not-in-queue.md')
-  const result2 = await checkFileInQueue(nonExistingFile, findIncreviseDatabase)
+  const result2 = await checkFileInQueue(nonExistingFile, libraryId, getCentralDbPath)
   console.log(`  File NOT in queue (not-in-queue.md): ${!result2.inQueue}`)
 
   console.log(`  ✓ checkFileInQueue works correctly`)
@@ -271,22 +284,13 @@ async function test7_AddFileToQueue() {
 
   const libraryId = getLibraryId(TEST_DB_PATH)
 
-  // Mock findIncreviseDatabase function
-  const findIncreviseDatabase = async (filePath) => {
-    return {
-      found: true,
-      dbPath: TEST_DB_PATH,
-      rootPath: TEST_WORKSPACE,
-    }
-  }
-
   // Add new file
   const newFile = path.join(TEST_WORKSPACE, 'test-add-file.md')
-  const result1 = await addFileToQueue(newFile, findIncreviseDatabase)
+  const result1 = await addFileToQueue(newFile, libraryId, getCentralDbPath)
   console.log(`  Add new file: ${result1.success ? 'success' : 'failed'}`)
 
   // Try to add the same file again
-  const result2 = await addFileToQueue(newFile, findIncreviseDatabase)
+  const result2 = await addFileToQueue(newFile, libraryId, getCentralDbPath)
   console.log(`  Add duplicate file: ${result2.alreadyExists ? 'rejected' : 'unexpected'}`)
 
   // Verify the file is in database
@@ -338,28 +342,7 @@ async function test8_GetFilesForRevision() {
 async function test9_GetAllFilesForRevision() {
   printSeparator('Test 9: getAllFilesForRevision')
 
-  // Create a mock central database with workspace history
-  const centralDb = new Database(CENTRAL_DB_PATH)
-
-  // Create workspace_history table (matching the schema used by the app)
-  centralDb.exec(`
-    CREATE TABLE IF NOT EXISTS workspace_history (
-      folder_path TEXT PRIMARY KEY,
-      db_path TEXT NOT NULL,
-      last_opened DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `)
-
-  // Insert our test workspace
-  centralDb
-    .prepare('INSERT OR REPLACE INTO workspace_history (folder_path, db_path) VALUES (?, ?)')
-    .run(TEST_WORKSPACE, TEST_DB_PATH)
-
-  centralDb.close()
-
-  // Mock getCentralDbPath function
-  const getCentralDbPath = () => CENTRAL_DB_PATH
-
+  // Central database already exists and contains our workspace from test1
   const result = await getAllFilesForRevision(getCentralDbPath)
 
   console.log(`  Success: ${result.success}`)
@@ -370,9 +353,6 @@ async function test9_GetAllFilesForRevision() {
       console.log(`    - ${file.relative_path}`)
     })
   }
-
-  // Cleanup
-  await fs.unlink(CENTRAL_DB_PATH)
 
   console.log(`  ✓ getAllFilesForRevision works correctly`)
 }
@@ -399,6 +379,11 @@ async function runAllTests() {
   } catch (error) {
     console.error('\n✗ Test failed:', error.message)
     console.error(error.stack)
+  } finally {
+    // Cleanup central database
+    try {
+      await fs.unlink(CENTRAL_DB_PATH)
+    } catch {}
   }
 }
 

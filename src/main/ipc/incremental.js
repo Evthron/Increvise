@@ -7,6 +7,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
+import { getWorkspaceDbPath } from '../db/index.js'
 
 /**
  * Parse a hierarchical note filename
@@ -158,15 +159,16 @@ async function extractNote(
   selectedText,
   rangeStart,
   rangeEnd,
-  findIncreviseDatabase
+  libraryId,
+  getCentralDbPath
 ) {
   try {
-    // Verify database exists first
-    const result = await findIncreviseDatabase(parentFilePath)
-    if (!result.found) {
+    // Get database info from central database
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
       return {
         success: false,
-        error: 'Database not found. Please create a database first.',
+        error: dbInfo.error || 'Database not found',
       }
     }
 
@@ -198,43 +200,40 @@ async function extractNote(
     // Write the new note file
     await fs.writeFile(newFilePath, selectedText, 'utf-8')
 
-    // Update database (use result from earlier check)
+    // Update database
     try {
-      const db = new Database(result.dbPath)
-      const relativePath = path.relative(result.rootPath, newFilePath)
-      const parentRelativePath = path.relative(result.rootPath, parentFilePath)
-      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, newFilePath)
+      const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
-      if (libraryId) {
-        // Insert file record
-        db.prepare(
+      // Insert file record
+      db.prepare(
+        `
+            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
           `
-              INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-              VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
-            `
-        ).run(libraryId, relativePath)
+      ).run(libraryId, relativePath)
 
-        // Insert note_source record with parent_path
-        if (rangeStart && rangeEnd) {
-          const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-          try {
-            db.prepare(
+      // Insert note_source record with parent_path
+      if (rangeStart && rangeEnd) {
+        const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+        try {
+          db.prepare(
+            `
+                INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
               `
-                  INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)
-                `
-            ).run(
-              libraryId,
-              relativePath,
-              parentRelativePath,
-              'text-lines',
-              String(rangeStart),
-              String(rangeEnd),
-              sourceHash
-            )
-          } catch (err) {
-            console.error('Failed to insert note_source record:', err.message)
-          }
+          ).run(
+            libraryId,
+            relativePath,
+            parentRelativePath,
+            'text-lines',
+            String(rangeStart),
+            String(rangeEnd),
+            sourceHash
+          )
+        } catch (err) {
+          console.error('Failed to insert note_source record:', err.message)
         }
       }
       db.close()
@@ -252,15 +251,15 @@ async function extractNote(
   }
 }
 
-export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
+export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
 
   ipcMain.handle('write-file', async (event, filePath, content) => writeFile(filePath, content))
 
   ipcMain.handle(
     'extract-note',
-    async (event, parentFilePath, selectedText, rangeStart, rangeEnd, findIncreviseDatabase) =>
-      extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, findIncreviseDatabase)
+    async (event, parentFilePath, selectedText, rangeStart, rangeEnd, libraryId) =>
+      extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
   )
 }
 

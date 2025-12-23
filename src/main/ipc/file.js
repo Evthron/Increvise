@@ -8,8 +8,8 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 
 async function selectFolder() {
-  console.log('select-folder IPC handler invoked')
   try {
+    // Open system dialog to select folder
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
     })
@@ -162,6 +162,7 @@ async function getDirectoryTree(dirPath) {
   return await buildTree(dirPath)
 }
 
+// Get the first-level children of a directory
 async function fetchChildren(dirPath) {
   try {
     const items = await fs.readdir(dirPath, { withFileTypes: true })

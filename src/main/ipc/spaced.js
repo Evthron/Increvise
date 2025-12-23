@@ -7,17 +7,27 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
+import { getWorkspaceDbPath } from '../db/index.js'
 
-async function createDatabase(folderPath) {
+async function createDatabase(folderPath, getCentralDbPath) {
   try {
     const increviseFolder = path.join(folderPath, '.increvise')
     const dbFilePath = path.join(increviseFolder, 'db.sqlite')
     await fs.mkdir(increviseFolder, { recursive: true })
+
+    // Check if database already exists
     try {
-      // If database already exists, skip creation
       await fs.access(dbFilePath)
-      return { success: true, path: dbFilePath }
+      // Database exists, get its library_id
+      const db = new Database(dbFilePath, { readonly: true })
+      const library = db.prepare('SELECT library_id FROM library LIMIT 1').get()
+      db.close()
+
+      if (library) {
+        return { success: true, path: dbFilePath, libraryId: library.library_id }
+      }
     } catch {}
+
     try {
       // Create and initialize the database
       const db = new Database(dbFilePath)
@@ -91,7 +101,25 @@ async function createDatabase(folderPath) {
       )
 
       db.close()
-      return { success: true, path: dbFilePath }
+
+      // Register in central database
+      try {
+        const centralDbPath = getCentralDbPath()
+        const centralDb = new Database(centralDbPath)
+        centralDb
+          .prepare(
+            `INSERT OR REPLACE INTO workspace_history 
+             (library_id, folder_path, folder_name, db_path, last_opened, open_count)
+             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 1)`
+          )
+          .run(libraryId, folderPath, libraryName, dbFilePath)
+        centralDb.close()
+      } catch (err) {
+        console.error('Failed to register workspace in central database:', err)
+        // Continue anyway - database is created successfully
+      }
+
+      return { success: true, path: dbFilePath, libraryId }
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -100,20 +128,15 @@ async function createDatabase(folderPath) {
   }
 }
 
-async function checkFileInQueue(filePath, findIncreviseDatabase) {
+async function checkFileInQueue(filePath, libraryId, getCentralDbPath) {
   try {
-    const result = await findIncreviseDatabase(filePath)
-    if (!result.found) {
-      return { inQueue: false, error: 'Database not found. Please create a database first.' }
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { inQueue: false, error: dbInfo.error || 'Database not found' }
     }
     try {
-      const db = new Database(result.dbPath)
-      const relativePath = path.relative(result.rootPath, filePath)
-      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
-      if (!libraryId) {
-        db.close()
-        return { inQueue: false, error: 'Database library entry not found' }
-      }
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
       const { exists_flag } = db
         .prepare(
           'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
@@ -123,27 +146,22 @@ async function checkFileInQueue(filePath, findIncreviseDatabase) {
       db.close()
       return { inQueue: exists }
     } catch (err) {
-      return { inQueue: false }
+      return { inQueue: false, error: err.message }
     }
   } catch (error) {
-    return { inQueue: false }
+    return { inQueue: false, error: error.message }
   }
 }
 
-async function addFileToQueue(filePath, findIncreviseDatabase) {
+async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
   try {
-    const result = await findIncreviseDatabase(filePath)
-    if (!result.found) {
-      return { success: false, error: 'Database not found. Please create a database first.' }
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
     }
     try {
-      const db = new Database(result.dbPath)
-      const relativePath = path.relative(result.rootPath, filePath)
-      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
-      if (!libraryId) {
-        db.close()
-        return { success: false, error: 'Database library entry not found' }
-      }
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
 
       const { exists_flag } = db
         .prepare(
@@ -327,13 +345,15 @@ async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   }
 }
 
-export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
-  ipcMain.handle('create-database', (event, folderPath) => createDatabase(folderPath))
-  ipcMain.handle('check-file-in-queue', (event, filePath) =>
-    checkFileInQueue(filePath, findIncreviseDatabase)
+export function registerSpacedIpc(ipcMain, getCentralDbPath) {
+  ipcMain.handle('create-database', (event, folderPath) =>
+    createDatabase(folderPath, getCentralDbPath)
   )
-  ipcMain.handle('add-file-to-queue', (event, filePath) =>
-    addFileToQueue(filePath, findIncreviseDatabase)
+  ipcMain.handle('check-file-in-queue', (event, filePath, libraryId) =>
+    checkFileInQueue(filePath, libraryId, getCentralDbPath)
+  )
+  ipcMain.handle('add-file-to-queue', (event, filePath, libraryId) =>
+    addFileToQueue(filePath, libraryId, getCentralDbPath)
   )
   ipcMain.handle('get-files-for-revision', (event, rootPath) => getFilesForRevision(rootPath))
   ipcMain.handle('get-all-files-for-revision', (event) => getAllFilesForRevision(getCentralDbPath))
