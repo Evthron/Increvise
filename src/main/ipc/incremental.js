@@ -135,118 +135,134 @@ async function findParentPath(noteFilePath, db, libraryId, rootPath) {
   }
 }
 
-export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
-  ipcMain.handle('read-file', async (event, filePath) => {
-    try {
-      const content = await fs.readFile(filePath, 'utf-8')
-      return { success: true, content }
-    } catch (error) {
-      return { success: false, error: error.message }
+async function readFile(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8')
+    return { success: true, content }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function writeFile(filePath, content) {
+  try {
+    await fs.writeFile(filePath, content, 'utf-8')
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function extractNote(
+  parentFilePath,
+  selectedText,
+  rangeStart,
+  rangeEnd,
+  findIncreviseDatabase
+) {
+  try {
+    // Verify database exists first
+    const result = await findIncreviseDatabase(parentFilePath)
+    if (!result.found) {
+      return {
+        success: false,
+        error: 'Database not found. Please create a database first.',
+      }
     }
-  })
 
-  ipcMain.handle('write-file', async (event, filePath, content) => {
+    const parentDir = path.dirname(parentFilePath)
+    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+
+    // Determine the note folder: same-name folder next to parent file
+    const noteFolder = path.join(parentDir, parentFileName)
+
+    // Create note folder if it doesn't exist
+    await fs.mkdir(noteFolder, { recursive: true })
+
+    // Generate new filename using hierarchical naming scheme
+    const newFileName =
+      generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
+    const newFilePath = path.join(noteFolder, newFileName)
+
+    // Check if file already exists
     try {
-      await fs.writeFile(filePath, content, 'utf-8')
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
+      await fs.access(newFilePath)
+      return {
+        success: false,
+        error: 'A note with this name already exists. Please select different lines.',
+      }
+    } catch {
+      // File doesn't exist, good to proceed
     }
-  })
 
-  ipcMain.handle(
-    'extract-note',
-    async (event, parentFilePath, selectedText, rangeStart, rangeEnd) => {
-      try {
-        // Verify database exists first
-        const result = await findIncreviseDatabase(parentFilePath)
-        if (!result.found) {
-          return {
-            success: false,
-            error: 'Database not found. Please create a database first.',
-          }
-        }
+    // Write the new note file
+    await fs.writeFile(newFilePath, selectedText, 'utf-8')
 
-        const parentDir = path.dirname(parentFilePath)
-        const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    // Update database (use result from earlier check)
+    try {
+      const db = new Database(result.dbPath)
+      const relativePath = path.relative(result.rootPath, newFilePath)
+      const parentRelativePath = path.relative(result.rootPath, parentFilePath)
+      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
 
-        // Determine the note folder: same-name folder next to parent file
-        const noteFolder = path.join(parentDir, parentFileName)
-
-        // Create note folder if it doesn't exist
-        await fs.mkdir(noteFolder, { recursive: true })
-
-        // Generate new filename using hierarchical naming scheme
-        const newFileName =
-          generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
-        const newFilePath = path.join(noteFolder, newFileName)
-
-        // Check if file already exists
-        try {
-          await fs.access(newFilePath)
-          return {
-            success: false,
-            error: 'A note with this name already exists. Please select different lines.',
-          }
-        } catch {
-          // File doesn't exist, good to proceed
-        }
-
-        // Write the new note file
-        await fs.writeFile(newFilePath, selectedText, 'utf-8')
-
-        // Update database (use result from earlier check)
-        try {
-          const db = new Database(result.dbPath)
-          const relativePath = path.relative(result.rootPath, newFilePath)
-          const parentRelativePath = path.relative(result.rootPath, parentFilePath)
-          const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
-
-          if (libraryId) {
-            // Insert file record
-            db.prepare(
-              `
+      if (libraryId) {
+        // Insert file record
+        db.prepare(
+          `
               INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
               VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
             `
-            ).run(libraryId, relativePath)
+        ).run(libraryId, relativePath)
 
-            // Insert note_source record with parent_path
-            if (rangeStart && rangeEnd) {
-              const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-              try {
-                db.prepare(
-                  `
+        // Insert note_source record with parent_path
+        if (rangeStart && rangeEnd) {
+          const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+          try {
+            db.prepare(
+              `
                   INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
                   VALUES (?, ?, ?, ?, ?, ?, ?)
                 `
-                ).run(
-                  libraryId,
-                  relativePath,
-                  parentRelativePath,
-                  'text-lines',
-                  String(rangeStart),
-                  String(rangeEnd),
-                  sourceHash
-                )
-              } catch (err) {
-                console.error('Failed to insert note_source record:', err.message)
-              }
-            }
+            ).run(
+              libraryId,
+              relativePath,
+              parentRelativePath,
+              'text-lines',
+              String(rangeStart),
+              String(rangeEnd),
+              sourceHash
+            )
+          } catch (err) {
+            console.error('Failed to insert note_source record:', err.message)
           }
-          db.close()
-        } catch (err) {
-          console.error('Database error:', err)
         }
-
-        return {
-          success: true,
-          fileName: newFileName,
-          filePath: newFilePath,
-        }
-      } catch (error) {
-        return { success: false, error: error.message }
       }
+      db.close()
+    } catch (err) {
+      console.error('Database error:', err)
     }
+
+    return {
+      success: true,
+      fileName: newFileName,
+      filePath: newFilePath,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
+  ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
+
+  ipcMain.handle('write-file', async (event, filePath, content) => writeFile(filePath, content))
+
+  ipcMain.handle(
+    'extract-note',
+    async (event, parentFilePath, selectedText, rangeStart, rangeEnd, findIncreviseDatabase) =>
+      extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, findIncreviseDatabase)
   )
 }
+
+// Export functions for testing
+export { readFile, writeFile, extractNote }

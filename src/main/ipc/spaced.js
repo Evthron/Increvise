@@ -8,7 +8,7 @@ import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 
-async function createDatabase(event, folderPath) {
+async function createDatabase(folderPath) {
   try {
     const increviseFolder = path.join(folderPath, '.increvise')
     const dbFilePath = path.join(increviseFolder, 'db.sqlite')
@@ -100,7 +100,7 @@ async function createDatabase(event, folderPath) {
   }
 }
 
-async function checkFileInQueue(event, filePath, findIncreviseDatabase) {
+async function checkFileInQueue(filePath, findIncreviseDatabase) {
   try {
     const result = await findIncreviseDatabase(filePath)
     if (!result.found) {
@@ -130,7 +130,7 @@ async function checkFileInQueue(event, filePath, findIncreviseDatabase) {
   }
 }
 
-async function addFileToQueue(event, filePath) {
+async function addFileToQueue(filePath, findIncreviseDatabase) {
   try {
     const result = await findIncreviseDatabase(filePath)
     if (!result.found) {
@@ -171,7 +171,7 @@ async function addFileToQueue(event, filePath) {
   }
 }
 
-async function getFilesForRevision(event, rootPath) {
+async function getFilesForRevision(rootPath) {
   // Get all the increvise database under the specfied rootPath
   try {
     const findDatabases = async (dir) => {
@@ -226,7 +226,7 @@ async function getFilesForRevision(event, rootPath) {
   }
 }
 
-async function getAllFilesForRevision(event, getCentralDbPath) {
+async function getAllFilesForRevision(getCentralDbPath) {
   try {
     const centralDbPath = getCentralDbPath()
     let workspaces = []
@@ -277,7 +277,7 @@ async function getAllFilesForRevision(event, getCentralDbPath) {
   }
 }
 
-async function updateRevisionFeedback(event, dbPath, libraryId, relativePath, feedback) {
+async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback) {
   const response_quality = { again: 0, hard: 1, medium: 3, easy: 5 }
   const q = response_quality[feedback]
   const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
@@ -296,7 +296,9 @@ async function updateRevisionFeedback(event, dbPath, libraryId, relativePath, fe
     const newEasiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
     const newRank = rank + Math.floor(easiness_update * 5)
     let newInterval
-    if (reviewCount === 0) {
+    if (q === 0) {
+      newInterval = 1
+    } else if (reviewCount === 0) {
       newInterval = 1
     } else if (reviewCount === 1) {
       newInterval = 6
@@ -309,8 +311,8 @@ async function updateRevisionFeedback(event, dbPath, libraryId, relativePath, fe
               review_count = review_count + 1,
               easiness = ?,
               interval = ?,
-              due_time = datetime('now', '+' || ? || ' days')
-              rank = ?,
+              due_time = datetime('now', '+' || ? || ' days'),
+              rank = ?
           WHERE library_id = ? AND relative_path = ?
         `)
     const info = stmt.run(newEasiness, newInterval, newInterval, newRank, libraryId, relativePath)
@@ -326,18 +328,26 @@ async function updateRevisionFeedback(event, dbPath, libraryId, relativePath, fe
 }
 
 export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
-  ipcMain.handle('create-database', (event, folderPath) => createDatabase(event, folderPath))
+  ipcMain.handle('create-database', (event, folderPath) => createDatabase(folderPath))
   ipcMain.handle('check-file-in-queue', (event, filePath) =>
-    checkFileInQueue(event, filePath, findIncreviseDatabase)
+    checkFileInQueue(filePath, findIncreviseDatabase)
   )
-  ipcMain.handle('add-file-to-queue', (event, filePath) => addFileToQueue(event, filePath))
-  ipcMain.handle('get-files-for-revision', (event, rootPath) =>
-    getFilesForRevision(event, rootPath)
+  ipcMain.handle('add-file-to-queue', (event, filePath) =>
+    addFileToQueue(filePath, findIncreviseDatabase)
   )
-  ipcMain.handle('get-all-files-for-revision', (event) =>
-    getAllFilesForRevision(event, getCentralDbPath)
-  )
+  ipcMain.handle('get-files-for-revision', (event, rootPath) => getFilesForRevision(rootPath))
+  ipcMain.handle('get-all-files-for-revision', (event) => getAllFilesForRevision(getCentralDbPath))
   ipcMain.handle('update-revision-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
-    updateRevisionFeedback(event, dbPath, libraryId, relativePath, feedback)
+    updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   )
+}
+
+// Export functions for testing
+export {
+  createDatabase,
+  checkFileInQueue,
+  addFileToQueue,
+  getFilesForRevision,
+  getAllFilesForRevision,
+  updateRevisionFeedback,
 }
