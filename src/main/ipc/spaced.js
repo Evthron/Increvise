@@ -8,10 +8,9 @@ import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 
-// Helper function to create a short hash from a file path
-function createLibraryId(folderPath) {
-  const hash = crypto.createHash('sha256').update(folderPath).digest('hex')
-  return hash.substring(0, 16) // Use first 16 characters for shorter ID
+// Helper function to create a random UUID for library ID
+function createLibraryId() {
+  return crypto.randomUUID()
 }
 
 export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
@@ -21,7 +20,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
       const dbFilePath = path.join(increviseFolder, 'db.sqlite')
       await fs.mkdir(increviseFolder, { recursive: true })
       try {
-        // Database already exists
+        // If database already exists, skip creation
         await fs.access(dbFilePath)
         return { success: true, path: dbFilePath }
       } catch {}
