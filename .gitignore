@@ -143,3 +143,8 @@ vite.config.ts.timestamp-*
 # Electron-vite build output
 out/
 dist-electron/
+
+# Test
+*.sqlite
+test/test-workspace
+test/temp-test-workspace

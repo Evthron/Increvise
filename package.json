@@ -11,7 +11,9 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
-    "postinstall": "electron-rebuild"
+    "postinstall": "electron-rebuild",
+    "test": "node test/spaced.test.js",
+    "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
