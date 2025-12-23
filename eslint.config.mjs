@@ -23,7 +23,7 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-console': 'off',
       semi: ['error', 'never'],
-      quotes: ['error', 'single'],
+      quotes: ['error', 'warn'],
       indent: ['error', 2],
     },
   },
