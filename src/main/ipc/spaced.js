@@ -157,7 +157,7 @@ async function addFileToQueue(event, filePath) {
       }
 
       db.prepare(
-        `INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, rank, due_time)
+        `INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
           VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))`
       ).run(libraryId, relativePath)
 
@@ -203,7 +203,7 @@ async function getFilesForRevision(event, rootPath) {
           .prepare(
             `
             SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, difficulty, due_time
+                   review_count, easiness, due_time
             FROM file
             WHERE date(due_time) <= date('now')
             ORDER BY due_time ASC
@@ -252,7 +252,7 @@ async function getAllFilesForRevision(event, getCentralDbPath) {
           .prepare(
             `
             SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, difficulty, due_time
+                   review_count, easiness, due_time
             FROM file
             WHERE date(due_time) <= date('now')
             ORDER BY due_time ASC
