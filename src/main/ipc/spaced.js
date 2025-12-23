@@ -8,26 +8,20 @@ import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 
-// Helper function to create a random UUID for library ID
-function createLibraryId() {
-  return crypto.randomUUID()
-}
-
-export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
-  ipcMain.handle('create-database', async (event, folderPath) => {
+async function createDatabase(event, folderPath) {
+  try {
+    const increviseFolder = path.join(folderPath, '.increvise')
+    const dbFilePath = path.join(increviseFolder, 'db.sqlite')
+    await fs.mkdir(increviseFolder, { recursive: true })
     try {
-      const increviseFolder = path.join(folderPath, '.increvise')
-      const dbFilePath = path.join(increviseFolder, 'db.sqlite')
-      await fs.mkdir(increviseFolder, { recursive: true })
-      try {
-        // If database already exists, skip creation
-        await fs.access(dbFilePath)
-        return { success: true, path: dbFilePath }
-      } catch {}
-      try {
-        // Create and initialize the database
-        const db = new Database(dbFilePath)
-        db.exec(`
+      // If database already exists, skip creation
+      await fs.access(dbFilePath)
+      return { success: true, path: dbFilePath }
+    } catch {}
+    try {
+      // Create and initialize the database
+      const db = new Database(dbFilePath)
+      db.exec(`
           CREATE TABLE library (
               library_id TEXT PRIMARY KEY,
               library_name TEXT NOT NULL,
@@ -41,7 +35,7 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
               last_revised_time DATETIME,
               review_count INTEGER DEFAULT 0,
               easiness REAL DEFAULT 0.0,
-              importance REAL DEFAULT 70.0,
+              rank REAL DEFAULT 70.0,
               interval INTEGER DEFAULT 1,
               due_time DATETIME,
 
@@ -89,249 +83,261 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
           CREATE INDEX idx_note_source_hash ON note_source(library_id, source_hash);
         `)
 
-        // Insert library record with hash-based ID
-        const libraryId = createLibraryId(folderPath)
-        const libraryName = path.basename(folderPath)
-        db.prepare('INSERT INTO library (library_id, library_name) VALUES (?, ?)').run(
-          libraryId,
-          libraryName
-        )
+      const libraryId = crypto.randomUUID()
+      const libraryName = path.basename(folderPath)
+      db.prepare('INSERT INTO library (library_id, library_name) VALUES (?, ?)').run(
+        libraryId,
+        libraryName
+      )
 
-        db.close()
-        return { success: true, path: dbFilePath }
-      } catch (err) {
-        return { success: false, error: err.message }
-      }
-    } catch (error) {
-      return { success: false, error: error.message }
+      db.close()
+      return { success: true, path: dbFilePath }
+    } catch (err) {
+      return { success: false, error: err.message }
     }
-  })
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
 
-  ipcMain.handle('check-file-in-queue', async (event, filePath) => {
+async function checkFileInQueue(event, filePath, findIncreviseDatabase) {
+  try {
+    const result = await findIncreviseDatabase(filePath)
+    if (!result.found) {
+      return { inQueue: false, error: 'Database not found. Please create a database first.' }
+    }
     try {
-      const result = await findIncreviseDatabase(filePath)
-      if (!result.found) {
-        return { inQueue: false, error: 'Database not found. Please create a database first.' }
-      }
-      try {
-        const db = new Database(result.dbPath)
-        const relativePath = path.relative(result.rootPath, filePath)
-        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
-        if (!libraryId) {
-          db.close()
-          return { inQueue: false, error: 'Database library entry not found' }
-        }
-        const { exists_flag } = db
-          .prepare(
-            'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
-          )
-          .get(libraryId, relativePath)
-        const exists = exists_flag === 1
+      const db = new Database(result.dbPath)
+      const relativePath = path.relative(result.rootPath, filePath)
+      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+      if (!libraryId) {
         db.close()
-        return { inQueue: exists }
-      } catch (err) {
-        return { inQueue: false }
+        return { inQueue: false, error: 'Database library entry not found' }
       }
-    } catch (error) {
+      const { exists_flag } = db
+        .prepare(
+          'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+        )
+        .get(libraryId, relativePath)
+      const exists = exists_flag === 1
+      db.close()
+      return { inQueue: exists }
+    } catch (err) {
       return { inQueue: false }
     }
-  })
+  } catch (error) {
+    return { inQueue: false }
+  }
+}
 
-  ipcMain.handle('add-file-to-queue', async (event, filePath) => {
+async function addFileToQueue(event, filePath) {
+  try {
+    const result = await findIncreviseDatabase(filePath)
+    if (!result.found) {
+      return { success: false, error: 'Database not found. Please create a database first.' }
+    }
     try {
-      const result = await findIncreviseDatabase(filePath)
-      if (!result.found) {
-        return { success: false, error: 'Database not found. Please create a database first.' }
+      const db = new Database(result.dbPath)
+      const relativePath = path.relative(result.rootPath, filePath)
+      const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
+      if (!libraryId) {
+        db.close()
+        return { success: false, error: 'Database library entry not found' }
       }
-      try {
-        const db = new Database(result.dbPath)
-        const relativePath = path.relative(result.rootPath, filePath)
-        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get()?.library_id
-        if (!libraryId) {
-          db.close()
-          return { success: false, error: 'Database library entry not found' }
-        }
 
-        const { exists_flag } = db
-          .prepare(
-            'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
-          )
-          .get(libraryId, relativePath)
-        const exists = exists_flag === 1
-        if (exists) {
-          db.close()
-          return { success: false, error: 'File already in queue', alreadyExists: true }
-        }
+      const { exists_flag } = db
+        .prepare(
+          'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+        )
+        .get(libraryId, relativePath)
+      const exists = exists_flag === 1
+      if (exists) {
+        db.close()
+        return { success: false, error: 'File already in queue', alreadyExists: true }
+      }
 
-        db.prepare(
-          `INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, importance, due_time)
+      db.prepare(
+        `INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, rank, due_time)
           VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))`
-        ).run(libraryId, relativePath)
+      ).run(libraryId, relativePath)
 
-        db.close()
-        return { success: true, message: 'File added to revision queue' }
-      } catch (err) {
-        return { success: false, error: err.message }
-      }
-    } catch (error) {
-      return { success: false, error: error.message }
+      db.close()
+      return { success: true, message: 'File added to revision queue' }
+    } catch (err) {
+      return { success: false, error: err.message }
     }
-  })
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
 
-  ipcMain.handle('get-files-for-revision', async (event, rootPath) => {
-    // Get all the increvise database under the specfied rootPath
-    try {
-      const findDatabases = async (dir) => {
-        const databases = []
-        const items = await fs.readdir(dir, { withFileTypes: true })
-        for (const item of items) {
-          const fullPath = path.join(dir, item.name)
-          if (item.isDirectory()) {
-            if (item.name === '.increvise') {
-              const dbFile = path.join(fullPath, 'db.sqlite')
-              try {
-                await fs.access(dbFile)
-                databases.push(dbFile)
-              } catch {}
-            } else {
-              databases.push(...(await findDatabases(fullPath)))
-            }
-          }
-        }
-        return databases
-      }
-      const dbPaths = await findDatabases(rootPath)
-      const allFiles = []
-      for (const dbPath of dbPaths) {
-        try {
-          const db = new Database(dbPath, { readonly: true })
-          const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
-          const rows = db
-            .prepare(
-              `
-            SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, difficulty, due_time
-            FROM file
-            WHERE date(due_time) <= date('now')
-            ORDER BY due_time ASC
-          `
-            )
-            .all()
-          allFiles.push(
-            ...rows.map((row) => ({
-              ...row,
-              file_path: path.join(dbRootPath, row.relative_path),
-              dbPath,
-            }))
-          )
-          db.close()
-        } catch (err) {}
-      }
-      return { success: true, files: allFiles }
-    } catch (error) {
-      return { success: false, error: error.message, files: [] }
-    }
-  })
-
-  ipcMain.handle('get-all-files-for-revision', async (event) => {
-    try {
-      const centralDbPath = getCentralDbPath()
-      let workspaces = []
-      try {
-        const db = new Database(centralDbPath, { readonly: true })
-        workspaces = db
-          .prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC')
-          .all()
-        db.close()
-      } catch (err) {
-        return { success: false, error: err.message, files: [] }
-      }
-      const allFiles = []
-      for (const workspace of workspaces) {
-        try {
-          await fs.access(workspace.db_path)
-        } catch {
-          continue
-        }
-        try {
-          const db = new Database(workspace.db_path, { readonly: true })
-          const rows = db
-            .prepare(
-              `
-            SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, difficulty, due_time
-            FROM file
-            WHERE date(due_time) <= date('now')
-            ORDER BY due_time ASC
-          `
-            )
-            .all()
-          allFiles.push(
-            ...rows.map((row) => ({
-              ...row,
-              file_path: path.join(workspace.folder_path, row.relative_path),
-              dbPath: workspace.db_path,
-              workspacePath: workspace.folder_path,
-            }))
-          )
-          db.close()
-        } catch (err) {}
-      }
-      allFiles.sort((a, b) => new Date(a.due_time) - new Date(b.due_time))
-      return { success: true, files: allFiles }
-    } catch (error) {
-      return { success: false, error: error.message, files: [] }
-    }
-  })
-
-  ipcMain.handle(
-    'update-revision-feedback',
-    async (event, dbPath, libraryId, relativePath, feedback) => {
-      try {
-        const response_quality = { again: 0, hard: 1, medium: 3, easy: 5 }
-        const q = response_quality[feedback]
-        const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
-        try {
-          const db = new Database(dbPath)
-          const row = db
-            .prepare(
-              'SELECT review_count, interval, easiness FROM file WHERE library_id = ? AND relative_path = ?'
-            )
-            .get(libraryId, relativePath)
-          const review_count = row ? row.review_count : 0
-          const interval = row ? row.interval : 1
-          const easiness = row ? row.easiness : 2.5
-          const new_easiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
-          let new_interval
-          if (review_count === 0) {
-            new_interval = 1
-          } else if (review_count === 1) {
-            new_interval = 6
+async function getFilesForRevision(event, rootPath) {
+  // Get all the increvise database under the specfied rootPath
+  try {
+    const findDatabases = async (dir) => {
+      const databases = []
+      const items = await fs.readdir(dir, { withFileTypes: true })
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name)
+        if (item.isDirectory()) {
+          if (item.name === '.increvise') {
+            const dbFile = path.join(fullPath, 'db.sqlite')
+            try {
+              await fs.access(dbFile)
+              databases.push(dbFile)
+            } catch {}
           } else {
-            new_interval = Math.floor(interval * new_easiness)
+            databases.push(...(await findDatabases(fullPath)))
           }
-          const stmt = db.prepare(`
+        }
+      }
+      return databases
+    }
+    const dbPaths = await findDatabases(rootPath)
+    const allFiles = []
+    for (const dbPath of dbPaths) {
+      try {
+        const db = new Database(dbPath, { readonly: true })
+        const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
+        const rows = db
+          .prepare(
+            `
+            SELECT library_id, relative_path, added_time, last_revised_time, 
+                   review_count, difficulty, due_time
+            FROM file
+            WHERE date(due_time) <= date('now')
+            ORDER BY due_time ASC
+          `
+          )
+          .all()
+        allFiles.push(
+          ...rows.map((row) => ({
+            ...row,
+            file_path: path.join(dbRootPath, row.relative_path),
+            dbPath,
+          }))
+        )
+        db.close()
+      } catch (err) {}
+    }
+    return { success: true, files: allFiles }
+  } catch (error) {
+    return { success: false, error: error.message, files: [] }
+  }
+}
+
+async function getAllFilesForRevision(event, getCentralDbPath) {
+  try {
+    const centralDbPath = getCentralDbPath()
+    let workspaces = []
+    try {
+      const db = new Database(centralDbPath, { readonly: true })
+      workspaces = db
+        .prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC')
+        .all()
+      db.close()
+    } catch (err) {
+      return { success: false, error: err.message, files: [] }
+    }
+    const allFiles = []
+    for (const workspace of workspaces) {
+      try {
+        await fs.access(workspace.db_path)
+      } catch {
+        continue
+      }
+      try {
+        const db = new Database(workspace.db_path, { readonly: true })
+        const rows = db
+          .prepare(
+            `
+            SELECT library_id, relative_path, added_time, last_revised_time, 
+                   review_count, difficulty, due_time
+            FROM file
+            WHERE date(due_time) <= date('now')
+            ORDER BY due_time ASC
+          `
+          )
+          .all()
+        allFiles.push(
+          ...rows.map((row) => ({
+            ...row,
+            file_path: path.join(workspace.folder_path, row.relative_path),
+            dbPath: workspace.db_path,
+            workspacePath: workspace.folder_path,
+          }))
+        )
+        db.close()
+      } catch (err) {}
+    }
+    allFiles.sort((a, b) => new Date(a.due_time) - new Date(b.due_time))
+    return { success: true, files: allFiles }
+  } catch (error) {
+    return { success: false, error: error.message, files: [] }
+  }
+}
+
+async function updateRevisionFeedback(event, dbPath, libraryId, relativePath, feedback) {
+  const response_quality = { again: 0, hard: 1, medium: 3, easy: 5 }
+  const q = response_quality[feedback]
+  const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
+  try {
+    const db = new Database(dbPath)
+    // Get parameters needed for SM-2 (review_count, interval, easiness)
+    const row = db
+      .prepare(
+        'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
+      )
+      .get(libraryId, relativePath)
+    const reviewCount = row ? row.review_count : 0
+    const interval = row ? row.interval : 1
+    const easiness = row ? row.easiness : 2.5
+    const rank = row ? row.rank : 70
+    const newEasiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
+    const newRank = rank + Math.floor(easiness_update * 5)
+    let newInterval
+    if (reviewCount === 0) {
+      newInterval = 1
+    } else if (reviewCount === 1) {
+      newInterval = 6
+    } else {
+      newInterval = Math.floor(interval * newEasiness)
+    }
+    const stmt = db.prepare(`
           UPDATE file
           SET last_revised_time = datetime('now'),
               review_count = review_count + 1,
               easiness = ?,
               interval = ?,
               due_time = datetime('now', '+' || ? || ' days')
+              rank = ?,
           WHERE library_id = ? AND relative_path = ?
         `)
-          const info = stmt.run(new_easiness, new_interval, new_interval, libraryId, relativePath)
-          db.close()
-          return {
-            success: true,
-            message: `File updated. Next review in ${interval} day(s)`,
-            changes: info.changes,
-          }
-        } catch (err) {
-          return { success: false, error: err.message }
-        }
-      } catch (error) {
-        return { success: false, error: error.message }
-      }
+    const info = stmt.run(newEasiness, newInterval, newInterval, newRank, libraryId, relativePath)
+    db.close()
+    return {
+      success: true,
+      message: `File updated. Next review in ${interval} day(s)`,
+      changes: info.changes,
     }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
+export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPath) {
+  ipcMain.handle('create-database', (event, folderPath) => createDatabase(event, folderPath))
+  ipcMain.handle('check-file-in-queue', (event, filePath) =>
+    checkFileInQueue(event, filePath, findIncreviseDatabase)
+  )
+  ipcMain.handle('add-file-to-queue', (event, filePath) => addFileToQueue(event, filePath))
+  ipcMain.handle('get-files-for-revision', (event, rootPath) =>
+    getFilesForRevision(event, rootPath)
+  )
+  ipcMain.handle('get-all-files-for-revision', (event) =>
+    getAllFilesForRevision(event, getCentralDbPath)
+  )
+  ipcMain.handle('update-revision-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
+    updateRevisionFeedback(event, dbPath, libraryId, relativePath, feedback)
   )
 }
