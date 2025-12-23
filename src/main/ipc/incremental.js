@@ -206,7 +206,7 @@ export function registerIncrementalIpc(ipcMain, findIncreviseDatabase) {
             // Insert file record
             db.prepare(
               `
-              INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, importance, due_time)
+              INSERT INTO file (library_id, relative_path, added_time, review_count, difficulty, rank, due_time)
               VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
             `
             ).run(libraryId, relativePath)
