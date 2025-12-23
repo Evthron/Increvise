@@ -40,8 +40,9 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
               added_time DATETIME DEFAULT CURRENT_TIMESTAMP,
               last_revised_time DATETIME,
               review_count INTEGER DEFAULT 0,
-              difficulty REAL DEFAULT 0.0,
+              easiness REAL DEFAULT 0.0,
               importance REAL DEFAULT 70.0,
+              interval INTEGER DEFAULT 1,
               due_time DATETIME,
 
               PRIMARY KEY (library_id, relative_path),
@@ -287,25 +288,42 @@ export function registerSpacedIpc(ipcMain, findIncreviseDatabase, getCentralDbPa
     'update-revision-feedback',
     async (event, dbPath, libraryId, relativePath, feedback) => {
       try {
-        const intervals = { again: 0, hard: 1, medium: 3, easy: 7 }
-        const daysToAdd = intervals[feedback] || 1
-        const difficultyChanges = { again: 0.2, hard: 0.1, medium: 0, easy: -0.1 }
-        const difficultyChange = difficultyChanges[feedback] || 0
+        const response_quality = { again: 0, hard: 1, medium: 3, easy: 5 }
+        const q = response_quality[feedback]
+        const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
         try {
           const db = new Database(dbPath)
+          const row = db
+            .prepare(
+              'SELECT review_count, interval, easiness FROM file WHERE library_id = ? AND relative_path = ?'
+            )
+            .get(libraryId, relativePath)
+          const review_count = row ? row.review_count : 0
+          const interval = row ? row.interval : 1
+          const easiness = row ? row.easiness : 2.5
+          const new_easiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
+          let new_interval
+          if (review_count === 0) {
+            new_interval = 1
+          } else if (review_count === 1) {
+            new_interval = 6
+          } else {
+            new_interval = Math.floor(interval * new_easiness)
+          }
           const stmt = db.prepare(`
           UPDATE file
           SET last_revised_time = datetime('now'),
               review_count = review_count + 1,
-              difficulty = MAX(0.0, MIN(1.0, difficulty + ?)),
+              easiness = ?,
+              interval = ?,
               due_time = datetime('now', '+' || ? || ' days')
           WHERE library_id = ? AND relative_path = ?
         `)
-          const info = stmt.run(difficultyChange, daysToAdd, libraryId, relativePath)
+          const info = stmt.run(new_easiness, new_interval, new_interval, libraryId, relativePath)
           db.close()
           return {
             success: true,
-            message: `File updated. Next review in ${daysToAdd} day(s)`,
+            message: `File updated. Next review in ${interval} day(s)`,
             changes: info.changes,
           }
         } catch (err) {
