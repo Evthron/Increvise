@@ -264,4 +264,11 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
 }
 
 // Export functions for testing
-export { readFile, writeFile, extractNote }
+export {
+  readFile,
+  writeFile,
+  extractNote,
+  parseNoteFileName,
+  generateChildNoteName,
+  findParentPath,
+}
