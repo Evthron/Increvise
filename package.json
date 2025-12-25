@@ -11,8 +11,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
-    "postinstall": "electron-rebuild",
-    "test": "node test/spaced.test.js",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "test": "npm run rebuild:node && node --test test/**/*.test.js",
     "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace"
   },
   "devDependencies": {
