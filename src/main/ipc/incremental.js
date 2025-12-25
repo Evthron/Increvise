@@ -136,6 +136,231 @@ async function findParentPath(noteFilePath, db, libraryId, rootPath) {
   }
 }
 
+/**
+ * Extract lines from content by line range
+ * @param {string} content - The content to extract from
+ * @param {number} startLine - Start line (1-based)
+ * @param {number} endLine - End line (1-based, inclusive)
+ * @returns {string} - Extracted content
+ */
+function extractLines(content, startLine, endLine) {
+  const lines = content.split('\n')
+  return lines.slice(startLine - 1, endLine).join('\n')
+}
+
+/**
+ * Find content in parent note by hash
+ * @param {string} parentContent - Parent note content
+ * @param {string} targetHash - Hash to search for
+ * @returns {Object|null} - {start, end} or null if not found
+ */
+function findContentByHashAndLineCount(parentContent, targetHash, numberOfLines) {
+  const lines = parentContent.split('\n')
+
+  // Try different window lengths
+  for (let start = 0; start <= lines.length - numberOfLines; start++) {
+    const content = lines.slice(start, start + numberOfLines).join('\n')
+    const hash = crypto.createHash('sha256').update(content).digest('hex')
+
+    if (hash === targetHash) {
+      return { start: start + 1, end: start + numberOfLines }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Validate note range and recover position if needed
+ * @param {string} notePath - Absolute path to note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Validation result
+ */
+async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    // Get note record
+    const note = db
+      .prepare(
+        `
+        SELECT parent_path, range_start, range_end, source_hash
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+      )
+      .get(libraryId, relativePath)
+
+    if (!note) {
+      db.close()
+      return { success: false, error: 'Note not found in database' }
+    }
+
+    // Read parent content
+    const parentPath = path.join(dbInfo.folderPath, note.parent_path)
+    const parentContent = await fs.readFile(parentPath, 'utf-8')
+
+    // Use the hash from the first extract to recover extract location
+    const sourceHash = note.source_hash
+
+    // Validate current position in database
+    const dbRange = [parseInt(note.range_start), parseInt(note.range_end)]
+    const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
+    const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
+
+    // Case 1: Position still valid
+    if (currentHash === sourceHash) {
+      db.close()
+      return {
+        success: true,
+        status: 'valid',
+        range: dbRange,
+      }
+    }
+    const lineCount = dbRange[1] - dbRange[0] + 1
+
+    // Case 2: Position invalid, try to recover
+    const newRange = findContentByHashAndLineCount(parentContent, sourceHash, lineCount)
+
+    if (newRange) {
+      // Recovery successful - update database
+      db.prepare(
+        `
+        UPDATE note_source
+        SET range_start = ?, range_end = ?
+        WHERE library_id = ? AND relative_path = ?
+      `
+      ).run(String(newRange.start), String(newRange.end), libraryId, relativePath)
+
+      db.close()
+      return {
+        success: true,
+        status: 'moved',
+        oldRange: dbRange,
+        newRange: [newRange.start, newRange.end],
+      }
+    }
+
+    // Case 3: Cannot recover - keep database unchanged
+    db.close()
+    return {
+      success: true,
+      status: 'lost',
+      range: dbRange,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Compare the note range shown on filename with the note range stored in database
+ * @param {string} notePath - Absolute path to note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Status information
+ */
+async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    const note = db
+      .prepare(
+        `
+        SELECT range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+      )
+      .get(libraryId, relativePath)
+
+    db.close()
+
+    if (!note) {
+      return { success: false, error: 'Note not found in database' }
+    }
+
+    // Parse range from filename
+    const filename = path.basename(notePath, '.md')
+    const parsed = parseNoteFileName(filename)
+    if (!parsed) {
+      return { success: false, error: 'Invalid filename format' }
+    }
+
+    const filenameRange = [parsed[parsed.length - 1].rangeStart, parsed[parsed.length - 1].rangeEnd]
+    const dbRange = [parseInt(note.range_start), parseInt(note.range_end)]
+
+    // Compare
+    const isSame = filenameRange[0] === dbRange[0] && filenameRange[1] === dbRange[1]
+
+    return {
+      success: true,
+      filenameRange,
+      dbRange,
+      status: isSame ? 'unknown' : 'moved',
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Get the extracted line ranges from all child notes of a parent note
+ * @param {string} parentPath - Absolute path to parent note
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Child notes line ranges information
+ */
+async function getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
+
+    const children = db
+      .prepare(
+        `
+        SELECT relative_path, range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND parent_path = ?
+      `
+      )
+      .all(libraryId, parentRelativePath)
+
+    db.close()
+
+    const ranges = children.map((child) => ({
+      path: child.relative_path,
+      start: parseInt(child.range_start),
+      end: parseInt(child.range_end),
+    }))
+
+    return {
+      success: true,
+      ranges,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
 async function readFile(filePath) {
   try {
     const content = await fs.readFile(filePath, 'utf-8')
@@ -261,6 +486,18 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     async (event, parentFilePath, selectedText, rangeStart, rangeEnd, libraryId) =>
       extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
   )
+
+  ipcMain.handle('validate-note', async (event, notePath, libraryId) =>
+    validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath)
+  )
+
+  ipcMain.handle('compare-filename-with-db-range', async (event, notePath, libraryId) =>
+    compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
+  )
+
+  ipcMain.handle('get-child-notes-line-ranges', async (event, parentPath, libraryId) =>
+    getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath)
+  )
 }
 
 // Export functions for testing
@@ -271,4 +508,9 @@ export {
   parseNoteFileName,
   generateChildNoteName,
   findParentPath,
+  extractLines,
+  findContentByHashAndLineCount,
+  validateAndRecoverNoteRange,
+  checkFilenameWithDbRange,
+  getChildNotesLineRanges,
 }

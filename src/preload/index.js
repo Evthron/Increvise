@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('fileManager', {
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
   extractNote: (filePath, selectedText, rangeStart, rangeEnd) =>
     ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd),
+  validateAndRecoverNoteRange: (notePath, libraryId) =>
+    ipcRenderer.invoke('validate-note', notePath, libraryId),
+  getNoteStatus: (notePath, libraryId) =>
+    ipcRenderer.invoke('get-note-status', notePath, libraryId),
+  getChildNotesLineRanges: (parentPath, libraryId) =>
+    ipcRenderer.invoke('get-child-notes-line-ranges', parentPath, libraryId),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
