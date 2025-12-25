@@ -511,6 +511,6 @@ export {
   extractLines,
   findContentByHashAndLineCount,
   validateAndRecoverNoteRange,
-  checkFilenameWithDbRange,
+  compareFilenameWithDbRange,
   getChildNotesLineRanges,
 }

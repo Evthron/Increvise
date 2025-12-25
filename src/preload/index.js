@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd),
   validateAndRecoverNoteRange: (notePath, libraryId) =>
     ipcRenderer.invoke('validate-note', notePath, libraryId),
-  getNoteStatus: (notePath, libraryId) =>
-    ipcRenderer.invoke('get-note-status', notePath, libraryId),
+  compareFilenameWithDbRange: (notePath, libraryId) =>
+    ipcRenderer.invoke('compare-filename-with-db-range', notePath, libraryId),
   getChildNotesLineRanges: (parentPath, libraryId) =>
     ipcRenderer.invoke('get-child-notes-line-ranges', parentPath, libraryId),
 
