@@ -2,20 +2,42 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'os'
 import Database from 'better-sqlite3'
+import { app } from 'electron'
 
+// Return XDG_DATA_HOME or default ~/.local/share
 export function getXdgDataHome() {
   return process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')
 }
 
-export function getCentralDbPath() {
-  const dataHome = getXdgDataHome()
-  return path.join(dataHome, 'increvise', 'central.sqlite')
+// Choose appropriate app data directory based on platform, e.g. database should be stored under %APPDATA%\Increvise
+export function getAppDataHome() {
+  // try catch used just in case app.getPath fails for some reason 
+  try {
+    if (process.platform === 'linux') {
+      return getXdgDataHome()
+    } else {
+      // if not linux then use app.getPath('appData') to return correct path
+      // Windows: %APPDATA%, macOS: ~/Library/Application Support
+      return app.getPath('appData')
+    }
+  } catch (e) {
+    return getXdgDataHome()
+  }
 }
 
+// Return the Increvise data directory path
 export function getIncreviseDataDir() {
-  const dataHome = getXdgDataHome()
-  return path.join(dataHome, 'increvise')
+  if (process.env.INCREVISE_DATA_DIR) return process.env.INCREVISE_DATA_DIR
+  const base = getAppDataHome()
+  return path.join(base, 'Increvise')
 }
+
+// based on the getIncreviseDataDir(), return the central db path
+export function getCentralDbPath() {
+  return path.join(getIncreviseDataDir(), 'central.sqlite')
+}
+
+
 
 export async function initializeCentralDatabase() {
   const increviseDataDir = getIncreviseDataDir()
