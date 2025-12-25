@@ -14,7 +14,11 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "rebuild:node": "npm rebuild better-sqlite3",
-    "test": "npm run rebuild:node && node --test test/**/*.test.js",
+    "test": "npm run rebuild:node && node --test test/",
+    "test:validation": "npm run rebuild:node && node --test test/validation.test.js",
+    "test:incremental": "npm run rebuild:node && node --test test/incremental.test.js",
+    "test:spaced": "npm run rebuild:node && node --test test/spaced.test.js",
+    "test:workspace": "npm run rebuild:node && node --test test/workspace.test.js",
     "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace"
   },
   "devDependencies": {
