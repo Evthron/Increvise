@@ -49,7 +49,10 @@ export async function openFile(filePath) {
 
       if (codeMirrorEditor) {
         codeMirrorEditor.setContent(result.content)
-        codeMirrorEditor.clearLockedLines()
+
+        // Load and lock extracted line ranges from database
+        await loadAndLockExtractedRanges(filePath)
+
         codeMirrorEditor.disableEditing()
       }
     } else {
@@ -58,6 +61,43 @@ export async function openFile(filePath) {
   } catch (error) {
     console.error('Error opening file:', error)
     alert(`Error opening file: ${error.message}`)
+  }
+}
+
+/**
+ * Load extracted line ranges from database and lock them in editor
+ * @param {string} filePath - The file path to load ranges for
+ */
+async function loadAndLockExtractedRanges(filePath) {
+  try {
+    // Need library ID to query database
+    if (!window.currentFileLibraryId) {
+      console.warn('No library ID set, cannot load extracted ranges')
+      codeMirrorEditor.clearLockedLines()
+      return
+    }
+
+    // Get child notes line ranges from database
+    const rangesResult = await window.fileManager.getChildNotesLineRanges(
+      filePath,
+      window.currentFileLibraryId
+    )
+
+    if (rangesResult.success) {
+      if (rangesResult.ranges.length > 0) {
+        console.log(`Locking ${rangesResult.ranges.length} extracted ranges:`, rangesResult.ranges)
+        codeMirrorEditor.lockLineRanges(rangesResult.ranges)
+      } else {
+        console.log('No extracted ranges found for this file')
+        codeMirrorEditor.clearLockedLines()
+      }
+    } else {
+      console.error('Failed to get child notes ranges:', rangesResult.error)
+      codeMirrorEditor.clearLockedLines()
+    }
+  } catch (error) {
+    console.error('Error loading extracted ranges:', error)
+    codeMirrorEditor.clearLockedLines()
   }
 }
 
@@ -163,7 +203,9 @@ extractBtn.addEventListener('click', async () => {
     )
     console.log('Extracting note for library:', window.currentFileLibraryId)
     if (result.success) {
-      codeMirrorEditor.lockSelectedLines()
+      // Reload and lock all extracted ranges (including the new one)
+      await loadAndLockExtractedRanges(currentOpenFile)
+
       showToast(`Note extracted to ${result.fileName}`)
       // Optionally, refresh the file tree here if needed
     } else {

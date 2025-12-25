@@ -173,7 +173,7 @@ export class CodeMirrorViewer extends LitElement {
         backgroundColor: '#4a6fa5 !important',
       },
       '.cm-locked-line': {
-        backgroundColor: '#2d4a3e !important', // green background indicates locked
+        backgroundColor: '#2aae40 !important', // green background indicates locked
         borderLeft: '3px solid #4ade80', // green left border
       },
     })
@@ -258,14 +258,15 @@ export class CodeMirrorViewer extends LitElement {
 
     const selectedLines = this.getSelectedLines()
     if (selectedLines.length === 0) return []
-    // Update editor decorations
+
+    // First, add the selected line numbers to the lockedLines set
+    const lineNumbers = selectedLines.map((l) => l.number)
+    lineNumbers.forEach((num) => this.lockedLines.add(num))
+
+    // Then, update editor decorations
     this.editorView.dispatch({
       effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
     })
-
-    // Add the selected line numbers to the lockedLines set
-    const lineNumbers = selectedLines.map((l) => l.number)
-    lineNumbers.forEach((num) => this.lockedLines.add(num))
 
     // Clear the current selection
     this.editorView.dispatch({
@@ -304,6 +305,27 @@ export class CodeMirrorViewer extends LitElement {
         effects: this.addLockedLineEffect.of([]),
       })
     }
+  }
+
+  // Lock multiple line ranges from database
+  // ranges: [{start: 10, end: 15}, {start: 20, end: 25}]
+  lockLineRanges(ranges) {
+    if (!this.editorView || !ranges || ranges.length === 0) return
+
+    // Add all ranges to lockedLines set
+    for (let range of ranges) {
+      for (let i = range.start; i <= range.end; i++) {
+        this.lockedLines.add(i)
+      }
+    }
+
+    // Update UI with all locked lines
+    this.editorView.dispatch({
+      effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
+    })
+
+    console.log('Locked line ranges:', ranges)
+    console.log('Total locked lines:', this.lockedLines.size)
   }
 
   // Public method to set content
