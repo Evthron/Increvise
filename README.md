@@ -1,6 +1,6 @@
 # Increvise
 
-Increvise is an application that enables the incremental reading technique to be applied to all types of file. The system places a high priority on ensuring user data sovereignty by storing all data locally and without modification. It maintains a strict separation between note data and revision metadata.
+Increvise is an application that enables the incremental reading technique to be applied to all types of file. It prioritises user data sovereignty by ensuring that all user data remains locally stored and undisturbed.
 
 # How to run
 
