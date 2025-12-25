@@ -140,7 +140,8 @@ extractBtn.addEventListener('click', async () => {
       currentOpenFile,
       selectedText,
       rangeStart,
-      rangeEnd
+      rangeEnd,
+      window.currentLibraryId
     )
     if (result.success) {
       codeMirrorEditor.lockSelectedLines()
