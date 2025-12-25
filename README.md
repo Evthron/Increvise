@@ -1,8 +1,9 @@
 # Increvise
 
-Increvise is an electron-based application designed to perform incremental reading.
+Increvise is an application that enables the incremental reading technique to be applied to all types of file. The system places a high priority on ensuring user data sovereignty by storing all data locally and without modification. It maintains a strict separation between note data and revision metadata.
 
 # How to run
+
 1. Github clone using **github clone "https://github.com/Evthron/Increvise.git"** in command prompt
 
 2. open folder using Visual Studio Code or type code . in said command prompt
@@ -16,8 +17,6 @@ Increvise is an electron-based application designed to perform incremental readi
 4. Go back to visual code studio's **command prompt** and run **npm run dev**, then you can see something like this:
 
 <img width="2151" height="1063" alt="image" src="https://github.com/user-attachments/assets/2649d8e7-29f3-4acc-8ef2-f2cae171d9d8" />
-
-
 
 ## License
 
