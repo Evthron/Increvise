@@ -101,12 +101,43 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 
     return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
   } else {
-    const layersToKeep = Math.max(0, parentLayers.length - 2)
-    const allLayers = [
-      ...parentLayers.slice(layersToKeep),
-      { rangeStart, rangeEnd, name: words || 'note' },
-    ]
+    // Flat structure: keep all parent layers, append new layer
+    const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
     return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+  }
+}
+
+/**
+ * Find the top-level note folder for flat structure
+ * If parent is already a child note, find its top-level ancestor's folder
+ * @param {string} parentFilePath - Path to parent note file
+ * @param {Object} db - Database instance
+ * @param {string} libraryId - Library ID
+ * @param {string} rootPath - Root path of the workspace
+ * @returns {string} - Top-level note folder path
+ */
+function findTopLevelNoteFolder(parentFilePath, db, libraryId, rootPath) {
+  const parentRelativePath = path.relative(rootPath, parentFilePath)
+
+  // Check if parent has a parent_path in database (i.e., it's a child note)
+  const result = db
+    .prepare(
+      `
+      SELECT parent_path FROM note_source 
+      WHERE library_id = ? AND relative_path = ?
+    `
+    )
+    .get(libraryId, parentRelativePath)
+
+  if (!result || !result.parent_path) {
+    // Parent is a top-level original note, create folder named after it
+    const parentDir = path.dirname(parentFilePath)
+    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    return path.join(parentDir, parentFileName)
+  } else {
+    // Parent is a child note, recursively find its top-level ancestor
+    const grandParentPath = path.join(rootPath, result.parent_path)
+    return findTopLevelNoteFolder(grandParentPath, db, libraryId, rootPath)
   }
 }
 
@@ -397,37 +428,36 @@ async function extractNote(
       }
     }
 
-    const parentDir = path.dirname(parentFilePath)
-    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    // Open database connection early (needed for finding note folder)
+    const db = new Database(dbInfo.dbPath)
 
-    // Determine the note folder: same-name folder next to parent file
-    const noteFolder = path.join(parentDir, parentFileName)
-
-    // Create note folder if it doesn't exist
-    await fs.mkdir(noteFolder, { recursive: true })
-
-    // Generate new filename using hierarchical naming scheme
-    const newFileName =
-      generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
-    const newFilePath = path.join(noteFolder, newFileName)
-
-    // Check if file already exists
     try {
-      await fs.access(newFilePath)
-      return {
-        success: false,
-        error: 'A note with this name already exists. Please select different lines.',
+      // Find the top-level note folder (flat structure)
+      const noteFolder = findTopLevelNoteFolder(parentFilePath, db, libraryId, dbInfo.folderPath)
+
+      // Create note folder if it doesn't exist
+      await fs.mkdir(noteFolder, { recursive: true })
+
+      // Generate new filename using hierarchical naming scheme
+      const newFileName =
+        generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
+      const newFilePath = path.join(noteFolder, newFileName)
+
+      // Check if file already exists
+      try {
+        await fs.access(newFilePath)
+        return {
+          success: false,
+          error: 'A note with this name already exists. Please select different lines.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
       }
-    } catch {
-      // File doesn't exist, good to proceed
-    }
 
-    // Write the new note file
-    await fs.writeFile(newFilePath, selectedText, 'utf-8')
+      // Write the new note file
+      await fs.writeFile(newFilePath, selectedText, 'utf-8')
 
-    // Update database
-    try {
-      const db = new Database(dbInfo.dbPath)
+      // Update database
       const relativePath = path.relative(dbInfo.folderPath, newFilePath)
       const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
@@ -461,15 +491,15 @@ async function extractNote(
           console.error('Failed to insert note_source record:', err.message)
         }
       }
-      db.close()
-    } catch (err) {
-      console.error('Database error:', err)
-    }
 
-    return {
-      success: true,
-      fileName: newFileName,
-      filePath: newFilePath,
+      return {
+        success: true,
+        fileName: newFileName,
+        filePath: newFilePath,
+      }
+    } finally {
+      // Ensure database is always closed
+      db.close()
     }
   } catch (error) {
     return { success: false, error: error.message }
@@ -507,6 +537,7 @@ export {
   extractNote,
   parseNoteFileName,
   generateChildNoteName,
+  findTopLevelNoteFolder,
   findParentPath,
   extractLines,
   findContentByHashAndLineCount,
