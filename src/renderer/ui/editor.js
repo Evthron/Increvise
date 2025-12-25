@@ -27,6 +27,17 @@ export async function openFile(filePath) {
       const proceed = confirm('You have unsaved changes. Discard them?')
       if (!proceed) return
     }
+
+    // If opening via file tree (not revision mode), sync fileLibraryId with workspaceLibraryId
+    // This ensures files opened through the workspace tree use the workspace's library ID
+    if (window.currentWorkspaceLibraryId && !window.currentFileLibraryId) {
+      window.currentFileLibraryId = window.currentWorkspaceLibraryId
+      console.log(
+        'Syncing file library ID with workspace library ID:',
+        window.currentWorkspaceLibraryId
+      )
+    }
+
     const result = await window.fileManager.readFile(filePath)
     if (result.success) {
       currentOpenFile = filePath
@@ -135,14 +146,22 @@ extractBtn.addEventListener('click', async () => {
   const rangeStart = selectedLines[0].number
   const rangeEnd = selectedLines[selectedLines.length - 1].number
 
+  // Defensive check: ensure library ID is set
+  if (!window.currentFileLibraryId) {
+    showToast('Error: Library ID not set. Please reopen the file.', true)
+    console.error('currentFileLibraryId is not set')
+    return
+  }
+
   try {
     const result = await window.fileManager.extractNote(
       currentOpenFile,
       selectedText,
       rangeStart,
       rangeEnd,
-      window.currentLibraryId
+      window.currentFileLibraryId
     )
+    console.log('Extracting note for library:', window.currentFileLibraryId)
     if (result.success) {
       codeMirrorEditor.lockSelectedLines()
       showToast(`Note extracted to ${result.fileName}`)

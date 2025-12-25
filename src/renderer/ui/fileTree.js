@@ -52,15 +52,20 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
-        if (result.inQueue) {
-          addBtn.textContent = '\u2713'
-          addBtn.disabled = true
-        }
-      })
+      window.fileManager
+        .checkFileInQueue(item.path, window.currentWorkspaceLibraryId)
+        .then((result) => {
+          if (result.inQueue) {
+            addBtn.textContent = '\u2713'
+            addBtn.disabled = true
+          }
+        })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
+        const result = await window.fileManager.addFileToQueue(
+          item.path,
+          window.currentWorkspaceLibraryId
+        )
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -101,15 +106,20 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
-        if (result.inQueue) {
-          addBtn.textContent = '\u2713'
-          addBtn.disabled = true
-        }
-      })
+      window.fileManager
+        .checkFileInQueue(item.path, window.currentWorkspaceLibraryId)
+        .then((result) => {
+          if (result.inQueue) {
+            addBtn.textContent = '\u2713'
+            addBtn.disabled = true
+          }
+        })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
+        const result = await window.fileManager.addFileToQueue(
+          item.path,
+          window.currentWorkspaceLibraryId
+        )
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -139,15 +149,20 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
-        if (result.inQueue) {
-          addBtn.textContent = '\u2713'
-          addBtn.disabled = true
-        }
-      })
+      window.fileManager
+        .checkFileInQueue(item.path, window.currentWorkspaceLibraryId)
+        .then((result) => {
+          if (result.inQueue) {
+            addBtn.textContent = '\u2713'
+            addBtn.disabled = true
+          }
+        })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
+        const result = await window.fileManager.addFileToQueue(
+          item.path,
+          window.currentWorkspaceLibraryId
+        )
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
