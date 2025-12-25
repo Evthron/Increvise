@@ -15,6 +15,7 @@ import {
   extractNote,
   parseNoteFileName,
   generateChildNoteName,
+  findTopLevelNoteFolder,
   findParentPath,
 } from '../src/main/ipc/incremental.js'
 import { createDatabase } from '../src/main/ipc/spaced.js'
@@ -285,7 +286,7 @@ async function test8_GenerateChildNoteName_OneLayer() {
   console.log(`  Parent: "10-20-introduction.md"`)
   console.log(`  Range: ${rangeStart}-${rangeEnd}, Text: "${text}"`)
   console.log(`  ✓ Generated: "${result}"`)
-  console.log('  ✓ Keeps parent layer (1-2=0, slice(0) keeps all)')
+  console.log('  ✓ Flat structure: keeps all parent layers')
 
   if (result !== '10-20-introduction.15-18-core-concepts-of') {
     throw new Error(`Expected "10-20-introduction.15-18-core-concepts-of", got "${result}"`)
@@ -312,10 +313,12 @@ async function test9_GenerateChildNoteName_ThreeLayers() {
   console.log(`  Parent: "10-20-intro.15-20-core.16-18-detail.md"`)
   console.log(`  Range: ${rangeStart}-${rangeEnd}, Text: "${text}"`)
   console.log(`  ✓ Generated: "${result}"`)
-  console.log('  ✓ Kept 2 parent layers (3-2=1, slice(1) keeps last 2)')
+  console.log('  ✓ Flat structure: keeps all 3 parent layers')
 
-  if (result !== '15-20-core.16-18-detail.17-17-important-note-here') {
-    throw new Error(`Expected "15-20-core.16-18-detail.17-17-important-note-here", got "${result}"`)
+  if (result !== '10-20-intro.15-20-core.16-18-detail.17-17-important-note-here') {
+    throw new Error(
+      `Expected "10-20-intro.15-20-core.16-18-detail.17-17-important-note-here", got "${result}"`
+    )
   }
 }
 
@@ -484,10 +487,10 @@ Line 15: This is test content for line number 15.`
 }
 
 // ========================================
-// Test 12: extractNote - Extract from hierarchical note
+// Test 12: extractNote - Extract from hierarchical note (flat structure)
 // ========================================
 async function test12_ExtractNote_Hierarchical() {
-  printSeparator('Test 12: extractNote - From hierarchical note')
+  printSeparator('Test 12: extractNote - From hierarchical note (flat structure)')
 
   // Create parent note (child of research-paper.md)
   const parentNotePath = path.join(TEST_WORKSPACE, 'research-paper', '10-15-research-paper.md')
@@ -509,12 +512,20 @@ Line 8: This is test content for line number 8.`
 
   console.log(`  ✓ Grandchild created: "${result.fileName}"`)
 
-  // Verify hierarchical naming
+  // Verify hierarchical naming (flat structure keeps all layers)
   const expectedFileName = '10-15-research-paper.5-8-line-5-this.md'
   if (result.fileName !== expectedFileName) {
     throw new Error(`Expected "${expectedFileName}", got "${result.fileName}"`)
   }
-  console.log('  ✓ Follows hierarchical naming (keeps parent layer)')
+  console.log('  ✓ Follows flat structure naming (keeps all parent layers)')
+
+  // Verify file is in same folder as parent (flat structure)
+  const expectedFolder = path.join(TEST_WORKSPACE, 'research-paper')
+  const actualFolder = path.dirname(result.filePath)
+  if (actualFolder !== expectedFolder) {
+    throw new Error(`Expected folder "${expectedFolder}", got "${actualFolder}"`)
+  }
+  console.log('  ✓ File is in same folder as parent (flat structure)')
 
   // Verify database tracking
   const db = new Database(TEST_DB_PATH)
@@ -584,6 +595,131 @@ async function test13_ExtractNote_Duplicate() {
 }
 
 // ========================================
+// Test 14: extractNote - Multi-level flat structure
+// ========================================
+async function test14_ExtractNote_MultiLevel_Flat() {
+  printSeparator('Test 14: extractNote - Multi-level flat structure')
+
+  // Create a top-level file
+  const topLevelPath = path.join(TEST_WORKSPACE, 'article.md')
+  await createTestFile(topLevelPath, 30)
+
+  // First extraction (level 1)
+  const text1 = `Line 10: This is test content for line number 10.
+Line 11: This is test content for line number 11.
+Line 12: This is test content for line number 12.`
+
+  console.log('  Step 1: Extract from top-level "article.md" (lines 10-12)')
+  const result1 = await extractNote(topLevelPath, text1, 10, 12, LIBRARY_ID, getCentralDbPath)
+
+  if (!result1.success) {
+    throw new Error('First extraction failed: ' + result1.error)
+  }
+  console.log(`  ✓ Level 1 created: "${result1.fileName}"`)
+
+  // Verify level 1 is in article/ folder
+  const expectedFolder1 = path.join(TEST_WORKSPACE, 'article')
+  const actualFolder1 = path.dirname(result1.filePath)
+  if (actualFolder1 !== expectedFolder1) {
+    throw new Error(`Expected folder "${expectedFolder1}", got "${actualFolder1}"`)
+  }
+  console.log('  ✓ Level 1 in "article/" folder')
+
+  // Second extraction (level 2 from level 1)
+  const text2 = `Line 10: This is test content for line number 10.
+Line 11: This is test content for line number 11.`
+
+  console.log(`  Step 2: Extract from level 1 "${result1.fileName}" (lines 10-11)`)
+  const result2 = await extractNote(result1.filePath, text2, 10, 11, LIBRARY_ID, getCentralDbPath)
+
+  if (!result2.success) {
+    throw new Error('Second extraction failed: ' + result2.error)
+  }
+  console.log(`  ✓ Level 2 created: "${result2.fileName}"`)
+
+  // Verify level 2 is ALSO in article/ folder (flat structure)
+  const actualFolder2 = path.dirname(result2.filePath)
+  if (actualFolder2 !== expectedFolder1) {
+    throw new Error(`Expected flat structure in "${expectedFolder1}", but got "${actualFolder2}"`)
+  }
+  console.log('  ✓ Level 2 ALSO in "article/" folder (flat structure works!)')
+
+  // Third extraction (level 3 from level 2)
+  const text3 = `Line 10: This is test content for line number 10.`
+
+  console.log(`  Step 3: Extract from level 2 "${result2.fileName}" (line 10)`)
+  const result3 = await extractNote(result2.filePath, text3, 10, 10, LIBRARY_ID, getCentralDbPath)
+
+  if (!result3.success) {
+    throw new Error('Third extraction failed: ' + result3.error)
+  }
+  console.log(`  ✓ Level 3 created: "${result3.fileName}"`)
+
+  // Verify level 3 is ALSO in article/ folder (flat structure)
+  const actualFolder3 = path.dirname(result3.filePath)
+  if (actualFolder3 !== expectedFolder1) {
+    throw new Error(`Expected flat structure in "${expectedFolder1}", but got "${actualFolder3}"`)
+  }
+  console.log('  ✓ Level 3 ALSO in "article/" folder (flat structure works!)')
+
+  // Verify all files are in the same flat folder
+  console.log('  ✓ All 3 levels in same flat folder structure')
+}
+
+// ========================================
+// Test 15: findTopLevelNoteFolder - Recursively find top-level folder
+// ========================================
+async function test15_FindTopLevelNoteFolder() {
+  printSeparator('Test 15: findTopLevelNoteFolder - Find top-level folder')
+
+  const db = new Database(TEST_DB_PATH)
+
+  // Test 1: Top-level file (no parent in database)
+  const topLevelPath = path.join(TEST_WORKSPACE, 'standalone.md')
+  const folder1 = findTopLevelNoteFolder(topLevelPath, db, LIBRARY_ID, TEST_WORKSPACE)
+  const expected1 = path.join(TEST_WORKSPACE, 'standalone')
+
+  console.log(`  Test 1: Top-level file "standalone.md"`)
+  console.log(`    ✓ Found folder: "${path.relative(TEST_WORKSPACE, folder1)}"`)
+  if (folder1 !== expected1) {
+    throw new Error(`Expected "${expected1}", got "${folder1}"`)
+  }
+
+  // Test 2: First-level child note (parent exists in DB)
+  // Use existing data from test11
+  const level1Path = path.join(TEST_WORKSPACE, 'research-paper', '10-15-research-paper.md')
+  const folder2 = findTopLevelNoteFolder(level1Path, db, LIBRARY_ID, TEST_WORKSPACE)
+  const expected2 = path.join(TEST_WORKSPACE, 'research-paper')
+
+  console.log(`  Test 2: First-level child "research-paper/10-15-research-paper.md"`)
+  console.log(`    ✓ Traced back to: "${path.relative(TEST_WORKSPACE, folder2)}"`)
+  if (folder2 !== expected2) {
+    throw new Error(`Expected "${expected2}", got "${folder2}"`)
+  }
+
+  // Test 3: Second-level child note (grandchild)
+  // Use existing data from test12
+  const level2Path = path.join(
+    TEST_WORKSPACE,
+    'research-paper',
+    '10-15-research-paper.5-8-line-5-this.md'
+  )
+  const folder3 = findTopLevelNoteFolder(level2Path, db, LIBRARY_ID, TEST_WORKSPACE)
+
+  console.log(
+    `  Test 3: Second-level child "research-paper/10-15-research-paper.5-8-line-5-this.md"`
+  )
+  console.log(`    ✓ Traced back to: "${path.relative(TEST_WORKSPACE, folder3)}"`)
+  if (folder3 !== expected2) {
+    throw new Error(`Expected "${expected2}", got "${folder3}"`)
+  }
+
+  console.log('  ✓ Recursively traces back to top-level folder correctly')
+
+  db.close()
+}
+
+// ========================================
 // Main test function
 // ========================================
 async function runAllTests() {
@@ -605,6 +741,8 @@ async function runAllTests() {
     await test11_ExtractNote_TopLevel()
     await test12_ExtractNote_Hierarchical()
     await test13_ExtractNote_Duplicate()
+    await test14_ExtractNote_MultiLevel_Flat()
+    await test15_FindTopLevelNoteFolder()
 
     console.log('\n✓ All tests completed successfully\n')
   } catch (error) {
