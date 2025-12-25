@@ -19,8 +19,10 @@ contextBridge.exposeInMainWorld('fileManager', {
 
   // 2. Spaced Repetition
   createDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),
-  checkFileInQueue: (filePath) => ipcRenderer.invoke('check-file-in-queue', filePath),
-  addFileToQueue: (filePath) => ipcRenderer.invoke('add-file-to-queue', filePath),
+  checkFileInQueue: (filePath, libraryId) =>
+    ipcRenderer.invoke('check-file-in-queue', filePath, libraryId),
+  addFileToQueue: (filePath, libraryId) =>
+    ipcRenderer.invoke('add-file-to-queue', filePath, libraryId),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, libraryId, relativePath, feedback) =>

@@ -11,18 +11,33 @@ async function recordWorkspace(folderPath, getCentralDbPath) {
   const folderName = path.basename(folderPath)
   const dbPath = path.join(folderPath, '.increvise', 'db.sqlite')
   try {
+    // Get the library_id from the folder database
+    let libraryId
+    try {
+      const folderDb = new Database(dbPath, { readonly: true })
+      const library = folderDb.prepare('SELECT library_id FROM library LIMIT 1').get()
+      folderDb.close()
+
+      if (!library) {
+        return { success: false, error: 'Workspace database has no library record' }
+      }
+      libraryId = library.library_id
+    } catch (err) {
+      return { success: false, error: `Failed to read workspace database: ${err.message}` }
+    }
+
     const db = new Database(centralDbPath)
     const stmt = db.prepare(`
         INSERT INTO workspace_history 
-        (folder_path, folder_name, db_path, last_opened, open_count)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
-        ON CONFLICT(folder_path) DO UPDATE SET
+        (library_id, folder_path, folder_name, db_path, last_opened, open_count)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
+        ON CONFLICT(library_id) DO UPDATE SET
           last_opened = CURRENT_TIMESTAMP,
           open_count = open_count + 1
       `)
-    const info = stmt.run(folderPath, folderName, dbPath)
+    const info = stmt.run(libraryId, folderPath, folderName, dbPath)
     db.close()
-    return { success: true, id: info.lastInsertRowid }
+    return { success: true, id: info.lastInsertRowid, libraryId }
   } catch (err) {
     return { success: false, error: err.message }
   }

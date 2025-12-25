@@ -52,7 +52,7 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path).then((result) => {
+      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
         if (result.inQueue) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -60,7 +60,7 @@ export function renderTree(tree, container = treeContainer) {
       })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path)
+        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -101,7 +101,7 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path).then((result) => {
+      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
         if (result.inQueue) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -109,7 +109,7 @@ export function renderTree(tree, container = treeContainer) {
       })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path)
+        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -139,7 +139,7 @@ export function renderTree(tree, container = treeContainer) {
       const addBtn = document.createElement('button')
       addBtn.textContent = '+'
       addBtn.classList.add('add-file-btn')
-      window.fileManager.checkFileInQueue(item.path).then((result) => {
+      window.fileManager.checkFileInQueue(item.path, window.currentLibraryId).then((result) => {
         if (result.inQueue) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true
@@ -147,7 +147,7 @@ export function renderTree(tree, container = treeContainer) {
       })
       addBtn.onclick = async (e) => {
         e.stopPropagation()
-        const result = await window.fileManager.addFileToQueue(item.path)
+        const result = await window.fileManager.addFileToQueue(item.path, window.currentLibraryId)
         if (result.success) {
           addBtn.textContent = '\u2713'
           addBtn.disabled = true

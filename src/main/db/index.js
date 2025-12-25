@@ -2,7 +2,8 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'os'
 import Database from 'better-sqlite3'
-import { app } from 'electron'
+import electron from 'electron'
+const { app } = electron
 
 // Return XDG_DATA_HOME or default ~/.local/share
 export function getXdgDataHome() {
@@ -11,7 +12,7 @@ export function getXdgDataHome() {
 
 // Choose appropriate app data directory based on platform, e.g. database should be stored under %APPDATA%\Increvise
 export function getAppDataHome() {
-  // try catch used just in case app.getPath fails for some reason 
+  // try catch used just in case app.getPath fails for some reason
   try {
     if (process.platform === 'linux') {
       return getXdgDataHome()
@@ -36,8 +37,6 @@ export function getIncreviseDataDir() {
 export function getCentralDbPath() {
   return path.join(getIncreviseDataDir(), 'central.sqlite')
 }
-
-
 
 export async function initializeCentralDatabase() {
   const increviseDataDir = getIncreviseDataDir()
