@@ -39,6 +39,11 @@ export function initFeedbackButtons() {
         }
 
         showRevisionFile(0)
+
+        // Set the current file's library ID before opening
+        window.currentFileLibraryId = result.files[0].library_id
+        console.log('Opening first revision file from library:', result.files[0].library_id)
+
         const { openFile } = await import('./editor.js')
         await openFile(result.files[0].file_path)
 
@@ -65,10 +70,21 @@ export function initFeedbackButtons() {
   })
 
   // Handle file selection from revision list
-  document.addEventListener('file-selected', (e) => {
+  document.addEventListener('file-selected', async (e) => {
     const { index } = e.detail
     currentRevisionIndex = index
+
+    // Set the current file's library ID before opening
+    if (revisionFiles[index]) {
+      window.currentFileLibraryId = revisionFiles[index].library_id
+      console.log('Selected revision file from library:', revisionFiles[index].library_id)
+    }
+
     showRevisionFile(index)
+
+    // Open the selected file
+    const { openFile } = await import('./editor.js')
+    await openFile(revisionFiles[index].file_path)
   })
 
   // Handle feedback buttons
@@ -116,6 +132,14 @@ export function initFeedbackButtons() {
             }
 
             showRevisionFile(currentRevisionIndex)
+
+            // Set the current file's library ID before opening
+            window.currentFileLibraryId = revisionFiles[currentRevisionIndex].library_id
+            console.log(
+              'Opening next revision file from library:',
+              revisionFiles[currentRevisionIndex].library_id
+            )
+
             const { openFile } = await import('./editor.js')
             await openFile(revisionFiles[currentRevisionIndex].file_path)
           } else {

@@ -127,6 +127,8 @@ export async function openWorkspace(folderPath) {
     const dbResult = await window.fileManager.createDatabase(folderPath)
     if (dbResult.success) {
       console.log('Database ready at:', dbResult.path)
+      window.currentWorkspaceLibraryId = dbResult.libraryId
+      console.log('Workspace Library ID:', dbResult.libraryId)
     } else {
       console.warn('Database setup warning:', dbResult.error)
     }

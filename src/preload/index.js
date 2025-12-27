@@ -19,8 +19,10 @@ contextBridge.exposeInMainWorld('fileManager', {
 
   // 2. Spaced Repetition
   createDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),
-  checkFileInQueue: (filePath) => ipcRenderer.invoke('check-file-in-queue', filePath),
-  addFileToQueue: (filePath) => ipcRenderer.invoke('add-file-to-queue', filePath),
+  checkFileInQueue: (filePath, libraryId) =>
+    ipcRenderer.invoke('check-file-in-queue', filePath, libraryId),
+  addFileToQueue: (filePath, libraryId) =>
+    ipcRenderer.invoke('add-file-to-queue', filePath, libraryId),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, libraryId, relativePath, feedback) =>
@@ -29,8 +31,14 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
-  extractNote: (filePath, selectedText, rangeStart, rangeEnd) =>
-    ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd),
+  extractNote: (filePath, selectedText, rangeStart, rangeEnd, libraryId) =>
+    ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd, libraryId),
+  validateAndRecoverNoteRange: (notePath, libraryId) =>
+    ipcRenderer.invoke('validate-note', notePath, libraryId),
+  compareFilenameWithDbRange: (notePath, libraryId) =>
+    ipcRenderer.invoke('compare-filename-with-db-range', notePath, libraryId),
+  getChildNotesLineRanges: (parentPath, libraryId) =>
+    ipcRenderer.invoke('get-child-notes-line-ranges', parentPath, libraryId),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),

@@ -10,15 +10,22 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "prestart": "electron-rebuild -f -w better-sqlite3",
     "start": "electron-vite preview",
-    "postinstall": "electron-rebuild",
-    "test": "node test/spaced.test.js",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "test": "npm run rebuild:node && node --test test/",
+    "test:validation": "npm run rebuild:node && node --test test/validation.test.js",
+    "test:incremental": "npm run rebuild:node && node --test test/incremental.test.js",
+    "test:spaced": "npm run rebuild:node && node --test test/spaced.test.js",
+    "test:workspace": "npm run rebuild:node && node --test test/workspace.test.js",
     "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
     "@eslint/js": "^9.39.1",
     "electron": "^38.2.1",
-    "electron-rebuild": "^3.2.9",
     "electron-vite": "^4.0.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
@@ -33,7 +40,6 @@
     "@codemirror/view": "^6.38.8",
     "better-sqlite3": "^12.4.1",
     "codemirror": "^6.0.2",
-    "lit": "^3.3.1",
-    "sqlite3": "^5.1.7"
+    "lit": "^3.3.1"
   }
 }

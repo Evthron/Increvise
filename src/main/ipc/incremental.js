@@ -101,12 +101,43 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 
     return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
   } else {
-    const layersToKeep = Math.max(0, parentLayers.length - 2)
-    const allLayers = [
-      ...parentLayers.slice(layersToKeep),
-      { rangeStart, rangeEnd, name: words || 'note' },
-    ]
+    // Flat structure: keep all parent layers, append new layer
+    const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
     return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+  }
+}
+
+/**
+ * Find the top-level note folder for flat structure
+ * If parent is already a child note, find its top-level ancestor's folder
+ * @param {string} parentFilePath - Path to parent note file
+ * @param {Object} db - Database instance
+ * @param {string} libraryId - Library ID
+ * @param {string} rootPath - Root path of the workspace
+ * @returns {string} - Top-level note folder path
+ */
+function findTopLevelNoteFolder(parentFilePath, db, libraryId, rootPath) {
+  const parentRelativePath = path.relative(rootPath, parentFilePath)
+
+  // Check if parent has a parent_path in database (i.e., it's a child note)
+  const result = db
+    .prepare(
+      `
+      SELECT parent_path FROM note_source 
+      WHERE library_id = ? AND relative_path = ?
+    `
+    )
+    .get(libraryId, parentRelativePath)
+
+  if (!result || !result.parent_path) {
+    // Parent is a top-level original note, create folder named after it
+    const parentDir = path.dirname(parentFilePath)
+    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    return path.join(parentDir, parentFileName)
+  } else {
+    // Parent is a child note, recursively find its top-level ancestor
+    const grandParentPath = path.join(rootPath, result.parent_path)
+    return findTopLevelNoteFolder(grandParentPath, db, libraryId, rootPath)
   }
 }
 
@@ -133,6 +164,231 @@ async function findParentPath(noteFilePath, db, libraryId, rootPath) {
     return result?.parent_path || null
   } catch {
     return null
+  }
+}
+
+/**
+ * Extract lines from content by line range
+ * @param {string} content - The content to extract from
+ * @param {number} startLine - Start line (1-based)
+ * @param {number} endLine - End line (1-based, inclusive)
+ * @returns {string} - Extracted content
+ */
+function extractLines(content, startLine, endLine) {
+  const lines = content.split('\n')
+  return lines.slice(startLine - 1, endLine).join('\n')
+}
+
+/**
+ * Find content in parent note by hash
+ * @param {string} parentContent - Parent note content
+ * @param {string} targetHash - Hash to search for
+ * @returns {Object|null} - {start, end} or null if not found
+ */
+function findContentByHashAndLineCount(parentContent, targetHash, numberOfLines) {
+  const lines = parentContent.split('\n')
+
+  // Try different window lengths
+  for (let start = 0; start <= lines.length - numberOfLines; start++) {
+    const content = lines.slice(start, start + numberOfLines).join('\n')
+    const hash = crypto.createHash('sha256').update(content).digest('hex')
+
+    if (hash === targetHash) {
+      return { start: start + 1, end: start + numberOfLines }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Validate note range and recover position if needed
+ * @param {string} notePath - Absolute path to note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Validation result
+ */
+async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    // Get note record
+    const note = db
+      .prepare(
+        `
+        SELECT parent_path, range_start, range_end, source_hash
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+      )
+      .get(libraryId, relativePath)
+
+    if (!note) {
+      db.close()
+      return { success: false, error: 'Note not found in database' }
+    }
+
+    // Read parent content
+    const parentPath = path.join(dbInfo.folderPath, note.parent_path)
+    const parentContent = await fs.readFile(parentPath, 'utf-8')
+
+    // Use the hash from the first extract to recover extract location
+    const sourceHash = note.source_hash
+
+    // Validate current position in database
+    const dbRange = [parseInt(note.range_start), parseInt(note.range_end)]
+    const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
+    const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
+
+    // Case 1: Position still valid
+    if (currentHash === sourceHash) {
+      db.close()
+      return {
+        success: true,
+        status: 'valid',
+        range: dbRange,
+      }
+    }
+    const lineCount = dbRange[1] - dbRange[0] + 1
+
+    // Case 2: Position invalid, try to recover
+    const newRange = findContentByHashAndLineCount(parentContent, sourceHash, lineCount)
+
+    if (newRange) {
+      // Recovery successful - update database
+      db.prepare(
+        `
+        UPDATE note_source
+        SET range_start = ?, range_end = ?
+        WHERE library_id = ? AND relative_path = ?
+      `
+      ).run(String(newRange.start), String(newRange.end), libraryId, relativePath)
+
+      db.close()
+      return {
+        success: true,
+        status: 'moved',
+        oldRange: dbRange,
+        newRange: [newRange.start, newRange.end],
+      }
+    }
+
+    // Case 3: Cannot recover - keep database unchanged
+    db.close()
+    return {
+      success: true,
+      status: 'lost',
+      range: dbRange,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Compare the note range shown on filename with the note range stored in database
+ * @param {string} notePath - Absolute path to note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Status information
+ */
+async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    const note = db
+      .prepare(
+        `
+        SELECT range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+      )
+      .get(libraryId, relativePath)
+
+    db.close()
+
+    if (!note) {
+      return { success: false, error: 'Note not found in database' }
+    }
+
+    // Parse range from filename
+    const filename = path.basename(notePath, '.md')
+    const parsed = parseNoteFileName(filename)
+    if (!parsed) {
+      return { success: false, error: 'Invalid filename format' }
+    }
+
+    const filenameRange = [parsed[parsed.length - 1].rangeStart, parsed[parsed.length - 1].rangeEnd]
+    const dbRange = [parseInt(note.range_start), parseInt(note.range_end)]
+
+    // Compare
+    const isSame = filenameRange[0] === dbRange[0] && filenameRange[1] === dbRange[1]
+
+    return {
+      success: true,
+      filenameRange,
+      dbRange,
+      status: isSame ? 'unknown' : 'moved',
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Get the extracted line ranges from all child notes of a parent note
+ * @param {string} parentPath - Absolute path to parent note
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Child notes line ranges information
+ */
+async function getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
+
+    const children = db
+      .prepare(
+        `
+        SELECT relative_path, range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND parent_path = ?
+      `
+      )
+      .all(libraryId, parentRelativePath)
+
+    db.close()
+
+    const ranges = children.map((child) => ({
+      path: child.relative_path,
+      start: parseInt(child.range_start),
+      end: parseInt(child.range_end),
+    }))
+
+    return {
+      success: true,
+      ranges,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
   }
 }
 
@@ -172,37 +428,36 @@ async function extractNote(
       }
     }
 
-    const parentDir = path.dirname(parentFilePath)
-    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    // Open database connection early (needed for finding note folder)
+    const db = new Database(dbInfo.dbPath)
 
-    // Determine the note folder: same-name folder next to parent file
-    const noteFolder = path.join(parentDir, parentFileName)
-
-    // Create note folder if it doesn't exist
-    await fs.mkdir(noteFolder, { recursive: true })
-
-    // Generate new filename using hierarchical naming scheme
-    const newFileName =
-      generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
-    const newFilePath = path.join(noteFolder, newFileName)
-
-    // Check if file already exists
     try {
-      await fs.access(newFilePath)
-      return {
-        success: false,
-        error: 'A note with this name already exists. Please select different lines.',
+      // Find the top-level note folder (flat structure)
+      const noteFolder = findTopLevelNoteFolder(parentFilePath, db, libraryId, dbInfo.folderPath)
+
+      // Create note folder if it doesn't exist
+      await fs.mkdir(noteFolder, { recursive: true })
+
+      // Generate new filename using hierarchical naming scheme
+      const newFileName =
+        generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
+      const newFilePath = path.join(noteFolder, newFileName)
+
+      // Check if file already exists
+      try {
+        await fs.access(newFilePath)
+        return {
+          success: false,
+          error: 'A note with this name already exists. Please select different lines.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
       }
-    } catch {
-      // File doesn't exist, good to proceed
-    }
 
-    // Write the new note file
-    await fs.writeFile(newFilePath, selectedText, 'utf-8')
+      // Write the new note file
+      await fs.writeFile(newFilePath, selectedText, 'utf-8')
 
-    // Update database
-    try {
-      const db = new Database(dbInfo.dbPath)
+      // Update database
       const relativePath = path.relative(dbInfo.folderPath, newFilePath)
       const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
@@ -236,15 +491,15 @@ async function extractNote(
           console.error('Failed to insert note_source record:', err.message)
         }
       }
-      db.close()
-    } catch (err) {
-      console.error('Database error:', err)
-    }
 
-    return {
-      success: true,
-      fileName: newFileName,
-      filePath: newFilePath,
+      return {
+        success: true,
+        fileName: newFileName,
+        filePath: newFilePath,
+      }
+    } finally {
+      // Ensure database is always closed
+      db.close()
     }
   } catch (error) {
     return { success: false, error: error.message }
@@ -261,6 +516,18 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     async (event, parentFilePath, selectedText, rangeStart, rangeEnd, libraryId) =>
       extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
   )
+
+  ipcMain.handle('validate-note', async (event, notePath, libraryId) =>
+    validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath)
+  )
+
+  ipcMain.handle('compare-filename-with-db-range', async (event, notePath, libraryId) =>
+    compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
+  )
+
+  ipcMain.handle('get-child-notes-line-ranges', async (event, parentPath, libraryId) =>
+    getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath)
+  )
 }
 
 // Export functions for testing
@@ -270,5 +537,11 @@ export {
   extractNote,
   parseNoteFileName,
   generateChildNoteName,
+  findTopLevelNoteFolder,
   findParentPath,
+  extractLines,
+  findContentByHashAndLineCount,
+  validateAndRecoverNoteRange,
+  compareFilenameWithDbRange,
+  getChildNotesLineRanges,
 }
