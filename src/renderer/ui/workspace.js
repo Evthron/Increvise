@@ -18,20 +18,44 @@ export async function loadRecentWorkspaces() {
 }
 
 export function displayWorkspaceHistory(workspaces) {
+  // Clear existing list
   workspaceHistoryList.innerHTML = ''
+
+// "All Workspaces" option - always shown at the top
+  const allWorkspacesItem = document.createElement('div')
+  allWorkspacesItem.classList.add('workspace-item', 'all-workspaces-item') // optional extra class for styling
+  allWorkspacesItem.textContent = 'All Workspaces'
+  allWorkspacesItem.title = 'Revise files from all recent workspaces in one combined queue'
+  allWorkspacesItem.addEventListener('click', async () => {
+    await openWorkspace('ALL') // Special value to indicate combined mode
+  })
+  workspaceHistoryList.appendChild(allWorkspacesItem)
+
+  // Separator (optional, for visual distinction)
+  const separator = document.createElement('div')
+  separator.classList.add('workspace-separator') // you can style this in CSS, e.g. a thin line
+  workspaceHistoryList.appendChild(separator)
+
+  // if no workspaces then do nothing
   if (!workspaces || workspaces.length === 0) return
+
+  // List each workspace, for each workspace:
   workspaces.forEach((workspace) => {
+    // Create the row container and apply a common CSS class for consistency
     const item = document.createElement('div')
     item.classList.add('workspace-item')
+    // Create, populate the name element with full path
     const name = document.createElement('div')
     name.classList.add('workspace-name')
     name.textContent = workspace.folder_name
     name.title = workspace.folder_path
+    // Create, populate the metadata element with "last opened" time to help find recent folders
     const meta = document.createElement('div')
     meta.classList.add('workspace-meta')
     const lastOpened = new Date(workspace.last_opened)
     const timeAgo = getTimeAgo(lastOpened)
     meta.textContent = timeAgo
+    // Create, populate the stats element with number of files due today
     const stats = document.createElement('div')
     stats.classList.add('workspace-stats')
     if (workspace.files_due_today > 0) {
@@ -47,10 +71,58 @@ export function displayWorkspaceHistory(workspaces) {
     })
     workspaceHistoryList.appendChild(item)
   })
+
+  const items = workspaceHistoryList.querySelectorAll('.workspace-item');
+  items.forEach(item => {
+    item.classList.remove('selected');
+    if (window.currentRootPath === 'ALL' && item.classList.contains('all-workspaces-item')) {
+      item.classList.add('selected');
+    } else if (item.title === window.currentRootPath) { // Using title which has folder_path
+      item.classList.add('selected');
+    }
+  });
+
 }
 
 export async function openWorkspace(folderPath) {
   try { 
+    // Special case: "All Workspaces" combined view
+    if (folderPath === 'ALL') {
+      window.currentRootPath = 'ALL';
+      const treeContainer = document.getElementById('tree-container');
+      treeContainer.innerHTML = '';
+
+      try {
+        const workspaces = await window.fileManager.getRecentWorkspaces();
+        const { renderTree } = await import('./fileTree.js');
+
+        // Flatten all workspace trees into one array of nodes
+        const combined = [];
+
+        for (const ws of workspaces) {
+          const tree = await window.fileManager.getRecentTree
+          const treeData = await window.fileManager.getDirectoryTree(ws.folder_path);
+          // Normalize: if a workspace returns an object with children, use children; if it's already an array, use it
+          const nodes = Array.isArray(treeData)
+            ? treeData
+            : Array.isArray(treeData?.children)
+              ? treeData.children
+              : [];
+
+          combined.push(...nodes);
+        }
+
+        // IMPORTANT: pass an array, not an object
+        renderTree(combined, treeContainer);
+
+        await loadRecentWorkspaces();
+        return;
+      } catch (error) {
+        console.error('Error loading combined workspace view:', error);
+        alert(`Error loading combined view: ${error.message}`);
+      }
+    }
+
     window.currentRootPath = folderPath
     const dbResult = await window.fileManager.createDatabase(folderPath)
     if (dbResult.success) {
@@ -65,6 +137,9 @@ export async function openWorkspace(folderPath) {
     const { renderTree } = await import('./fileTree.js')
     const treeContainer = document.getElementById('tree-container')
     renderTree(tree, treeContainer)
+
+    // window.dispatchEvent(new CustomEvent('workspace-changed', { detail: { path: folderPath } }))
+
     await loadRecentWorkspaces()
   } catch (error) {
     console.error('Error opening workspace:', error)
