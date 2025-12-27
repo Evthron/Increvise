@@ -52,7 +52,6 @@ async function getDirectoryTree(dirPath) {
   // Turn a hirarchical folder into node tree
   // each node has
   //   name
-  //   displayName
   //   path
   //   layers
   //   children
@@ -92,8 +91,11 @@ async function getDirectoryTree(dirPath) {
 
       for (const note of mdFiles) {
         const noteNode = {
-          name: note.name,
-          displayName: path.basename(note.name),
+          name: [
+            note.layers[note.layers.length - 1].rangeStart,
+            note.layers[note.layers.length - 1].rangeEnd,
+            note.layers[note.layers.length - 1].name,
+          ].join('-'),
           path: note.path,
           layers: note.layers,
           children: [],
@@ -168,7 +170,6 @@ async function getDirectoryTree(dirPath) {
           if (isPdf) {
             tree.push({
               name: fileItem.name,
-              displayName: path.basename(item.name),
               type: 'pdf-parent',
               path: filePath,
               children: hierarchy,
@@ -176,7 +177,6 @@ async function getDirectoryTree(dirPath) {
           } else {
             tree.push({
               name: fileItem.name,
-              displayName: path.basename(item.name),
               type: 'note-parent',
               path: filePath,
               children: hierarchy,
@@ -188,7 +188,6 @@ async function getDirectoryTree(dirPath) {
         else {
           tree.push({
             name: item.name,
-            displayName: path.basename(item.name),
             type: 'directory',
             path: fullPath,
             children: null,
@@ -202,7 +201,6 @@ async function getDirectoryTree(dirPath) {
       const fullPath = path.join(dir, item.name)
       tree.push({
         name: item.name,
-        displayName: path.basename(item.name),
         type: 'file',
         path: fullPath,
       })
