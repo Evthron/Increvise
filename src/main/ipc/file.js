@@ -184,7 +184,7 @@ async function getDirectoryTree(dirPath) {
           }
           fileMap.delete(item.name)
         }
-        // Regular directorpath.basename(item.namey
+        // Regular directory
         else {
           tree.push({
             name: item.name,
@@ -213,41 +213,10 @@ async function getDirectoryTree(dirPath) {
   return await buildTree(dirPath)
 }
 
-// Get the first-level children of a directory
-async function fetchChildren(dirPath) {
-  try {
-    const items = await fs.readdir(dirPath, { withFileTypes: true })
-    const children = []
-    for (const item of items) {
-      const fullPath = path.join(dirPath, item.name)
-      if (item.isDirectory()) {
-        children.push({
-          name: item.name,
-          type: 'directory',
-          path: fullPath,
-          children: null,
-        })
-      } else {
-        children.push({
-          name: item.name,
-          type: 'file',
-          path: fullPath,
-        })
-      }
-    }
-    return children
-  } catch (error) {
-    console.error('Error fetching children:', error)
-    return []
-  }
-}
-
 export function registerFileIpc(ipcMain) {
   ipcMain.handle('select-folder', async (event) => selectFolder())
 
   ipcMain.handle('get-directory-tree', async (event, dirPath) => getDirectoryTree(dirPath))
-
-  ipcMain.handle('fetch-children', async (event, dirPath) => fetchChildren(dirPath))
 }
 
-export { selectFolder, getDirectoryTree, fetchChildren }
+export { selectFolder, getDirectoryTree }
