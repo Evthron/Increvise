@@ -50,7 +50,7 @@ export function displayWorkspaceHistory(workspaces) {
 }
 
 export async function openWorkspace(folderPath) {
-  try {
+  try { 
     window.currentRootPath = folderPath
     const dbResult = await window.fileManager.createDatabase(folderPath)
     if (dbResult.success) {
