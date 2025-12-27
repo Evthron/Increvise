@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { RevisionList } from './revisionList.js'
+
 // Sidebar UI logic extracted from renderer.js
 // Handles workspace history, sidebar DOM, and related events
 
@@ -86,6 +88,13 @@ export function displayWorkspaceHistory(workspaces) {
 
 export async function openWorkspace(folderPath) {
   try { 
+    // Initial Setup and Mode Detection
+    window.currentRootPath = folderPath
+    window.isAllWorkspacesMode = (folderPath === 'ALL');
+    window.dispatchEvent(new CustomEvent('workspace-mode-changed', {
+    detail: { isAll: window.isAllWorkspacesMode, path: folderPath }
+    }));
+
     // Special case: "All Workspaces" combined view
     if (folderPath === 'ALL') {
       window.currentRootPath = 'ALL';
@@ -93,29 +102,56 @@ export async function openWorkspace(folderPath) {
       treeContainer.innerHTML = '';
 
       try {
+        // fetch all recent workspaces, import renderTree function
         const workspaces = await window.fileManager.getRecentWorkspaces();
         const { renderTree } = await import('./fileTree.js');
 
         // Flatten all workspace trees into one array of nodes
         const combined = [];
 
+        // Loop through each workspace and get its directory tree
         for (const ws of workspaces) {
           const tree = await window.fileManager.getRecentTree
           const treeData = await window.fileManager.getDirectoryTree(ws.folder_path);
-          // Normalize: if a workspace returns an object with children, use children; if it's already an array, use it
+          // Normalize data: if a workspace returns an object with children, use children; if it's already an array, use it
           const nodes = Array.isArray(treeData)
             ? treeData
             : Array.isArray(treeData?.children)
               ? treeData.children
               : [];
 
+          // combine them into one array containing all nodes
           combined.push(...nodes);
         }
 
         // IMPORTANT: pass an array, not an object
-        renderTree(combined, treeContainer);
+        // anyways disable interactive adding in ALL mode aka no adding files from combined view
+        renderTree(combined, treeContainer, {disable: true});
 
+        // Disable all "add to revision" buttons in this ALL mode
+        // select all buttons with class 'add-file-btn' or data-action="add-file"
+        // then disable them e.g. style.display = 'none' so invisible to users;
+        const addButtons = treeContainer.querySelectorAll('.add-file-btn, [data-action="add-file"]');
+
+        addButtons.forEach(btn => {
+          btn.style.display = 'none'; // invisible to users
+          btn.removeAttribute('onclick'); // defensive if inline handlers exist
+        });
+
+        // Load recent workspaces and all files for revision across workspaces
         await loadRecentWorkspaces();
+        const revisionList = document.querySelector('revision-list');
+
+        // if there is no stuff then just return
+        if (!revisionList) return;
+
+        // fetch all files for revision from all workspaces, if successful then throw them to middle col aka the "Files for Revision"
+        const result = await window.fileManager.getAllFilesForRevision(() => centralDbPath);
+        if (result.success) {
+          revisionList.files = result.files;
+        }
+
+        // lastly return cuz below is going to be single workplace mode
         return;
       } catch (error) {
         console.error('Error loading combined workspace view:', error);
@@ -123,7 +159,7 @@ export async function openWorkspace(folderPath) {
       }
     }
 
-    window.currentRootPath = folderPath
+    // single workspace mode, database and tree setup
     const dbResult = await window.fileManager.createDatabase(folderPath)
     if (dbResult.success) {
       console.log('Database ready at:', dbResult.path)
@@ -140,12 +176,46 @@ export async function openWorkspace(folderPath) {
     const treeContainer = document.getElementById('tree-container')
     renderTree(tree, treeContainer)
 
-    // window.dispatchEvent(new CustomEvent('workspace-changed', { detail: { path: folderPath } }))
+    // re-enable add buttons in single workspace mode when they were previously disabled in ALL mode
+    // similar logic as before like loop each of them but now we unhide and re-enable them
+    const addButtons = treeContainer.querySelectorAll('.add-file-btn, [data-action="add-file"]');
+    addButtons.forEach(btn => {
+      btn.style.display = '';                // unhide
+      btn.disabled = false;                  // allow clicking
+      btn.classList.remove('disabled');      // remove any disabled styling
+      btn.removeAttribute('aria-disabled');  // clean up ARIA state
+      btn.title = 'Add file to revision queue'; // restore tooltip
+    });
 
+    // Load recent workspaces and all files for revision across workspaces
+    // yes just same stuff as before
     await loadRecentWorkspaces()
+    // update revision list with files from the specific workspace
+    const revisionList = document.querySelector('revision-list');
+    if (!revisionList) return;
+    const result = await window.fileManager.getFilesForRevision(folderPath);
+    if (result.success) {
+      revisionList.files = result.files;
+    }
   } catch (error) {
     console.error('Error opening workspace:', error)
     alert(`Error opening workspace: ${error.message}`)
+  }
+
+  // global add button guard for ALL workspaces mode
+  if (!window.__addGuardRegistered) {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.add-file-btn, [data-action="add-file"]');
+      if (!btn) return;
+      if (window.isAllWorkspacesMode) {
+        e.preventDefault();
+        const toast = document.getElementById('toast');
+        toast.textContent = 'Cannot add files in All Workspaces view';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 1800);
+      }
+    });
+    window.__addGuardRegistered = true;
   }
 }
 
