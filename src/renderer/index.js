@@ -9,6 +9,7 @@ import { initFeedbackButtons } from './ui/feedbackButtons.js'
 import { initializeResizeHandles } from './ui/resize.js'
 import { loadRecentWorkspaces } from './ui/workspace.js'
 import './ui/codemirror-viewer.js'
+import './ui/pdfViewer.js'
 
 initializeResizeHandles()
 loadRecentWorkspaces()

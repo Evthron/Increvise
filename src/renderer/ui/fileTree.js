@@ -35,6 +35,51 @@ export function renderTree(tree, container = treeContainer) {
       label.classList.add('tree-label')
       label.textContent = item.name
       treeItem.appendChild(label)
+    } else if (item.type === 'pdf-parent') {
+      // PDF file with extracts
+      treeItem.classList.add('pdf-parent')
+      const expandIcon = document.createElement('span')
+      expandIcon.classList.add('tree-expand-icon')
+      expandIcon.textContent = '\u25b6'
+      treeItem.appendChild(expandIcon)
+      const icon = document.createElement('span')
+      icon.classList.add('tree-icon')
+      icon.textContent = '\ud83d\udcdd' // 📝 PDF icon
+      treeItem.appendChild(icon)
+      const label = document.createElement('span')
+      label.classList.add('tree-label')
+      label.textContent = item.name
+      treeItem.appendChild(label)
+      const addBtn = document.createElement('button')
+      addBtn.textContent = '+'
+      addBtn.classList.add('add-file-btn')
+      window.fileManager
+        .checkFileInQueue(item.path, window.currentWorkspaceLibraryId)
+        .then((result) => {
+          if (result.inQueue) {
+            addBtn.textContent = '\u2713'
+            addBtn.disabled = true
+          }
+        })
+      addBtn.onclick = async (e) => {
+        e.stopPropagation()
+        const result = await window.fileManager.addFileToQueue(
+          item.path,
+          window.currentWorkspaceLibraryId
+        )
+        if (result.success) {
+          addBtn.textContent = '\u2713'
+          addBtn.disabled = true
+        } else {
+          if (result.alreadyExists) {
+            addBtn.textContent = '\u2713'
+            addBtn.disabled = true
+          } else {
+            alert(`Error: ${result.error}`)
+          }
+        }
+      }
+      treeItem.appendChild(addBtn)
     } else if (item.type === 'note-parent') {
       treeItem.classList.add('note-parent')
       const expandIcon = document.createElement('span')
@@ -212,6 +257,32 @@ export function renderTree(tree, container = treeContainer) {
               expandIcon.classList.remove('expanded')
               const icon = treeItem.querySelector('.tree-icon')
               icon.textContent = '📁'
+            }
+          }
+        }
+      } else if (item.type === 'pdf-parent') {
+        // Open PDF file and toggle extract list
+        await openFile(item.path)
+        document.querySelectorAll('.tree-item').forEach((el) => el.classList.remove('selected'))
+        treeItem.classList.add('selected')
+
+        const expandIcon = treeItem.querySelector('.tree-expand-icon')
+        if (!li.dataset.loaded && item.children && item.children.length > 0) {
+          const subUl = document.createElement('ul')
+          subUl.classList.add('pdf-extracts')
+          renderTree(item.children, subUl)
+          li.appendChild(subUl)
+          li.dataset.loaded = true
+          expandIcon.classList.add('expanded')
+        } else if (li.dataset.loaded) {
+          const subUl = li.querySelector('ul.pdf-extracts')
+          if (subUl) {
+            const isHidden = subUl.style.display === 'none'
+            subUl.style.display = isHidden ? 'block' : 'none'
+            if (isHidden) {
+              expandIcon.classList.add('expanded')
+            } else {
+              expandIcon.classList.remove('expanded')
             }
           }
         }
