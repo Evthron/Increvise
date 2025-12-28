@@ -105,6 +105,7 @@ export class PdfViewer extends LitElement {
     }
 
     .pdf-page-container {
+      display: inline-flex;
       position: relative;
       background: white;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -271,6 +272,7 @@ export class PdfViewer extends LitElement {
     this.rangeStart = 1
     this.rangeEnd = 1
     this.currentRenderTask = null // Track current render task to prevent concurrent rendering
+    this._renderScheduled = null // Track scheduled render frame
   }
 
   /**
@@ -287,7 +289,6 @@ export class PdfViewer extends LitElement {
       this.isLoading = true
       this.errorMessage = ''
       this.pdfPath = filePath
-      this.restrictedRange = null // Clear any previous page restriction
 
       // Clean up previous document
       if (this.pdfDocument) {
@@ -305,52 +306,11 @@ export class PdfViewer extends LitElement {
       this.pdfDocument = await loadingTask.promise
       this.totalPages = this.pdfDocument.numPages
 
-      // Apply options before rendering
-      if (options.pageRange && Array.isArray(options.pageRange) && options.pageRange.length === 2) {
-        const [startPage, endPage] = options.pageRange
-        if (startPage >= 1 && endPage <= this.totalPages && startPage <= endPage) {
-          this.restrictedRange = { start: startPage, end: endPage }
-        }
-      }
+      // Apply options (this will update reactive properties and trigger render)
+      this.applyOptions(options)
 
-      // Set initial page (respecting restrictions)
-      if (options.initialPage) {
-        const minPage = this.restrictedRange ? this.restrictedRange.start : 1
-        const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
-        this.currentPage =
-          options.initialPage >= minPage && options.initialPage <= maxPage
-            ? options.initialPage
-            : minPage
-      } else {
-        this.currentPage = this.restrictedRange ? this.restrictedRange.start : 1
-      }
-
-      // Set selected pages (for highlighting)
-      if (options.selectedPages && Array.isArray(options.selectedPages)) {
-        if (options.selectedPages.length === 2) {
-          // Interpret as range [start, end]
-          const [start, end] = options.selectedPages
-          this.selectedPages = []
-          for (let i = start; i <= end; i++) {
-            if (i >= 1 && i <= this.totalPages) {
-              this.selectedPages.push(i)
-            }
-          }
-        } else {
-          // Interpret as individual page numbers
-          this.selectedPages = options.selectedPages.filter((p) => p >= 1 && p <= this.totalPages)
-        }
-      } else {
-        this.selectedPages = []
-      }
-
-      // Set extracted ranges (for locking)
-      if (options.extractedRanges && Array.isArray(options.extractedRanges)) {
-        this.extractedRanges = options.extractedRanges
-      }
-
-      // Render the initial page (only once!)
-      await this.renderCurrentPage()
+      // Set loading to false - this triggers render() which creates the canvas
+      // The actual page rendering will happen in updated() lifecycle
       this.isLoading = false
     } catch (error) {
       console.error('Error loading PDF:', error)
@@ -359,8 +319,62 @@ export class PdfViewer extends LitElement {
     }
   }
 
+  /**
+   * Apply PDF viewing options
+   * @param {Object} options - Configuration options
+   */
+  applyOptions(options) {
+    // Clear previous state
+    this.restrictedRange = null
+    this.selectedPages = []
+
+    // Apply page range restriction
+    if (options.pageRange && Array.isArray(options.pageRange) && options.pageRange.length === 2) {
+      const [startPage, endPage] = options.pageRange
+      if (startPage >= 1 && endPage <= this.totalPages && startPage <= endPage) {
+        this.restrictedRange = { start: startPage, end: endPage }
+      }
+    }
+
+    // Set initial page (respecting restrictions)
+    if (options.initialPage) {
+      const minPage = this.restrictedRange ? this.restrictedRange.start : 1
+      const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
+      this.currentPage =
+        options.initialPage >= minPage && options.initialPage <= maxPage
+          ? options.initialPage
+          : minPage
+    } else {
+      this.currentPage = this.restrictedRange ? this.restrictedRange.start : 1
+    }
+
+    // Set selected pages (for highlighting)
+    if (options.selectedPages && Array.isArray(options.selectedPages)) {
+      if (options.selectedPages.length === 2) {
+        // Interpret as range [start, end]
+        const [start, end] = options.selectedPages
+        this.selectedPages = []
+        for (let i = start; i <= end; i++) {
+          if (i >= 1 && i <= this.totalPages) {
+            this.selectedPages.push(i)
+          }
+        }
+      } else {
+        // Interpret as individual page numbers
+        this.selectedPages = options.selectedPages.filter((p) => p >= 1 && p <= this.totalPages)
+      }
+    }
+
+    // Set extracted ranges (for locking)
+    if (options.extractedRanges && Array.isArray(options.extractedRanges)) {
+      this.extractedRanges = options.extractedRanges
+    }
+  }
+
   async renderCurrentPage() {
-    if (!this.pdfDocument) return
+    if (!this.pdfDocument) {
+      return
+    }
 
     try {
       // Cancel any pending render
@@ -376,7 +390,11 @@ export class PdfViewer extends LitElement {
       await this.updateComplete
 
       const canvas = this.shadowRoot.querySelector('.pdf-canvas')
-      if (!canvas) return
+      if (!canvas) {
+        console.error('Canvas element not found in shadow DOM')
+        this.errorMessage = 'Failed to render PDF: Canvas not ready'
+        return
+      }
 
       const context = canvas.getContext('2d')
       canvas.width = viewport.width
@@ -394,7 +412,6 @@ export class PdfViewer extends LitElement {
     } catch (error) {
       // Ignore cancellation errors
       if (error.name === 'RenderingCancelledException') {
-        console.log('Rendering cancelled (expected when switching pages quickly)')
         return
       }
       console.error('Error rendering page:', error)
@@ -406,7 +423,7 @@ export class PdfViewer extends LitElement {
     const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
     if (this.currentPage < maxPage) {
       this.currentPage++
-      await this.renderCurrentPage()
+      // Rendering will be triggered by updated() lifecycle
     }
   }
 
@@ -414,7 +431,7 @@ export class PdfViewer extends LitElement {
     const minPage = this.restrictedRange ? this.restrictedRange.start : 1
     if (this.currentPage > minPage) {
       this.currentPage--
-      await this.renderCurrentPage()
+      // Rendering will be triggered by updated() lifecycle
     }
   }
 
@@ -428,7 +445,7 @@ export class PdfViewer extends LitElement {
 
     if (pageNum >= minPage && pageNum <= maxPage) {
       this.currentPage = pageNum
-      this.renderCurrentPage()
+      // Rendering will be triggered by updated() lifecycle
     }
   }
 
@@ -444,7 +461,7 @@ export class PdfViewer extends LitElement {
       // If current page is outside range, jump to start
       if (this.currentPage < startPage || this.currentPage > endPage) {
         this.currentPage = startPage
-        this.renderCurrentPage()
+        // Rendering will be triggered by updated() lifecycle
       }
 
       this.requestUpdate()
@@ -483,14 +500,14 @@ export class PdfViewer extends LitElement {
   async zoomIn() {
     if (this.scale < 3.0) {
       this.scale += 0.25
-      await this.renderCurrentPage()
+      // Rendering will be triggered by updated() lifecycle
     }
   }
 
   async zoomOut() {
     if (this.scale > 0.5) {
       this.scale -= 0.25
-      await this.renderCurrentPage()
+      // Rendering will be triggered by updated() lifecycle
     }
   }
 
@@ -572,8 +589,49 @@ export class PdfViewer extends LitElement {
     )
   }
 
+  /**
+   * Lit lifecycle: called after component updates
+   * This is where we trigger page rendering when the canvas is ready
+   */
+  updated(changedProperties) {
+    super.updated(changedProperties)
+
+    // Check if we need to render
+    const shouldRender =
+      (changedProperties.has('isLoading') && !this.isLoading && this.pdfDocument) ||
+      (changedProperties.has('currentPage') && !this.isLoading && this.pdfDocument) ||
+      (changedProperties.has('scale') && !this.isLoading && this.pdfDocument)
+
+    if (shouldRender) {
+      // Cancel any previously scheduled render
+      if (this._renderScheduled) {
+        cancelAnimationFrame(this._renderScheduled)
+      }
+
+      // Schedule new render
+      this._renderScheduled = requestAnimationFrame(() => {
+        this._renderScheduled = null
+        this.renderCurrentPage()
+      })
+    }
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback()
+
+    // Cancel any scheduled render
+    if (this._renderScheduled) {
+      cancelAnimationFrame(this._renderScheduled)
+      this._renderScheduled = null
+    }
+
+    // Cancel any pending render task
+    if (this.currentRenderTask) {
+      this.currentRenderTask.cancel()
+      this.currentRenderTask = null
+    }
+
+    // Destroy PDF document
     if (this.pdfDocument) {
       this.pdfDocument.destroy()
     }
