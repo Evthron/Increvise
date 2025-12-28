@@ -101,6 +101,7 @@ export class PdfViewer extends LitElement {
       overflow: auto;
       display: flex;
       justify-content: center;
+      align-items: flex-start;
       padding: 2rem;
     }
 
@@ -114,8 +115,6 @@ export class PdfViewer extends LitElement {
 
     .pdf-canvas {
       display: block;
-      max-width: 100%;
-      height: auto;
     }
 
     .loading-message,
@@ -386,9 +385,7 @@ export class PdfViewer extends LitElement {
       const page = await this.pdfDocument.getPage(this.currentPage)
       const viewport = page.getViewport({ scale: this.scale })
 
-      // Wait for component to update
-      await this.updateComplete
-
+      // Canvas should already be in DOM since we're called from updated() lifecycle
       const canvas = this.shadowRoot.querySelector('.pdf-canvas')
       if (!canvas) {
         console.error('Canvas element not found in shadow DOM')
@@ -419,7 +416,7 @@ export class PdfViewer extends LitElement {
     }
   }
 
-  async nextPage() {
+  nextPage() {
     const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
     if (this.currentPage < maxPage) {
       this.currentPage++
@@ -427,7 +424,7 @@ export class PdfViewer extends LitElement {
     }
   }
 
-  async prevPage() {
+  prevPage() {
     const minPage = this.restrictedRange ? this.restrictedRange.start : 1
     if (this.currentPage > minPage) {
       this.currentPage--
@@ -497,14 +494,14 @@ export class PdfViewer extends LitElement {
     this.requestUpdate()
   }
 
-  async zoomIn() {
+  zoomIn() {
     if (this.scale < 3.0) {
       this.scale += 0.25
       // Rendering will be triggered by updated() lifecycle
     }
   }
 
-  async zoomOut() {
+  zoomOut() {
     if (this.scale > 0.5) {
       this.scale -= 0.25
       // Rendering will be triggered by updated() lifecycle
