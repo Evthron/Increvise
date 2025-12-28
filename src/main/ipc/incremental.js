@@ -606,6 +606,59 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
   }
 }
 
+/**
+ * Get extract information for a note file from database
+ * Simple query to check if file is an extract and get its source info
+ *
+ * @param {string} notePath - Absolute path to the note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Extract info or null
+ */
+async function getNoteExtractInfo(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    try {
+      const info = db
+        .prepare(
+          `
+        SELECT parent_path, extract_type, range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+        )
+        .get(libraryId, relativePath)
+
+      if (!info) {
+        return { success: true, found: false }
+      }
+
+      // Convert relative parent_path to absolute path
+      const absoluteParentPath = path.join(dbInfo.folderPath, info.parent_path)
+
+      return {
+        success: true,
+        found: true,
+        extractType: info.extract_type,
+        parentPath: absoluteParentPath,
+        rangeStart: info.range_start ? parseInt(info.range_start) : null,
+        rangeEnd: info.range_end ? parseInt(info.range_end) : null,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('Error getting note extract info:', error)
+    return { success: false, error: error.message }
+  }
+}
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
 
@@ -633,6 +686,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('extract-pdf-pages', async (event, pdfPath, startPage, endPage, libraryId) =>
     extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
   )
+
+  ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
+    getNoteExtractInfo(notePath, libraryId, getCentralDbPath)
+  )
 }
 
 // Export functions for testing
@@ -650,4 +707,5 @@ export {
   compareFilenameWithDbRange,
   getChildRanges,
   extractPdfPages,
+  getNoteExtractInfo,
 }
