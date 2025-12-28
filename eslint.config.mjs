@@ -23,11 +23,15 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-console': 'off',
       semi: ['error', 'never'],
-      quotes: ['error', 'warn'],
+      quotes: ['warn', 'single'],
       indent: ['error', 2],
     },
   },
   {
     ignores: ['node_modules/**', 'dist/**', 'out/**'],
+  },
+  {
+    plugins: ['lit'],
+    extends: ['plugin:lit/recommended'],
   },
 ]
