@@ -349,13 +349,13 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
 }
 
 /**
- * Get the extracted line ranges from all child notes of a parent note
+ * Get the extracted ranges from all child notes of a parent note
  * @param {string} parentPath - Absolute path to parent note
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
- * @returns {Promise<Object>} - Child notes line ranges information
+ * @returns {Promise<Object>} - Child notes ranges information
  */
-async function getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath) {
+async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
@@ -506,6 +506,159 @@ async function extractNote(
   }
 }
 
+/**
+ * Extract PDF pages as metadata file
+ * @param {string} pdfPath - Path to PDF file
+ * @param {number} startPage - Start page number (1-indexed)
+ * @param {number} endPage - End page number (1-indexed)
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Result object
+ */
+async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath) {
+  try {
+    console.log('[extractPdfPages] Starting extraction:', {
+      pdfPath,
+      startPage,
+      endPage,
+      libraryId,
+    })
+
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const rootPath = dbInfo.folderPath
+
+    try {
+      // Create PDF container folder
+      const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
+      console.log('[extractPdfPages] Creating container folder:', containerFolder)
+
+      try {
+        await fs.mkdir(containerFolder, { recursive: true })
+      } catch (mkdirError) {
+        console.error('[extractPdfPages] mkdir error:', mkdirError)
+        return {
+          success: false,
+          error: `Failed to create container folder: ${mkdirError.message}`,
+        }
+      }
+
+      const metadataFilePath = path.join(containerFolder, `${startPage}-${endPage}-pages.md`)
+      console.log('[extractPdfPages] Will create metadata file:', metadataFilePath)
+      const relativePath = path.relative(rootPath, metadataFilePath)
+      const parentRelativePath = path.relative(rootPath, pdfPath)
+
+      // Check if file already exists
+      try {
+        await fs.access(metadataFilePath)
+        return {
+          success: false,
+          error: 'A note with this page range already exists. Please select different pages.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
+      }
+
+      // Create metadata file
+      const metadataContent = '## Notes'
+      await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
+
+      // Insert into database
+      db.prepare(
+        `
+        INSERT INTO file (library_id, relative_path, added_time, due_time)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `
+      ).run(libraryId, relativePath)
+
+      db.prepare(
+        `
+        INSERT INTO note_source 
+        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        'pdf-page',
+        String(startPage),
+        String(endPage),
+        null
+        // No source hash for pdf page extraction
+      )
+
+      return {
+        success: true,
+        filePath: metadataFilePath,
+        fileName: `${startPage}-${endPage}-pages.md`,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('Error extracting PDF pages:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Get extract information for a note file from database
+ * Simple query to check if file is an extract and get its source info
+ *
+ * @param {string} notePath - Absolute path to the note file
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Extract info or null
+ */
+async function getNoteExtractInfo(notePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, notePath)
+
+    try {
+      const info = db
+        .prepare(
+          `
+        SELECT parent_path, extract_type, range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+      `
+        )
+        .get(libraryId, relativePath)
+
+      if (!info) {
+        return { success: true, found: false }
+      }
+
+      // Convert relative parent_path to absolute path
+      const absoluteParentPath = path.join(dbInfo.folderPath, info.parent_path)
+
+      return {
+        success: true,
+        found: true,
+        extractType: info.extract_type,
+        parentPath: absoluteParentPath,
+        rangeStart: info.range_start ? parseInt(info.range_start) : null,
+        rangeEnd: info.range_end ? parseInt(info.range_end) : null,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('Error getting note extract info:', error)
+    return { success: false, error: error.message }
+  }
+}
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
 
@@ -525,8 +678,17 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
   )
 
-  ipcMain.handle('get-child-notes-line-ranges', async (event, parentPath, libraryId) =>
-    getChildNotesLineRanges(parentPath, libraryId, getCentralDbPath)
+  ipcMain.handle('get-child-ranges', async (event, parentPath, libraryId) =>
+    getChildRanges(parentPath, libraryId, getCentralDbPath)
+  )
+
+  // PDF extraction handlers
+  ipcMain.handle('extract-pdf-pages', async (event, pdfPath, startPage, endPage, libraryId) =>
+    extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
+  )
+
+  ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
+    getNoteExtractInfo(notePath, libraryId, getCentralDbPath)
   )
 }
 
@@ -543,5 +705,7 @@ export {
   findContentByHashAndLineCount,
   validateAndRecoverNoteRange,
   compareFilenameWithDbRange,
-  getChildNotesLineRanges,
+  getChildRanges,
+  extractPdfPages,
+  getNoteExtractInfo,
 }

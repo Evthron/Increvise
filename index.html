@@ -55,13 +55,16 @@
               <span id="current-file-path"></span>
             </div>
             <div class="toolbar-right">
-              <button id="extract-btn">Extract</button>
-              <button id="save-file-btn">Save</button>
-              <button id="toggle-edit-btn">Edit</button>
+              <button id="extract-btn" class="for-text-files">Extract</button>
+              <button id="save-file-btn" class="for-text-files">Save</button>
+              <button id="toggle-edit-btn" class="for-text-files">Edit</button>
+              <button id="extract-text-btn" class="for-pdf-files hidden">Extract Text</button>
+              <button id="extract-page-btn" class="for-pdf-files hidden">Extract Page</button>
             </div>
           </div>
           <div class="editor-content">
             <codemirror-viewer content="Select a file to revise"> </codemirror-viewer>
+            <pdf-viewer class="hidden"></pdf-viewer>
           </div>
           <div id="revision-controls" class="hidden">
             <div id="current-file-name"></div>

@@ -17,6 +17,7 @@ import {
   generateChildNoteName,
   findTopLevelNoteFolder,
   findParentPath,
+  getNoteExtractInfo,
 } from '../src/main/ipc/incremental.js'
 import { createDatabase } from '../src/main/ipc/spaced.js'
 
@@ -720,6 +721,123 @@ async function test15_FindTopLevelNoteFolder() {
 }
 
 // ========================================
+// Test 16: getNoteExtractInfo - Query PDF extract info from database
+// ========================================
+async function test16_GetNoteExtractInfo() {
+  printSeparator('Test 16: getNoteExtractInfo - Query PDF extract info')
+
+  const db = new Database(TEST_DB_PATH)
+
+  // Insert a PDF extract entry into database
+  const pdfExtractPath = 'papers/machine-learning/1-5-pages.md'
+  const sourcePdfPath = 'papers/machine-learning.pdf'
+
+  // First insert the file entry
+  db.prepare(
+    `
+    INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+    VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+  `
+  ).run(LIBRARY_ID, pdfExtractPath)
+
+  // Insert note_source entry with extract_type = 'pdf-page'
+  db.prepare(
+    `
+    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `
+  ).run(LIBRARY_ID, pdfExtractPath, sourcePdfPath, 'pdf-page', '1', '5', 'dummy-pdf-hash')
+
+  db.close()
+
+  // Test 1: Query PDF extract info (should find it)
+  const absolutePath = path.join(TEST_WORKSPACE, pdfExtractPath)
+  const result = await getNoteExtractInfo(absolutePath, LIBRARY_ID, getCentralDbPath)
+
+  console.log(`  Test 1: Query PDF extract "${pdfExtractPath}"`)
+  if (!result.success) {
+    throw new Error('Query failed: ' + result.error)
+  }
+  console.log('  ✓ Query succeeded')
+
+  if (!result.found) {
+    throw new Error('Expected to find extract info')
+  }
+  console.log('  ✓ Extract info found')
+
+  if (result.extractType !== 'pdf-page') {
+    throw new Error(`Expected extract_type='pdf-page', got '${result.extractType}'`)
+  }
+  console.log(`  ✓ Extract type: ${result.extractType}`)
+
+  const expectedAbsoluteParentPath = path.join(TEST_WORKSPACE, sourcePdfPath)
+  if (result.parentPath !== expectedAbsoluteParentPath) {
+    throw new Error(
+      `Expected parent_path='${expectedAbsoluteParentPath}', got '${result.parentPath}'`
+    )
+  }
+  console.log(`  ✓ Parent path: ${path.relative(TEST_WORKSPACE, result.parentPath)}`)
+
+  if (result.rangeStart !== 1 || result.rangeEnd !== 5) {
+    throw new Error(`Expected range 1-5, got ${result.rangeStart}-${result.rangeEnd}`)
+  }
+  console.log(`  ✓ Range: ${result.rangeStart}-${result.rangeEnd}`)
+
+  // Test 2: Query non-existent file (should not find it)
+  const nonExistentPath = path.join(TEST_WORKSPACE, 'non-existent.md')
+  const result2 = await getNoteExtractInfo(nonExistentPath, LIBRARY_ID, getCentralDbPath)
+
+  console.log(`  Test 2: Query non-existent file`)
+  if (!result2.success) {
+    throw new Error('Query should succeed even for non-existent files')
+  }
+  console.log('  ✓ Query succeeded')
+
+  if (result2.found) {
+    throw new Error('Should not find info for non-existent file')
+  }
+  console.log('  ✓ Correctly returns found=false')
+
+  // Test 3: Query text extract (should find but not be pdf-page type)
+  const db2 = new Database(TEST_DB_PATH)
+  const textExtractPath = 'notes/text-extract.md'
+
+  db2
+    .prepare(
+      `
+    INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+    VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+  `
+    )
+    .run(LIBRARY_ID, textExtractPath)
+
+  db2
+    .prepare(
+      `
+    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `
+    )
+    .run(LIBRARY_ID, textExtractPath, 'notes/source.md', 'text-lines', '10', '20', 'dummy-hash')
+
+  db2.close()
+
+  const textExtractAbsPath = path.join(TEST_WORKSPACE, textExtractPath)
+  const result3 = await getNoteExtractInfo(textExtractAbsPath, LIBRARY_ID, getCentralDbPath)
+
+  console.log(`  Test 3: Query text extract (not PDF)`)
+  if (!result3.success || !result3.found) {
+    throw new Error('Should find text extract')
+  }
+  console.log('  ✓ Found text extract')
+
+  if (result3.extractType !== 'text-lines') {
+    throw new Error(`Expected extract_type='text-lines', got '${result3.extractType}'`)
+  }
+  console.log(`  ✓ Correctly identifies as text-lines extract`)
+}
+
+// ========================================
 // Main test function
 // ========================================
 async function runAllTests() {
@@ -743,6 +861,7 @@ async function runAllTests() {
     await test13_ExtractNote_Duplicate()
     await test14_ExtractNote_MultiLevel_Flat()
     await test15_FindTopLevelNoteFolder()
+    await test16_GetNoteExtractInfo()
 
     console.log('\n✓ All tests completed successfully\n')
   } catch (error) {

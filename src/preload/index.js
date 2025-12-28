@@ -37,8 +37,18 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('validate-note', notePath, libraryId),
   compareFilenameWithDbRange: (notePath, libraryId) =>
     ipcRenderer.invoke('compare-filename-with-db-range', notePath, libraryId),
-  getChildNotesLineRanges: (parentPath, libraryId) =>
-    ipcRenderer.invoke('get-child-notes-line-ranges', parentPath, libraryId),
+  getChildRanges: (parentPath, libraryId) =>
+    ipcRenderer.invoke('get-child-ranges', parentPath, libraryId),
+  getNoteExtractInfo: (notePath, libraryId) =>
+    ipcRenderer.invoke('get-note-extract-info', notePath, libraryId),
+
+  // 3b. PDF Extraction
+  extractPdfPages: (pdfPath, startPage, endPage, libraryId) =>
+    ipcRenderer.invoke('extract-pdf-pages', pdfPath, startPage, endPage, libraryId),
+  extractPdfText: (pdfPath, text, pageNum, charStart, charEnd, libraryId) =>
+    ipcRenderer.invoke('extract-pdf-text', pdfPath, text, pageNum, charStart, charEnd, libraryId),
+  extractPdfAnnotation: (pdfPath, annotation, libraryId) =>
+    ipcRenderer.invoke('extract-pdf-annotation', pdfPath, annotation, libraryId),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
