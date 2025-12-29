@@ -300,8 +300,17 @@ export class PdfViewer extends LitElement {
         this.currentRenderTask = null
       }
 
-      // Load PDF document
-      const loadingTask = getDocument(filePath)
+      // Load PDF document from buffer (fixes Windows file path issues)
+      // Read PDF file as buffer to avoid Windows path interpretation issues
+      // that could trigger printer dialogs on some systems
+      const pdfResult = await window.fileManager.readPdfFile(filePath)
+      if (!pdfResult.success) {
+        throw new Error(pdfResult.error || 'Failed to read PDF file')
+      }
+
+      // Convert array back to Uint8Array for PDF.js
+      const uint8Array = new Uint8Array(pdfResult.data)
+      const loadingTask = getDocument({ data: uint8Array })
       this.pdfDocument = await loadingTask.promise
       this.totalPages = this.pdfDocument.numPages
 

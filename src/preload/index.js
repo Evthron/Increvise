@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 1. File System
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path),
+  readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath),
 
   // 2. Spaced Repetition
   createDatabase: (dbPath) => ipcRenderer.invoke('create-database', dbPath),

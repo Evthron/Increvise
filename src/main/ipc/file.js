@@ -211,10 +211,23 @@ async function getDirectoryTree(dirPath) {
   return await buildTree(dirPath)
 }
 
+async function readPdfFile(filePath) {
+  try {
+    const buffer = await fs.readFile(filePath)
+    // Convert buffer to array for IPC transfer
+    return { success: true, data: Array.from(buffer) }
+  } catch (error) {
+    console.error('Error reading PDF file:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export function registerFileIpc(ipcMain) {
   ipcMain.handle('select-folder', async (event) => selectFolder())
 
   ipcMain.handle('get-directory-tree', async (event, dirPath) => getDirectoryTree(dirPath))
+
+  ipcMain.handle('read-pdf-file', async (event, filePath) => readPdfFile(filePath))
 }
 
-export { selectFolder, getDirectoryTree }
+export { selectFolder, getDirectoryTree, readPdfFile }
