@@ -146,6 +146,20 @@ export async function openFile(filePath) {
         isEditMode = false
         hasUnsavedChanges = false
         toggleEditBtn.textContent = 'Edit'
+        // Hide PDF viewer, show text editor
+        pdfViewer.classList.add('hidden')
+        codeMirrorEditor.classList.remove('hidden')
+        // Adjust toolbar buttons
+        extractTextBtn.classList.add('hidden')
+        extractPageBtn.classList.add('hidden')
+        extractBtn.classList.remove('hidden')
+        saveFileBtn.classList.remove('hidden')
+        toggleEditBtn.classList.remove('hidden')
+        if (codeMirrorEditor) {
+          codeMirrorEditor.setContent(result.content)
+          // Load and lock extracted line ranges from database
+          await loadAndLockExtractedRanges(filePath)
+          codeMirrorEditor.disableEditing()
         pdfViewer.resetView?.()
         if (ext === '.md' || ext === '.markdown') {
           // Show pdf-viewer in markdown mode
@@ -177,7 +191,7 @@ export async function openFile(filePath) {
             await loadAndLockExtractedRanges(filePath)
             codeMirrorEditor.disableEditing()
           }
-        }
+        }}
       } else {
         alert(`Error reading file: ${result.error}`)
       }
