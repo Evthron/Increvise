@@ -4,7 +4,7 @@
 
 import { LitElement, html, css } from 'lit'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
-
+import { marked } from 'marked'
 // Configure PDF.js worker for Electron
 const workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
 GlobalWorkerOptions.workerSrc = workerSrc
@@ -23,6 +23,8 @@ export class PdfViewer extends LitElement {
     rangeStart: { type: Number },
     rangeEnd: { type: Number },
     restrictedRange: { type: Object }, // { start: number, end: number } or null
+    contentType: { type: String }, // 'pdf' | 'markdown' | 'html' | 'embed'
+    content: { type: String },     // file path, raw HTML, markdown, or URL
   }
 
   static styles = css`
@@ -254,6 +256,15 @@ export class PdfViewer extends LitElement {
       margin-left: 1rem;
     }
   `
+  resetView() {
+    this.contentType = ''
+    this.content = ''
+    this.pdfDoc = null
+    const canvas = this.shadowRoot?.querySelector('#pdf-canvas')
+    if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+    const htmlContainer = this.shadowRoot?.querySelector('#html-container')
+    if (htmlContainer) htmlContainer.innerHTML = ''
+  }
 
   constructor() {
     super()
@@ -272,6 +283,8 @@ export class PdfViewer extends LitElement {
     this.rangeEnd = 1
     this.currentRenderTask = null // Track current render task to prevent concurrent rendering
     this._renderScheduled = null // Track scheduled render frame
+    this.contentType = 'pdf'   // default
+    this.content = ''          // default
   }
 
   /**
@@ -377,7 +390,7 @@ export class PdfViewer extends LitElement {
     if (options.extractedRanges && Array.isArray(options.extractedRanges)) {
       this.extractedRanges = options.extractedRanges
     }
-  }
+  } 
 
   async renderCurrentPage() {
     if (!this.pdfDocument) {
@@ -644,6 +657,22 @@ export class PdfViewer extends LitElement {
   }
 
   render() {
+    if (this.contentType === 'markdown') {
+    return html`
+      <div class="markdown-viewer" .innerHTML=${marked(this.content)}></div>
+    `;
+
+    }
+    else if (this.contentType === 'html') {
+      return html`
+        <div class="html-viewer" .innerHTML=${this.content}></div>
+      `;
+    }
+    else if (this.contentType === 'embed') {
+      return html`<iframe src=${this.content} style="width:100%; height:100%; border:none;"></iframe>`;
+    }
+
+    // else then is pdf
     if (this.isLoading) {
       return html`<div class="loading-message">Loading PDF...</div>`
     }

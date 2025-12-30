@@ -42,6 +42,9 @@
     "better-sqlite3": "^12.4.1",
     "codemirror": "^6.0.2",
     "lit": "^3.3.1",
+    "marked": "^17.0.1",
+    "node-fetch": "^3.3.2",
+    "node-html-markdown": "^2.0.0",
     "pdfjs-dist": "^5.4.449"
   }
 }
