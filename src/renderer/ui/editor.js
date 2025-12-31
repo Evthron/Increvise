@@ -14,6 +14,8 @@ const extractPageBtn = document.getElementById('extract-page-btn')
 const editorToolbar = document.getElementById('editor-toolbar')
 const codeMirrorEditor = document.querySelector('codemirror-viewer')
 const pdfViewer = document.querySelector('pdf-viewer')
+const htmlViewer = document.querySelector('html-viewer')
+const markdownViewer = document.querySelector('markdown-viewer')
 
 // Editor state
 let currentOpenFile = null
@@ -58,7 +60,7 @@ export async function openFile(filePath) {
     }
 
     // Check if file is a regular PDF
-    const ext = filePath.slice(filePath.lastIndexOf('.'))
+    const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
     const isPdf = ext === '.pdf'
 
     if (pdfExtractInfo) {
@@ -73,9 +75,11 @@ export async function openFile(filePath) {
       currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
       editorToolbar.classList.remove('hidden')
 
-      // Show PDF viewer
+      // Show PDF viewer, hide others
       pdfViewer.classList.remove('hidden')
       codeMirrorEditor.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
 
       // Adjust toolbar buttons
       extractBtn.classList.add('hidden')
@@ -109,8 +113,10 @@ export async function openFile(filePath) {
       currentFilePath.textContent = filePath
       editorToolbar.classList.remove('hidden')
 
-      // Hide text editor, show PDF viewer
+      // Hide text editor and other viewers, show PDF viewer
       codeMirrorEditor.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
       pdfViewer.classList.remove('hidden')
 
       // Adjust toolbar buttons
@@ -136,9 +142,14 @@ export async function openFile(filePath) {
         rangesResult?.success ? rangesResult.ranges.length : 0
       )
     } else {
+      // Non-PDF files (text, markdown, html, etc.)
       pdfViewer.resetView?.()
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const result = await window.fileManager.readFile(filePath)
+      if (!result.success) {
+        alert(`Error reading file: ${result.error}`)
+        return
+      }
       if (result.success) {
         currentOpenFile = filePath
         currentFilePath.textContent = filePath
@@ -146,52 +157,38 @@ export async function openFile(filePath) {
         isEditMode = false
         hasUnsavedChanges = false
         toggleEditBtn.textContent = 'Edit'
-        // Hide PDF viewer, show text editor
+        
+        // Hide all viewers initially
         pdfViewer.classList.add('hidden')
-        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.classList.add('hidden')
+        markdownViewer?.classList.add('hidden')
+        htmlViewer?.classList.add('hidden')
+
         // Adjust toolbar buttons
         extractTextBtn.classList.add('hidden')
         extractPageBtn.classList.add('hidden')
         extractBtn.classList.remove('hidden')
         saveFileBtn.classList.remove('hidden')
         toggleEditBtn.classList.remove('hidden')
-        if (codeMirrorEditor) {
-          codeMirrorEditor.setContent(result.content)
-          // Load and lock extracted line ranges from database
-          await loadAndLockExtractedRanges(filePath)
-          codeMirrorEditor.disableEditing()
-        pdfViewer.resetView?.()
+
+        // Determine viewer by file extension
         if (ext === '.md' || ext === '.markdown') {
-          // Show pdf-viewer in markdown mode
-          codeMirrorEditor.classList.add('hidden')
-          pdfViewer.classList.remove('hidden')
-          pdfViewer.contentType = 'markdown'
-          pdfViewer.content = result.content
-          pdfViewer.requestUpdate()
+          // Show markdown viewer
+          markdownViewer?.classList.remove('hidden')
+          markdownViewer?.setMarkdown(result.content ?? '')
         } else if (ext === '.html' || ext === '.htm') {
-          // Show pdf-viewer in html mode
-          codeMirrorEditor.classList.add('hidden')
-          pdfViewer.classList.remove('hidden')
-          pdfViewer.contentType = 'html'
-          pdfViewer.content = result.content
-          pdfViewer.requestUpdate()
+          // Show HTML viewer
+          htmlViewer?.classList.remove('hidden')
+          htmlViewer?.setHtml(result.content ?? '')
         } else {
-
-          // Default: show text editor
-          pdfViewer.classList.add('hidden')
-          codeMirrorEditor.classList.remove('hidden')
-          extractTextBtn.classList.add('hidden')
-          extractPageBtn.classList.add('hidden')
-          extractBtn.classList.remove('hidden')
-          saveFileBtn.classList.remove('hidden')
-          toggleEditBtn.classList.remove('hidden')
-
+          // Show text editor for other files
+          codeMirrorEditor?.classList.remove('hidden')
           if (codeMirrorEditor) {
             codeMirrorEditor.setContent(result.content)
             await loadAndLockExtractedRanges(filePath)
             codeMirrorEditor.disableEditing()
           }
-        }}
+        }
       } else {
         alert(`Error reading file: ${result.error}`)
       }
