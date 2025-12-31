@@ -171,6 +171,13 @@ export async function openFile(filePath) {
         saveFileBtn.classList.remove('hidden')
         toggleEditBtn.classList.remove('hidden')
 
+        if (codeMirrorEditor) {
+          codeMirrorEditor.setContent(result.content)
+          // Load and lock extracted line ranges from database
+          await loadAndLockExtractedRanges(filePath)
+          codeMirrorEditor.disableEditing()
+        }
+
         // Determine viewer by file extension
         if (ext === '.md' || ext === '.markdown') {
           // Show markdown viewer
