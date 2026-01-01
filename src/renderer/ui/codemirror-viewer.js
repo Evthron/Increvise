@@ -143,6 +143,9 @@ export class CodeMirrorViewer extends LitElement {
         }
         return false
       },
+    })
+
+    const preventDragDropHandler = EditorView.domEventHandlers({
       // Prevent drag-and-drop operations
       dragstart(event, view) {
         event.preventDefault()
@@ -161,6 +164,7 @@ export class CodeMirrorViewer extends LitElement {
     // Save the extensions so they can be reconfigured later
     this.lineSelectionExtension = lineSelectionExtension
     this.lineClickHandler = lineClickHandler
+    this.preventDragDropHandler = preventDragDropHandler
 
     // Whole-line highlight theme (includes locked line style)
     const lineHighlightTheme = EditorView.theme({
@@ -194,7 +198,11 @@ export class CodeMirrorViewer extends LitElement {
         markdown(),
         languageExtension,
         lockedLinesField,
-        this.lineSelectionCompartment.of([lineSelectionExtension, lineClickHandler]),
+        this.lineSelectionCompartment.of([
+          lineSelectionExtension,
+          lineClickHandler,
+          preventDragDropHandler,
+        ]),
         lineHighlightTheme,
         EditorView.lineWrapping,
         highlightActiveLine(),
@@ -367,6 +375,7 @@ export class CodeMirrorViewer extends LitElement {
         this.lineSelectionCompartment.reconfigure([
           this.lineSelectionExtension,
           this.lineClickHandler,
+          this.preventDragDropHandler,
         ]), // re-enable whole-line selection
       ],
     })
