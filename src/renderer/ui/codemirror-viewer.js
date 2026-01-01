@@ -81,6 +81,8 @@ export class CodeMirrorViewer extends LitElement {
                 }).range(line.from)
               )
             }
+            // Ranges must be added sorted by `from` position and `startSide`
+            decorations.sort((a, b) => a.from - b.from)
             value = Decoration.set(decorations)
           }
         }
