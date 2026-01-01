@@ -100,9 +100,19 @@ export class CodeMirrorViewer extends LitElement {
       const { main } = tr.selection
       const doc = tr.state.doc
 
+      // Convert charcter positions to line numbers
       const lineFrom = doc.lineAt(main.from)
       const lineTo = doc.lineAt(main.to)
 
+      // Only set limit when start selection from allows clicking on extracted lines
+      if (!this.lockedLines.has(lineFrom.number)) {
+        // Selection cannot go into extracted lines
+        for (let i = lineFrom.number; i <= lineTo.number; i++) {
+          if (this.lockedLines.has(lineTo.number)) {
+            return []
+          }
+        }
+      }
       // Check whether the selection attempts to include locked lines
       for (let i = lineFrom.number; i <= lineTo.number; i++) {
         if (this.lockedLines.has(i)) {
@@ -111,16 +121,12 @@ export class CodeMirrorViewer extends LitElement {
         }
       }
 
-      if (main.from !== lineFrom.from || main.to !== lineTo.to) {
-        return [
-          tr,
-          {
-            selection: EditorSelection.single(lineFrom.from, lineTo.to),
-          },
-        ]
-      }
-
-      return tr
+      return [
+        tr,
+        {
+          selection: EditorSelection.single(lineFrom.from, lineTo.to),
+        },
+      ]
     })
 
     // Mouse click selects the entire line (checks lock status)
@@ -130,12 +136,6 @@ export class CodeMirrorViewer extends LitElement {
         if (pos !== null) {
           const line = view.state.doc.lineAt(pos)
           const lineNum = line.number
-
-          // Check if the clicked line is locked
-          if (this.lockedLines.has(lineNum)) {
-            event.preventDefault()
-            return true
-          }
 
           view.dispatch({
             selection: EditorSelection.single(line.from, line.to),
@@ -242,13 +242,15 @@ export class CodeMirrorViewer extends LitElement {
 
     const lines = []
     for (let i = lineFrom.number; i <= lineTo.number; i++) {
-      const line = doc.line(i)
-      lines.push({
-        number: i,
-        text: line.text,
-        from: line.from,
-        to: line.to,
-      })
+      if (!this.lockedLines.has(i)) {
+        const line = doc.line(i)
+        lines.push({
+          number: i,
+          text: line.text,
+          from: line.from,
+          to: line.to,
+        })
+      }
     }
 
     return lines
