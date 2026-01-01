@@ -45,6 +45,7 @@ export class CodeMirrorViewer extends LitElement {
     this.isEditable = false
     this.editableCompartment = new Compartment()
     this.lineSelectionCompartment = new Compartment()
+    this.themeCompartment = new Compartment() // for switching between preview/edit themes
   }
 
   firstUpdated() {
@@ -161,28 +162,138 @@ export class CodeMirrorViewer extends LitElement {
       },
     })
 
+    // Edit mode change filter, to prevents modifications to locked lines
+    // allows selection, but blocks text changes
+    const editModeChangeFilter = EditorState.changeFilter.of((tr) => {
+      // Allow non-text-change transactions (like selection)
+      if (!tr.docChanged) {
+        return true
+      }
+
+      const doc = tr.state.doc
+      const affectedRanges = []
+
+      // Collect all affected ranges
+      tr.changes.iterChangedRanges((fromA, toA) => {
+        affectedRanges.push({ from: fromA, to: toA })
+      })
+
+      // Check if any affected range touches locked lines
+      for (let range of affectedRanges) {
+        const lineFrom = doc.lineAt(range.from)
+        const lineTo = doc.lineAt(range.to)
+
+        for (let i = lineFrom.number; i <= lineTo.number; i++) {
+          if (this.lockedLines.has(i)) {
+            return false
+          }
+        }
+      }
+
+      return true
+    })
+
+    // Edit mode drag/drop handler - prevents drag from/drop to locked lines
+    const editModeDragDropHandler = EditorView.domEventHandlers({
+      dragstart: (event, view) => {
+        // Get the position being dragged from
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+        if (pos !== null) {
+          const line = view.state.doc.lineAt(pos)
+          if (this.lockedLines.has(line.number)) {
+            event.preventDefault()
+            return true
+          }
+        }
+
+        // Check if selection being dragged includes locked lines
+        const { main } = view.state.selection
+        const doc = view.state.doc
+        const lineFrom = doc.lineAt(main.from)
+        const lineTo = doc.lineAt(main.to)
+
+        for (let i = lineFrom.number; i <= lineTo.number; i++) {
+          if (this.lockedLines.has(i)) {
+            event.preventDefault()
+            return true
+          }
+        }
+
+        return false
+      },
+      drop: (event, view) => {
+        // Get the drop target position
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+        if (pos !== null) {
+          const line = view.state.doc.lineAt(pos)
+          if (this.lockedLines.has(line.number)) {
+            event.preventDefault()
+            return true
+          }
+        }
+        return false
+      },
+      dragover: (event, view) => {
+        // Get the position being dragged over
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+        if (pos !== null) {
+          const line = view.state.doc.lineAt(pos)
+          if (this.lockedLines.has(line.number)) {
+            event.preventDefault()
+            return true
+          }
+        }
+        return false
+      },
+    })
+
     // Save the extensions so they can be reconfigured later
     this.lineSelectionExtension = lineSelectionExtension
     this.lineClickHandler = lineClickHandler
     this.preventDragDropHandler = preventDragDropHandler
+    this.editModeChangeFilter = editModeChangeFilter
+    this.editModeDragDropHandler = editModeDragDropHandler
 
-    // Whole-line highlight theme (includes locked line style)
-    const lineHighlightTheme = EditorView.theme({
+    const previewModeTheme = EditorView.theme({
       '.cm-selectionBackground': {
-        backgroundColor: '#3d5a80 !important',
+        backgroundColor: 'rgba(75, 100, 160, 0.6)',
       },
       '.cm-line': {
         paddingLeft: '4px',
         paddingRight: '4px',
       },
       '&.cm-focused .cm-selectionBackground': {
-        backgroundColor: '#4a6fa5 !important',
+        backgroundColor: 'rgba(75, 111, 170, 0.6) !important',
       },
       '.cm-locked-line': {
-        backgroundColor: '#2aae40 !important', // green background indicates locked
-        borderLeft: '3px solid #4ade80', // green left border
+        backgroundColor: '#e2f4e5 !important',
+        borderLeft: '3px solid #4ade80',
       },
     })
+
+    const editModeTheme = EditorView.theme({
+      '.cm-selectionBackground': {
+        backgroundColor: 'rgba(75, 100, 160, 0.6)',
+      },
+      '.cm-line': {
+        paddingLeft: '4px',
+        paddingRight: '4px',
+      },
+      '&.cm-focused .cm-selectionBackground': {
+        backgroundColor: 'rgba(75, 111, 170, 0.6) !important',
+      },
+      '.cm-locked-line': {
+        // Don't use backgroundColor, it covers selection. Use background-image instead
+        borderLeft: '3px solid #4ade80', // thick green left border
+        backgroundImage:
+          'linear-gradient(90deg, rgba(42, 174, 64, 0.15) 0%, rgba(42, 174, 64, 0.08) 100%)', // subtle green gradient overlay
+        backgroundSize: '100% 100%',
+        backgroundRepeat: 'no-repeat',
+      },
+    })
+
+    this.previewModeTheme = previewModeTheme
+    this.editModeTheme = editModeTheme
 
     // Get language mode
     const languageExtension = this.getLanguageExtension()
@@ -203,7 +314,7 @@ export class CodeMirrorViewer extends LitElement {
           lineClickHandler,
           preventDragDropHandler,
         ]),
-        lineHighlightTheme,
+        this.themeCompartment.of(previewModeTheme),
         EditorView.lineWrapping,
         highlightActiveLine(),
         this.editableCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
@@ -356,7 +467,11 @@ export class CodeMirrorViewer extends LitElement {
           EditorState.readOnly.of(false),
           EditorView.editable.of(true),
         ]),
-        this.lineSelectionCompartment.reconfigure([]), // disable whole-line selection
+        this.lineSelectionCompartment.reconfigure([
+          this.editModeChangeFilter,
+          this.editModeDragDropHandler,
+        ]),
+        this.themeCompartment.reconfigure(this.editModeTheme),
       ],
     })
   }
@@ -377,6 +492,7 @@ export class CodeMirrorViewer extends LitElement {
           this.lineClickHandler,
           this.preventDragDropHandler,
         ]), // re-enable whole-line selection
+        this.themeCompartment.reconfigure(this.previewModeTheme),
       ],
     })
   }
