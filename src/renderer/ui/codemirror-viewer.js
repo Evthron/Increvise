@@ -3,7 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { LitElement, html, css } from 'lit'
-import { EditorView, lineNumbers, highlightActiveLine, Decoration } from '@codemirror/view'
+import {
+  EditorView,
+  lineNumbers,
+  highlightActiveLine,
+  Decoration,
+  WidgetType,
+} from '@codemirror/view'
 import {
   EditorState,
   EditorSelection,
@@ -18,13 +24,108 @@ import { basicSetup } from 'codemirror'
 import { isolateHistory } from '@codemirror/commands'
 
 class LockedRange {
-  constructor(originalStart, originalEnd, currentStart, currentEnd, childPath) {
-    //
+  constructor(originalStart, originalEnd, currentStart, currentEnd, childPath, childContent) {
+    // Original range in database
     this.originalStart = originalStart
     this.originalEnd = originalEnd
+    // Current range after line shifts from editing
     this.currentStart = currentStart
     this.currentEnd = currentEnd
+    // Associated child note path
     this.childPath = childPath
+    // Dynamic content from child note
+    this.childContent = childContent || ''
+    this.childLineCount = childContent ? childContent.split('\n').length : 0
+  }
+
+  // Update child content and recalculate line count
+  updateContent(newContent) {
+    this.childContent = newContent
+    this.childLineCount = newContent ? newContent.split('\n').length : 0
+  }
+}
+
+// Calculate line offsets for dynamic expansion/contraction
+// Takes ranges with lineCount and returns adjusted positions
+function calculateLineOffsets(ranges) {
+  let currentLineOffset = 0
+  const adjustedRanges = []
+
+  for (let i = 0; i < ranges.length; i++) {
+    const range = ranges[i]
+    const originalSpan = range.end - range.start + 1
+    const actualSpan = range.lineCount
+
+    const adjustedRange = {
+      ...range,
+      adjustedStart: range.start + currentLineOffset,
+      adjustedEnd: range.start + currentLineOffset + actualSpan - 1,
+      offset: currentLineOffset,
+    }
+
+    adjustedRanges.push(adjustedRange)
+
+    const offsetChange = actualSpan - originalSpan
+    currentLineOffset += offsetChange
+  }
+
+  return adjustedRanges
+}
+
+// Widget for displaying child note content in place of locked lines
+class ChildContentWidget extends WidgetType {
+  constructor(range) {
+    super()
+    this.range = range
+  }
+
+  toDOM() {
+    const container = document.createElement('div')
+    container.className = 'child-content-block depth-1'
+
+    // Badge showing child note filename (clickable)
+    const badge = document.createElement('div')
+    badge.className = 'child-badge'
+
+    // Extract filename from path
+    const filename = this.range.childPath.split('/').pop()
+    badge.textContent = `📄 ${filename}`
+    badge.title = this.range.childPath // Show full path on hover
+
+    badge.onclick = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      // Dispatch custom event to open child note
+      window.dispatchEvent(
+        new CustomEvent('open-child-note', {
+          detail: { path: this.range.childPath },
+        })
+      )
+    }
+
+    container.appendChild(badge)
+
+    // Content display (multiple lines, preserved formatting)
+    const contentDiv = document.createElement('pre')
+    contentDiv.className = 'child-content-text'
+    contentDiv.textContent = this.range.childContent
+    container.appendChild(contentDiv)
+
+    return container
+  }
+
+  // Widget equality check for performance optimization
+  eq(other) {
+    return (
+      other instanceof ChildContentWidget &&
+      other.range.childPath === this.range.childPath &&
+      other.range.childContent === this.range.childContent
+    )
+  }
+
+  // Ignore events on the widget (let parent handle)
+  ignoreEvent() {
+    return false
   }
 }
 
@@ -60,6 +161,7 @@ export class CodeMirrorViewer extends LitElement {
     this.editableCompartment = new Compartment()
     this.lineSelectionCompartment = new Compartment()
     this.themeCompartment = new Compartment() // for switching between preview/edit themes
+    this.originalContentLength = 0 // track original content length before expansion
   }
 
   firstUpdated() {
@@ -102,6 +204,57 @@ export class CodeMirrorViewer extends LitElement {
           }
         }
         return value
+      },
+      provide: (f) => EditorView.decorations.from(f),
+    })
+
+    // Create an effect for updating dynamic content (child note content display)
+    const updateDynamicContentEffect = StateEffect.define()
+
+    // StateField that stores dynamic content decorations
+    // This replaces locked lines with child note content widgets
+    const dynamicContentField = StateField.define({
+      create() {
+        return Decoration.none
+      },
+      update(decorations, tr) {
+        decorations = decorations.map(tr.changes)
+
+        for (let effect of tr.effects) {
+          if (effect.is(updateDynamicContentEffect)) {
+            const allDecorations = []
+
+            for (let i = 0; i < effect.value.length; i++) {
+              const range = effect.value[i]
+
+              // Insert widget at the start of the range to show child content
+              const startLine = tr.state.doc.line(range.currentStart)
+              allDecorations.push(
+                Decoration.widget({
+                  widget: new ChildContentWidget(range),
+                  side: -1, // Insert before the line
+                  block: true, // Block-level widget (takes full line height)
+                }).range(startLine.from)
+              )
+
+              // Hide all original locked lines by adding a class
+              for (let lineNum = range.currentStart; lineNum <= range.currentEnd; lineNum++) {
+                const line = tr.state.doc.line(lineNum)
+                allDecorations.push(
+                  Decoration.line({
+                    attributes: { class: 'hidden-original-line' },
+                  }).range(line.from)
+                )
+              }
+            }
+
+            // Sort decorations by position
+            allDecorations.sort((a, b) => a.from - b.from || a.startSide - b.startSide)
+            decorations = Decoration.set(allDecorations, true)
+          }
+        }
+
+        return decorations
       },
       provide: (f) => EditorView.decorations.from(f),
     })
@@ -283,6 +436,61 @@ export class CodeMirrorViewer extends LitElement {
         backgroundColor: '#e2f4e5 !important',
         borderLeft: '3px solid #4ade80',
       },
+      // Hide original locked lines when showing dynamic content
+      '.hidden-original-line': {
+        display: 'none !important',
+        height: '0 !important',
+        overflow: 'hidden !important',
+      },
+      // Child content block styling
+      '.child-content-block': {
+        margin: '4px 0',
+        borderRadius: '4px',
+        overflow: 'hidden',
+        padding: '8px',
+      },
+      // Nesting depth colors (4 levels)
+      '.child-content-block.depth-1': {
+        backgroundColor: '#e2f4e5',
+        borderLeft: '3px solid #4ade80',
+      },
+      '.child-content-block.depth-2': {
+        backgroundColor: '#c8e6d0',
+        borderLeft: '5px solid #3b9b5e',
+      },
+      '.child-content-block.depth-3': {
+        backgroundColor: '#aed9b8',
+        borderLeft: '7px solid #2d7a47',
+      },
+      '.child-content-block.depth-4': {
+        backgroundColor: '#95c9a0',
+        borderLeft: '9px solid #1f5a31',
+      },
+      // Badge styling
+      '.child-badge': {
+        display: 'inline-block',
+        backgroundColor: '#4ade80',
+        color: 'white',
+        padding: '2px 8px',
+        borderRadius: '3px',
+        fontSize: '0.85em',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        marginBottom: '4px',
+        userSelect: 'none',
+      },
+      '.child-badge:hover': {
+        backgroundColor: '#22c55e',
+      },
+      // Content text styling
+      '.child-content-text': {
+        padding: '4px 0',
+        margin: 0,
+        fontFamily: 'inherit',
+        whiteSpace: 'pre-wrap',
+        lineHeight: '1.5',
+        fontSize: 'inherit',
+      },
     })
 
     const editModeTheme = EditorView.theme({
@@ -303,6 +511,58 @@ export class CodeMirrorViewer extends LitElement {
           'linear-gradient(90deg, rgba(42, 174, 64, 0.15) 0%, rgba(42, 174, 64, 0.08) 100%)', // subtle green gradient overlay
         backgroundSize: '100% 100%',
         backgroundRepeat: 'no-repeat',
+      },
+      // Hide original locked lines when showing dynamic content
+      '.hidden-original-line': {
+        display: 'none !important',
+        height: '0 !important',
+        overflow: 'hidden !important',
+      },
+      // Child content block styling (same as preview mode)
+      '.child-content-block': {
+        margin: '4px 0',
+        borderRadius: '4px',
+        overflow: 'hidden',
+        padding: '8px',
+      },
+      '.child-content-block.depth-1': {
+        backgroundColor: '#e2f4e5',
+        borderLeft: '3px solid #4ade80',
+      },
+      '.child-content-block.depth-2': {
+        backgroundColor: '#c8e6d0',
+        borderLeft: '5px solid #3b9b5e',
+      },
+      '.child-content-block.depth-3': {
+        backgroundColor: '#aed9b8',
+        borderLeft: '7px solid #2d7a47',
+      },
+      '.child-content-block.depth-4': {
+        backgroundColor: '#95c9a0',
+        borderLeft: '9px solid #1f5a31',
+      },
+      '.child-badge': {
+        display: 'inline-block',
+        backgroundColor: '#4ade80',
+        color: 'white',
+        padding: '2px 8px',
+        borderRadius: '3px',
+        fontSize: '0.85em',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        marginBottom: '4px',
+        userSelect: 'none',
+      },
+      '.child-badge:hover': {
+        backgroundColor: '#22c55e',
+      },
+      '.child-content-text': {
+        padding: '4px 0',
+        margin: 0,
+        fontFamily: 'inherit',
+        whiteSpace: 'pre-wrap',
+        lineHeight: '1.5',
+        fontSize: 'inherit',
       },
     })
 
@@ -331,8 +591,9 @@ export class CodeMirrorViewer extends LitElement {
     // Get language mode
     const languageExtension = this.getLanguageExtension()
 
-    // Store addLockedLineEffect for later use
+    // Store effects for later use
     this.addLockedLineEffect = addLockedLineEffect
+    this.updateDynamicContentEffect = updateDynamicContentEffect
 
     // Store extensions for later reuse (when clearing history)
     this.baseExtensions = [
@@ -340,6 +601,7 @@ export class CodeMirrorViewer extends LitElement {
       markdown(),
       languageExtension,
       lockedLinesField,
+      dynamicContentField, // Add dynamic content field
       trackChangesExtension,
       this.lineSelectionCompartment.of([
         lineSelectionExtension,
@@ -403,11 +665,68 @@ export class CodeMirrorViewer extends LitElement {
     // Replace the state - this clears all history
     this.editorView.setState(newState)
 
-    // Re-apply locked lines if any exist
-    if (this.lockedLines.size > 0) {
-      this.editorView.dispatch({
-        effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
-      })
+    // Re-apply locked lines and dynamic content if any exist
+    if (this.lockedRanges.length > 0) {
+      // Check if we have dynamic content
+      const hasDynamicContent = this.lockedRanges[0].childContent !== ''
+
+      if (hasDynamicContent) {
+        try {
+          // Validate that line numbers are within document bounds
+          const docLines = this.editorView.state.doc.lines
+
+          // Check if all ranges are valid
+          let allRangesValid = true
+          for (let range of this.lockedRanges) {
+            if (range.currentStart < 1 || range.currentEnd > docLines) {
+              console.error(
+                '[clearHistory] Invalid range detected:',
+                `${range.currentStart}-${range.currentEnd}`,
+                'in',
+                docLines,
+                'line document'
+              )
+              allRangesValid = false
+              break
+            }
+          }
+
+          if (allRangesValid) {
+            this.applyDynamicContent(this.lockedRanges)
+          } else {
+            console.warn('[clearHistory] Skipping re-apply due to invalid range')
+            // Clear invalid ranges
+            this.lockedRanges = []
+            this.lockedLines.clear()
+          }
+        } catch (error) {
+          console.error('[clearHistory] Error re-applying dynamic content:', error)
+        }
+      } else {
+        try {
+          // Validate line numbers
+          const docLines = this.editorView.state.doc.lines
+          const validLines = Array.from(this.lockedLines).filter(
+            (line) => line >= 1 && line <= docLines
+          )
+
+          if (validLines.length !== this.lockedLines.size) {
+            console.warn(
+              '[clearHistory] Some locked lines are invalid:',
+              this.lockedLines.size - validLines.length,
+              'out of bounds'
+            )
+          }
+
+          if (validLines.length > 0) {
+            this.editorView.dispatch({
+              effects: this.addLockedLineEffect.of(validLines),
+            })
+          }
+        } catch (error) {
+          console.error('[clearHistory] Error re-applying locked lines:', error)
+        }
+      }
     }
   }
 
@@ -492,44 +811,197 @@ export class CodeMirrorViewer extends LitElement {
   }
 
   // Lock multiple line ranges when first load the document
-  // Ranges data is from database, format: [{start: 10, end: 15, path: 'note.md'}, {start: 20, end: 25, path: 'note2.md'}]
+  // Ranges data is from database with child content
+  // Format: [{start: 10, end: 15, path: 'note.md', content: '...', lineCount: 5}, ...]
+  // Returns: { success: boolean, error?: string }
   lockLineRanges(ranges) {
-    if (!this.editorView || !ranges || ranges.length === 0) return
+    if (!this.editorView || !ranges || ranges.length === 0) {
+      return { success: false, error: 'No editor or no ranges' }
+    }
 
     // Clear existing data from last document load
     this.lockedLines.clear()
     this.lockedRanges = []
 
-    // Store complete range information for tracking
-    for (let range of ranges) {
-      const lockRange = new LockedRange(
-        range.start,
-        range.end,
-        range.start, // currontStart and end initially same as original
-        range.end,
-        range.path // Associated child note path
-      )
-      this.lockedRanges.push(lockRange)
+    // Check if ranges have dynamic content (new format)
+    const hasDynamicContent = ranges.length > 0 && ranges[0].content !== undefined
 
-      // Populate lockedLines Set for rendering
-      for (let i = range.start; i <= range.end; i++) {
-        this.lockedLines.add(i)
+    if (hasDynamicContent) {
+      // New path: use dynamic content display
+      // Step 1: Calculate line offsets for dynamic expansion/contraction
+      const adjustedRanges = calculateLineOffsets(ranges)
+
+      // Step 1.5: Check if we need to expand document to fit all ranges
+      const docLines = this.editorView.state.doc.lines
+
+      // Find the maximum line number needed
+      let maxLineNeeded = docLines
+      for (let i = 0; i < adjustedRanges.length; i++) {
+        const adjusted = adjustedRanges[i]
+        if (adjusted.adjustedEnd > maxLineNeeded) {
+          maxLineNeeded = adjusted.adjustedEnd
+        }
       }
+
+      // If we need more lines, temporarily expand the document
+      if (maxLineNeeded > docLines) {
+        const linesToAdd = maxLineNeeded - docLines
+
+        // Get current content
+        const currentContent = this.editorView.state.doc.toString()
+
+        // Store original content length for later (when saving)
+        this.originalContentLength = currentContent.length
+
+        // Add empty lines at the end
+        const emptyLines = '\n'.repeat(linesToAdd)
+        const expandedContent = currentContent + emptyLines
+
+        // Update editor content
+        this.editorView.dispatch({
+          changes: {
+            from: 0,
+            to: this.editorView.state.doc.length,
+            insert: expandedContent,
+          },
+        })
+      } else {
+        // No expansion needed, store current length
+        this.originalContentLength = this.editorView.state.doc.length
+      }
+
+      // Step 1.6: Validate that all adjusted ranges are now within document bounds
+      const updatedDocLines = this.editorView.state.doc.lines
+      let hasInvalidRange = false
+      for (let i = 0; i < adjustedRanges.length; i++) {
+        const adjusted = adjustedRanges[i]
+        if (
+          adjusted.adjustedStart < 1 ||
+          adjusted.adjustedEnd > updatedDocLines ||
+          adjusted.adjustedStart > adjusted.adjustedEnd
+        ) {
+          console.error(`[lockLineRanges] Invalid adjusted range ${i}:`)
+          console.error(
+            '  - Adjusted range:',
+            `${adjusted.adjustedStart} to ${adjusted.adjustedEnd}`
+          )
+          console.error('  - Document lines:', updatedDocLines)
+          console.error('  - Original range:', `${ranges[i].start} to ${ranges[i].end}`)
+          console.error('  - Line count:', adjusted.lineCount)
+          console.error('  - Path:', ranges[i].path)
+          console.error('  - Offset:', adjusted.offset)
+          hasInvalidRange = true
+        }
+      }
+
+      if (hasInvalidRange) {
+        console.error(
+          '[lockLineRanges] Aborting: one or more ranges are invalid even after expansion'
+        )
+        console.error(
+          '[lockLineRanges] This may indicate overlapping ranges or incorrect offset calculation'
+        )
+        return { success: false, error: 'Invalid line ranges detected' }
+      }
+
+      // Step 2: Create LockedRange objects with adjusted positions
+      for (let i = 0; i < ranges.length; i++) {
+        const original = ranges[i]
+        const adjusted = adjustedRanges[i]
+
+        const lockRange = new LockedRange(
+          original.start, // originalStart
+          original.end, // originalEnd
+          adjusted.adjustedStart, // currentStart (after offset)
+          adjusted.adjustedEnd, // currentEnd (after offset)
+          original.path, // childPath
+          original.content // childContent
+        )
+        this.lockedRanges.push(lockRange)
+
+        // Populate lockedLines Set with adjusted line numbers
+        for (let lineNum = adjusted.adjustedStart; lineNum <= adjusted.adjustedEnd; lineNum++) {
+          this.lockedLines.add(lineNum)
+        }
+      }
+
+      // Step 3: Apply dynamic content decorations (widgets + hidden lines)
+      this.applyDynamicContent(this.lockedRanges)
+
+      return { success: true }
+    } else {
+      // Old path: no dynamic content (backwards compatibility)
+      for (let range of ranges) {
+        const lockRange = new LockedRange(
+          range.start,
+          range.end,
+          range.start, // currentStart and end initially same as original
+          range.end,
+          range.path, // Associated child note path
+          '', // No content
+          1 // Default depth
+        )
+        this.lockedRanges.push(lockRange)
+
+        // Populate lockedLines Set for rendering
+        for (let i = range.start; i <= range.end; i++) {
+          this.lockedLines.add(i)
+        }
+      }
+
+      // Update UI with all locked lines (old style, just highlighting)
+      this.editorView.dispatch({
+        effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
+      })
+
+      return { success: true }
     }
 
-    // Update UI with all locked lines
-    this.editorView.dispatch({
-      effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
-    })
-
     this.hasRangeChanges = false
-    console.log('Locked line ranges:', ranges)
-    console.log('Total locked lines:', this.lockedLines.size)
+  }
+
+  // Apply dynamic content decorations (called by lockLineRanges)
+  applyDynamicContent(lockedRanges) {
+    if (!this.editorView || !lockedRanges || lockedRanges.length === 0) {
+      return
+    }
+
+    // Dispatch effect to update dynamic content decorations
+    this.editorView.dispatch({
+      effects: this.updateDynamicContentEffect.of(lockedRanges),
+    })
+  }
+
+  // Get original content without temporary expansion lines
+  getOriginalContent() {
+    if (!this.editorView) return ''
+
+    const fullContent = this.editorView.state.doc.toString()
+
+    // If we have stored original length, use it to trim expanded content
+    if (this.originalContentLength > 0 && fullContent.length > this.originalContentLength) {
+      return fullContent.substring(0, this.originalContentLength)
+    }
+
+    // No expansion, return full content
+    return fullContent
   }
 
   // Public method to set content
   setContent(newContent) {
     this.content = newContent
+
+    // Clear all locked lines and dynamic content state when loading new file
+    this.lockedLines.clear()
+    this.lockedRanges = []
+    this.originalContentLength = 0
+
+    // Clear dynamic content decorations by dispatching empty effect
+    if (this.editorView) {
+      this.editorView.dispatch({
+        effects: [this.addLockedLineEffect.of([]), this.updateDynamicContentEffect.of([])],
+      })
+    }
   }
 
   // Enable edit mode

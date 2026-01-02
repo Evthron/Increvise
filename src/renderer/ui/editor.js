@@ -25,25 +25,37 @@ let hasUnsavedChanges = false
  * @param {string} filePath
  */
 export async function openFile(filePath) {
-  try {
-    if (hasUnsavedChanges) {
-      const proceed = confirm('You have unsaved changes. Discard them?')
-      if (!proceed) return
-    }
+  console.log('[openFile] Starting to open file:', filePath)
 
-    // If opening via file tree (not revision mode), sync fileLibraryId with workspaceLibraryId
-    // This ensures files opened through the workspace tree use the workspace's library ID
+  // Step 1: Check for unsaved changes
+  if (hasUnsavedChanges) {
+    const proceed = confirm('You have unsaved changes. Discard them?')
+    if (!proceed) {
+      console.log('[openFile] User cancelled due to unsaved changes')
+      return
+    }
+  }
+
+  // Step 2: Sync library IDs if needed
+  try {
     if (window.currentWorkspaceLibraryId && !window.currentFileLibraryId) {
       window.currentFileLibraryId = window.currentWorkspaceLibraryId
       console.log(
-        'Syncing file library ID with workspace library ID:',
+        '[openFile] Synced file library ID with workspace library ID:',
         window.currentWorkspaceLibraryId
       )
     }
+  } catch (error) {
+    console.error('[openFile] Error syncing library IDs:', error)
+    alert(`Error syncing library IDs: ${error.message}`)
+    return
+  }
 
-    // Check if file is a PDF extract by querying database
-    let pdfExtractInfo = null
+  // Step 3: Check if file is a PDF extract by querying database
+  let pdfExtractInfo = null
+  try {
     if (window.currentFileLibraryId) {
+      console.log('[openFile] Querying extract info for:', filePath)
       const extractInfo = await window.fileManager.getNoteExtractInfo(
         filePath,
         window.currentFileLibraryId
@@ -52,130 +64,235 @@ export async function openFile(filePath) {
       if (extractInfo && extractInfo.success && extractInfo.found) {
         if (extractInfo.extractType === 'pdf-page') {
           pdfExtractInfo = extractInfo
-          console.log('extracted pdf info get')
-        }
-      }
-    }
-
-    // Check if file is a regular PDF
-    const ext = filePath.slice(filePath.lastIndexOf('.'))
-    const isPdf = ext === '.pdf'
-
-    if (pdfExtractInfo) {
-      // Open PDF extract file
-      console.log('Opening PDF extract file:', filePath)
-      console.log('Extract info:', pdfExtractInfo)
-
-      const { parentPath, rangeStart, rangeEnd } = pdfExtractInfo
-      const sourcePdfPath = parentPath // Absolute path from database
-
-      currentOpenFile = filePath
-      currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
-      editorToolbar.classList.remove('hidden')
-
-      // Show PDF viewer
-      pdfViewer.classList.remove('hidden')
-      codeMirrorEditor.classList.add('hidden')
-
-      // Adjust toolbar buttons
-      extractBtn.classList.add('hidden')
-      saveFileBtn.classList.add('hidden')
-      toggleEditBtn.classList.add('hidden')
-      extractTextBtn.classList.remove('hidden')
-      extractPageBtn.classList.remove('hidden')
-
-      // Get extracted ranges for the PDF
-      const rangesResult = await window.fileManager.getChildRanges(
-        sourcePdfPath,
-        window.currentFileLibraryId
-      )
-
-      // Load PDF with all configurations at once (single render!)
-      await pdfViewer.loadPdf(sourcePdfPath, {
-        pageRange: [rangeStart, rangeEnd], // Restrict to extracted pages
-        initialPage: rangeStart, // Start at first extracted page
-        selectedPages: [rangeStart, rangeEnd], // Highlight extracted pages
-        extractedRanges: rangesResult?.success ? rangesResult.ranges : [], // Lock extracted ranges
-      })
-
-      console.log('PDF extract loaded with configuration:', {
-        pageRange: [rangeStart, rangeEnd],
-        initialPage: rangeStart,
-        extractedRanges: rangesResult?.success ? rangesResult.ranges.length : 0,
-      })
-    } else if (isPdf) {
-      // Open regular PDF file
-      currentOpenFile = filePath
-      currentFilePath.textContent = filePath
-      editorToolbar.classList.remove('hidden')
-
-      // Hide text editor, show PDF viewer
-      codeMirrorEditor.classList.add('hidden')
-      pdfViewer.classList.remove('hidden')
-
-      // Adjust toolbar buttons
-      extractBtn.classList.add('hidden')
-      saveFileBtn.classList.add('hidden')
-      toggleEditBtn.classList.add('hidden')
-      extractTextBtn.classList.remove('hidden')
-      extractPageBtn.classList.remove('hidden')
-
-      // Get extracted ranges for the PDF
-      const rangesResult = await window.fileManager.getChildRanges(
-        filePath,
-        window.currentFileLibraryId
-      )
-
-      // Load PDF with extracted ranges (single render!)
-      await pdfViewer.loadPdf(filePath, {
-        extractedRanges: rangesResult?.success ? rangesResult.ranges : [],
-      })
-
-      console.log(
-        'Regular PDF loaded with extracted ranges:',
-        rangesResult?.success ? rangesResult.ranges.length : 0
-      )
-    } else {
-      // Open text file
-      const result = await window.fileManager.readFile(filePath)
-      if (result.success) {
-        currentOpenFile = filePath
-        currentFilePath.textContent = filePath
-        editorToolbar.classList.remove('hidden')
-        isEditMode = false
-        hasUnsavedChanges = false
-        toggleEditBtn.textContent = 'Edit'
-
-        // Hide PDF viewer, show text editor
-        pdfViewer.classList.add('hidden')
-        codeMirrorEditor.classList.remove('hidden')
-
-        // Adjust toolbar buttons
-        extractTextBtn.classList.add('hidden')
-        extractPageBtn.classList.add('hidden')
-        extractBtn.classList.remove('hidden')
-        saveFileBtn.classList.add('hidden')
-        toggleEditBtn.classList.remove('hidden')
-
-        if (codeMirrorEditor) {
-          codeMirrorEditor.setContent(result.content)
-
-          // Load and lock extracted line ranges from database
-          await loadAndLockExtractedRanges(filePath)
-
-          codeMirrorEditor.disableEditing()
-
-          // Clear undo history when opening a new file
-          // This prevents accidentally undoing to previous file's content
-          codeMirrorEditor.clearHistory()
+          console.log('[openFile] Found PDF extract info:', pdfExtractInfo)
         }
       } else {
-        alert(`Error reading file: ${result.error}`)
+        console.log('[openFile] No extract info found (normal file)')
       }
     }
   } catch (error) {
-    console.error('Error opening file:', error)
-    alert(`Error opening file: ${error.message}`)
+    console.error('[openFile] Error querying extract info:', error)
+    alert(`Error checking file type: ${error.message}`)
+    return
+  }
+
+  // Step 4: Determine file type
+  const ext = filePath.slice(filePath.lastIndexOf('.'))
+  const isPdf = ext === '.pdf'
+  console.log('[openFile] File type detected:', { ext, isPdf, isPdfExtract: !!pdfExtractInfo })
+
+  // Step 5: Handle different file types
+  if (pdfExtractInfo) {
+    await openPdfExtract(filePath, pdfExtractInfo)
+  } else if (isPdf) {
+    await openRegularPdf(filePath)
+  } else {
+    await openTextFile(filePath)
+  }
+}
+
+/**
+ * Open a PDF extract file (pages extracted from a PDF)
+ */
+async function openPdfExtract(filePath, pdfExtractInfo) {
+  console.log('[openPdfExtract] Opening PDF extract:', filePath)
+
+  try {
+    const { parentPath, rangeStart, rangeEnd } = pdfExtractInfo
+    const sourcePdfPath = parentPath
+
+    // Update UI state
+    currentOpenFile = filePath
+    currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
+    editorToolbar.classList.remove('hidden')
+
+    // Show PDF viewer
+    pdfViewer.classList.remove('hidden')
+    codeMirrorEditor.classList.add('hidden')
+
+    // Adjust toolbar buttons
+    extractBtn.classList.add('hidden')
+    saveFileBtn.classList.add('hidden')
+    toggleEditBtn.classList.add('hidden')
+    extractTextBtn.classList.remove('hidden')
+    extractPageBtn.classList.remove('hidden')
+
+    console.log('[openPdfExtract] UI updated, loading PDF viewer...')
+  } catch (error) {
+    console.error('[openPdfExtract] Error setting up UI:', error)
+    alert(`Error setting up PDF extract viewer: ${error.message}`)
+    return
+  }
+
+  // Get extracted ranges for the PDF
+  let rangesResult = null
+  try {
+    console.log('[openPdfExtract] Fetching child ranges for source PDF...')
+    rangesResult = await window.fileManager.getChildRanges(
+      pdfExtractInfo.parentPath,
+      window.currentFileLibraryId
+    )
+    console.log('[openPdfExtract] Child ranges fetched:', rangesResult?.ranges?.length || 0)
+  } catch (error) {
+    console.error('[openPdfExtract] Error fetching child ranges:', error)
+    // Continue without ranges
+  }
+
+  // Load PDF viewer
+  try {
+    console.log('[openPdfExtract] Loading PDF viewer with config...')
+    await pdfViewer.loadPdf(pdfExtractInfo.parentPath, {
+      pageRange: [pdfExtractInfo.rangeStart, pdfExtractInfo.rangeEnd],
+      initialPage: pdfExtractInfo.rangeStart,
+      selectedPages: [pdfExtractInfo.rangeStart, pdfExtractInfo.rangeEnd],
+      extractedRanges: rangesResult?.success ? rangesResult.ranges : [],
+    })
+    console.log('[openPdfExtract] PDF extract loaded successfully')
+  } catch (error) {
+    console.error('[openPdfExtract] Error loading PDF viewer:', error)
+    alert(`Error loading PDF: ${error.message}`)
+  }
+}
+
+/**
+ * Open a regular PDF file
+ */
+async function openRegularPdf(filePath) {
+  console.log('[openRegularPdf] Opening regular PDF:', filePath)
+
+  try {
+    // Update UI state
+    currentOpenFile = filePath
+    currentFilePath.textContent = filePath
+    editorToolbar.classList.remove('hidden')
+
+    // Show PDF viewer
+    codeMirrorEditor.classList.add('hidden')
+    pdfViewer.classList.remove('hidden')
+
+    // Adjust toolbar buttons
+    extractBtn.classList.add('hidden')
+    saveFileBtn.classList.add('hidden')
+    toggleEditBtn.classList.add('hidden')
+    extractTextBtn.classList.remove('hidden')
+    extractPageBtn.classList.remove('hidden')
+
+    console.log('[openRegularPdf] UI updated, loading PDF viewer...')
+  } catch (error) {
+    console.error('[openRegularPdf] Error setting up UI:', error)
+    alert(`Error setting up PDF viewer: ${error.message}`)
+    return
+  }
+
+  // Get extracted ranges for the PDF
+  let rangesResult = null
+  try {
+    console.log('[openRegularPdf] Fetching child ranges...')
+    rangesResult = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+    console.log('[openRegularPdf] Child ranges fetched:', rangesResult?.ranges?.length || 0)
+  } catch (error) {
+    console.error('[openRegularPdf] Error fetching child ranges:', error)
+    // Continue without ranges
+  }
+
+  // Load PDF viewer
+  try {
+    console.log('[openRegularPdf] Loading PDF viewer...')
+    await pdfViewer.loadPdf(filePath, {
+      extractedRanges: rangesResult?.success ? rangesResult.ranges : [],
+    })
+    console.log('[openRegularPdf] PDF loaded successfully')
+  } catch (error) {
+    console.error('[openRegularPdf] Error loading PDF viewer:', error)
+    alert(`Error loading PDF: ${error.message}`)
+  }
+}
+
+/**
+ * Open a text file (markdown, txt, etc)
+ */
+async function openTextFile(filePath) {
+  console.log('[openTextFile] Opening text file:', filePath)
+
+  // Read file content
+  let result
+  try {
+    console.log('[openTextFile] Reading file content...')
+    result = await window.fileManager.readFile(filePath)
+    if (!result.success) {
+      console.error('[openTextFile] Failed to read file:', result.error)
+      alert(`Error reading file: ${result.error}`)
+      return
+    }
+    console.log('[openTextFile] File read successfully, length:', result.content.length)
+  } catch (error) {
+    console.error('[openTextFile] Error reading file:', error)
+    alert(`Error reading file: ${error.message}`)
+    return
+  }
+
+  // Update UI state
+  try {
+    console.log('[openTextFile] Updating UI state...')
+    currentOpenFile = filePath
+    currentFilePath.textContent = filePath
+    editorToolbar.classList.remove('hidden')
+    isEditMode = false
+    hasUnsavedChanges = false
+    toggleEditBtn.textContent = 'Edit'
+
+    // Show text editor
+    pdfViewer.classList.add('hidden')
+    codeMirrorEditor.classList.remove('hidden')
+
+    // Adjust toolbar buttons
+    extractTextBtn.classList.add('hidden')
+    extractPageBtn.classList.add('hidden')
+    extractBtn.classList.remove('hidden')
+    saveFileBtn.classList.add('hidden')
+    toggleEditBtn.classList.remove('hidden')
+
+    console.log('[openTextFile] UI updated')
+  } catch (error) {
+    console.error('[openTextFile] Error updating UI:', error)
+    alert(`Error setting up text editor: ${error.message}`)
+    return
+  }
+
+  // Set content in CodeMirror
+  try {
+    if (!codeMirrorEditor) {
+      throw new Error('CodeMirror editor not found')
+    }
+
+    console.log('[openTextFile] Setting content in CodeMirror...')
+    codeMirrorEditor.setContent(result.content)
+    console.log('[openTextFile] Content set successfully')
+  } catch (error) {
+    console.error('[openTextFile] Error setting content:', error)
+    alert(`Error displaying file content: ${error.message}`)
+    return
+  }
+
+  // Load and lock extracted line ranges
+  try {
+    console.log('[openTextFile] Loading extracted ranges...')
+    await loadAndLockExtractedRanges(filePath)
+    console.log('[openTextFile] Extracted ranges loaded')
+  } catch (error) {
+    console.error('[openTextFile] Error loading extracted ranges:', error)
+    // Continue without locking ranges
+  }
+
+  // Finalize editor state
+  try {
+    console.log('[openTextFile] Finalizing editor state...')
+    codeMirrorEditor.disableEditing()
+    codeMirrorEditor.clearHistory()
+    console.log('[openTextFile] Text file opened successfully')
+  } catch (error) {
+    console.error('[openTextFile] Error finalizing editor state:', error)
+    // Non-critical, continue
   }
 }
 
@@ -184,35 +301,65 @@ export async function openFile(filePath) {
  * @param {string} filePath - The file path to load ranges for
  */
 async function loadAndLockExtractedRanges(filePath) {
+  console.log('[loadAndLockExtractedRanges] Starting for:', filePath)
+
+  // Check library ID
+  if (!window.currentFileLibraryId) {
+    console.warn('[loadAndLockExtractedRanges] No library ID set, cannot load extracted ranges')
+    codeMirrorEditor.clearLockedLines()
+    return
+  }
+
+  console.log('[loadAndLockExtractedRanges] Using library ID:', window.currentFileLibraryId)
+
+  // Get child notes line ranges from database
+  let rangesResult
   try {
-    // Need library ID to query database
-    if (!window.currentFileLibraryId) {
-      console.warn('No library ID set, cannot load extracted ranges')
-      codeMirrorEditor.clearLockedLines()
-      return
-    }
+    console.log('[loadAndLockExtractedRanges] Querying database for child ranges...')
+    rangesResult = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+    console.log('[loadAndLockExtractedRanges] Database query result:', {
+      success: rangesResult?.success,
+      rangeCount: rangesResult?.ranges?.length || 0,
+    })
+  } catch (error) {
+    console.error('[loadAndLockExtractedRanges] Error querying database:', error)
+    codeMirrorEditor.clearLockedLines()
+    throw error
+  }
 
-    // Get child notes line ranges from database
-    const rangesResult = await window.fileManager.getChildRanges(
-      filePath,
-      window.currentFileLibraryId
-    )
+  // Process ranges result
+  if (!rangesResult.success) {
+    console.error('[loadAndLockExtractedRanges] Failed to get child ranges:', rangesResult.error)
+    codeMirrorEditor.clearLockedLines()
+    return
+  }
 
-    if (rangesResult.success) {
-      if (rangesResult.ranges.length > 0) {
-        console.log(`Locking ${rangesResult.ranges.length} extracted ranges:`, rangesResult.ranges)
-        codeMirrorEditor.lockLineRanges(rangesResult.ranges)
-      } else {
-        console.log('No extracted ranges found for this file')
-        codeMirrorEditor.clearLockedLines()
-      }
+  if (rangesResult.ranges.length === 0) {
+    console.log('[loadAndLockExtractedRanges] No extracted ranges found for this file')
+    codeMirrorEditor.clearLockedLines()
+    return
+  }
+
+  // Lock ranges in editor
+  try {
+    console.log('[loadAndLockExtractedRanges] Locking ranges in editor:', rangesResult.ranges)
+    const lockResult = codeMirrorEditor.lockLineRanges(rangesResult.ranges)
+
+    if (lockResult && lockResult.success) {
+      console.log(
+        '[loadAndLockExtractedRanges] Successfully locked',
+        rangesResult.ranges.length,
+        'ranges'
+      )
     } else {
-      console.error('Failed to get child notes ranges:', rangesResult.error)
-      codeMirrorEditor.clearLockedLines()
+      console.error('[loadAndLockExtractedRanges] Failed to lock ranges:', lockResult?.error)
+      alert(
+        `Cannot display child note content: ${lockResult?.error || 'Unknown error'}. The file will open without inline child content.`
+      )
     }
   } catch (error) {
-    console.error('Error loading extracted ranges:', error)
-    codeMirrorEditor.clearLockedLines()
+    console.error('[loadAndLockExtractedRanges] Error locking ranges in editor:', error)
+    throw error
   }
 }
 
@@ -265,7 +412,12 @@ async function saveFile(silent = false) {
     }
 
     // Step 2: Save file content
-    const content = codeMirrorEditor.editorView.state.doc.toString()
+    // Use getOriginalContent() to exclude temporary expansion lines
+    const content = codeMirrorEditor.getOriginalContent
+      ? codeMirrorEditor.getOriginalContent()
+      : codeMirrorEditor.editorView.state.doc.toString()
+
+    console.log('[saveFile] Saving content, length:', content.length)
     const result = await window.fileManager.writeFile(currentOpenFile, content)
     if (result.success) {
       hasUnsavedChanges = false
@@ -491,3 +643,40 @@ async function reloadPdfExtractedRanges() {
     console.error('Error reloading PDF extracted ranges:', error)
   }
 }
+
+// Listen for child note open requests from CodeMirror widget badges
+window.addEventListener('open-child-note', async (event) => {
+  console.log('[open-child-note] Event received:', event.detail)
+
+  const { path: childPath } = event.detail
+
+  // Validate child path
+  if (!childPath) {
+    console.error('[open-child-note] No child path provided in event')
+    showToast('Error: No child note path specified', true)
+    return
+  }
+
+  // Check workspace root path
+  if (!window.currentRootPath) {
+    console.error('[open-child-note] No workspace root path set')
+    showToast('Cannot open child note: no workspace open', true)
+    return
+  }
+
+  console.log('[open-child-note] Workspace root:', window.currentRootPath)
+
+  // Construct absolute path
+  try {
+    const absolutePath = `${window.currentRootPath}/${childPath}`
+    console.log('[open-child-note] Constructed absolute path:', absolutePath)
+
+    // Open the child note file
+    console.log('[open-child-note] Calling openFile...')
+    await openFile(absolutePath)
+    console.log('[open-child-note] Child note opened successfully')
+  } catch (error) {
+    console.error('[open-child-note] Error opening child note:', error)
+    showToast(`Error opening child note: ${error.message}`, true)
+  }
+})
