@@ -15,6 +15,7 @@ import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { basicSetup } from 'codemirror'
+import { isolateHistory } from '@codemirror/commands'
 
 class LockedRange {
   constructor(originalStart, originalEnd, currentStart, currentEnd, childPath) {
@@ -333,25 +334,28 @@ export class CodeMirrorViewer extends LitElement {
     // Store addLockedLineEffect for later use
     this.addLockedLineEffect = addLockedLineEffect
 
+    // Store extensions for later reuse (when clearing history)
+    this.baseExtensions = [
+      basicSetup,
+      markdown(),
+      languageExtension,
+      lockedLinesField,
+      trackChangesExtension,
+      this.lineSelectionCompartment.of([
+        lineSelectionExtension,
+        lineClickHandler,
+        preventDragDropHandler,
+      ]),
+      this.themeCompartment.of(previewModeTheme),
+      EditorView.lineWrapping,
+      highlightActiveLine(),
+      this.editableCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
+    ]
+
     // Create the editor state
     const startState = EditorState.create({
       doc: this.content,
-      extensions: [
-        basicSetup,
-        markdown(),
-        languageExtension,
-        lockedLinesField,
-        trackChangesExtension,
-        this.lineSelectionCompartment.of([
-          lineSelectionExtension,
-          lineClickHandler,
-          preventDragDropHandler,
-        ]),
-        this.themeCompartment.of(previewModeTheme),
-        EditorView.lineWrapping,
-        highlightActiveLine(),
-        this.editableCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
-      ],
+      extensions: this.baseExtensions,
     })
 
     // Create the editor view
@@ -380,7 +384,31 @@ export class CodeMirrorViewer extends LitElement {
         to: this.editorView.state.doc.length,
         insert: this.content,
       },
+      annotations: [isolateHistory.of('full')],
     })
+  }
+
+  // Clear undo history by recreating the editor state
+  clearHistory() {
+    if (!this.editorView) return
+
+    const currentContent = this.editorView.state.doc.toString()
+
+    // Create a new state with the same extensions but fresh history
+    const newState = EditorState.create({
+      doc: currentContent,
+      extensions: this.baseExtensions,
+    })
+
+    // Replace the state - this clears all history
+    this.editorView.setState(newState)
+
+    // Re-apply locked lines if any exist
+    if (this.lockedLines.size > 0) {
+      this.editorView.dispatch({
+        effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
+      })
+    }
   }
 
   // Public method to get selected lines

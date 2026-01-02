@@ -164,6 +164,10 @@ export async function openFile(filePath) {
           await loadAndLockExtractedRanges(filePath)
 
           codeMirrorEditor.disableEditing()
+
+          // Clear undo history when opening a new file
+          // This prevents accidentally undoing to previous file's content
+          codeMirrorEditor.clearHistory()
         }
       } else {
         alert(`Error reading file: ${result.error}`)
@@ -365,6 +369,11 @@ extractBtn.addEventListener('click', async () => {
     if (result.success) {
       // Reload and lock all extracted ranges (including the new one)
       await loadAndLockExtractedRanges(currentOpenFile)
+
+      // Clear undo history after extraction to prevent undoing the extraction
+      // This is necessary because extraction creates permanent database records
+      // and child files that cannot be automatically rolled back
+      codeMirrorEditor.clearHistory()
 
       showToast(`Note extracted to ${result.fileName}`)
       // Optionally, refresh the file tree here if needed
