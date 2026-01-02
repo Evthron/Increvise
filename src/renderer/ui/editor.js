@@ -154,7 +154,7 @@ export async function openFile(filePath) {
         extractTextBtn.classList.add('hidden')
         extractPageBtn.classList.add('hidden')
         extractBtn.classList.remove('hidden')
-        saveFileBtn.classList.remove('hidden')
+        saveFileBtn.classList.add('hidden')
         toggleEditBtn.classList.remove('hidden')
 
         if (codeMirrorEditor) {
@@ -299,9 +299,13 @@ toggleEditBtn.addEventListener('click', () => {
   if (isEditMode) {
     codeMirrorEditor.enableEditing()
     toggleEditBtn.textContent = 'Preview'
+    extractBtn.classList.add('hidden')
+    saveFileBtn.classList.remove('hidden')
   } else {
     codeMirrorEditor.disableEditing()
     toggleEditBtn.textContent = 'Edit'
+    extractBtn.classList.remove('hidden')
+    saveFileBtn.classList.add('hidden')
   }
 })
 
@@ -320,6 +324,11 @@ extractBtn.addEventListener('click', async () => {
 
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
+    return
+  }
+
+  if (isEditMode === true) {
+    showToast('Please switch to preview mode before extracting', true)
     return
   }
 
