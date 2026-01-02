@@ -230,21 +230,58 @@ function updateExtractButtonState() {
   extractBtn.disabled = false
 }
 
-saveFileBtn.addEventListener('click', async () => {
-  if (!currentOpenFile) return
+// Save file with optional silent mode (no toast on success)
+async function saveFile(silent = false) {
+  if (!currentOpenFile) return { success: false, error: 'No file open' }
+
   try {
+    // Step 1: Check if there are line number changes that need updating
+    if (codeMirrorEditor.hasRangeChanges) {
+      const rangeUpdates = codeMirrorEditor.getRangeUpdates()
+
+      if (rangeUpdates.length > 0) {
+        console.log('Updating locked ranges:', rangeUpdates)
+
+        const updateResult = await window.fileManager.updateLockedRanges(
+          currentOpenFile,
+          rangeUpdates,
+          window.currentFileLibraryId
+        )
+
+        if (!updateResult.success) {
+          showToast(`Error updating line numbers: ${updateResult.error}`, true)
+          return { success: false, error: updateResult.error }
+        }
+
+        console.log(`Updated ${updateResult.updatedCount} locked ranges`)
+
+        // Confirm update success, set current as new original
+        codeMirrorEditor.confirmRangeUpdates()
+      }
+    }
+
+    // Step 2: Save file content
     const content = codeMirrorEditor.editorView.state.doc.toString()
     const result = await window.fileManager.writeFile(currentOpenFile, content)
     if (result.success) {
       hasUnsavedChanges = false
-      showToast('File saved successfully!')
+      if (!silent) {
+        showToast('File saved successfully!')
+      }
+      return { success: true }
     } else {
       showToast(`Error saving file: ${result.error}`, true)
+      return { success: false, error: result.error }
     }
   } catch (error) {
     console.error('Error saving file:', error)
     showToast(`Error saving file: ${error.message}`, true)
+    return { success: false, error: error.message }
   }
+}
+
+saveFileBtn.addEventListener('click', async () => {
+  await saveFile()
 })
 
 // Toggle between preview and edit mode
@@ -264,11 +301,12 @@ toggleEditBtn.addEventListener('click', () => {
   }
 })
 
-// codeMirrorEditor.addEventListener('input', () => {
-//   if (currentOpenFile) {
-//     hasUnsavedChanges = true
-//   }
-// })
+// Listen for content changes in CodeMirror
+codeMirrorEditor.addEventListener('content-changed', () => {
+  if (currentOpenFile && isEditMode) {
+    hasUnsavedChanges = true
+  }
+})
 
 extractBtn.addEventListener('click', async () => {
   if (!currentOpenFile) {
@@ -279,6 +317,16 @@ extractBtn.addEventListener('click', async () => {
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
     return
+  }
+
+  // Check if there are unsaved changes or line range changes
+  if (hasUnsavedChanges || codeMirrorEditor.hasRangeChanges) {
+    showToast('Saving changes before extraction...')
+    const saveResult = await saveFile(true)
+    if (!saveResult.success) {
+      showToast('Please save your changes before extracting', true)
+      return
+    }
   }
 
   const selectedLines = codeMirrorEditor.getSelectedLines()

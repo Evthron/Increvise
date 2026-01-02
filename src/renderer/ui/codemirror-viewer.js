@@ -16,6 +16,17 @@ import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { basicSetup } from 'codemirror'
 
+class LockedRange {
+  constructor(originalStart, originalEnd, currentStart, currentEnd, childPath) {
+    //
+    this.originalStart = originalStart
+    this.originalEnd = originalEnd
+    this.currentStart = currentStart
+    this.currentEnd = currentEnd
+    this.childPath = childPath
+  }
+}
+
 export class CodeMirrorViewer extends LitElement {
   static properties = {
     content: { type: String },
@@ -42,6 +53,8 @@ export class CodeMirrorViewer extends LitElement {
     this.language = 'javascript'
     this.editorView = null
     this.lockedLines = new Set() // store locked line numbers
+    this.lockedRanges = [] // store LockedRange objects
+    this.hasRangeChanges = false // flag to indicate if ranges need database update
     this.isEditable = false
     this.editableCompartment = new Compartment()
     this.lineSelectionCompartment = new Compartment()
@@ -170,18 +183,18 @@ export class CodeMirrorViewer extends LitElement {
         return true
       }
 
-      const doc = tr.state.doc
+      const oldDoc = tr.startState.doc
       const affectedRanges = []
 
-      // Collect all affected ranges
+      // Collect all affected ranges (fromA/toA are positions in the old document)
       tr.changes.iterChangedRanges((fromA, toA) => {
         affectedRanges.push({ from: fromA, to: toA })
       })
 
-      // Check if any affected range touches locked lines
+      // Check if any affected range touches locked lines in the old document
       for (let range of affectedRanges) {
-        const lineFrom = doc.lineAt(range.from)
-        const lineTo = doc.lineAt(range.to)
+        const lineFrom = oldDoc.lineAt(range.from)
+        const lineTo = oldDoc.lineAt(range.to)
 
         for (let i = lineFrom.number; i <= lineTo.number; i++) {
           if (this.lockedLines.has(i)) {
@@ -295,6 +308,25 @@ export class CodeMirrorViewer extends LitElement {
     this.previewModeTheme = previewModeTheme
     this.editModeTheme = editModeTheme
 
+    // Track document changes for line shift detection and unsaved changes
+    const trackChangesExtension = EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        // Track line number changes for locked ranges in edito mode
+        if (this.isEditable) {
+          this.updateLockedRangesForChanges(update.changes, update.startState.doc, update.state.doc)
+
+          // Dispatch a custom event to notify that the document has changed
+          this.dispatchEvent(
+            new CustomEvent('content-changed', {
+              bubbles: true,
+              composed: true,
+              detail: { hasChanges: true },
+            })
+          )
+        }
+      }
+    })
+
     // Get language mode
     const languageExtension = this.getLanguageExtension()
 
@@ -309,6 +341,7 @@ export class CodeMirrorViewer extends LitElement {
         markdown(),
         languageExtension,
         lockedLinesField,
+        trackChangesExtension,
         this.lineSelectionCompartment.of([
           lineSelectionExtension,
           lineClickHandler,
@@ -430,13 +463,27 @@ export class CodeMirrorViewer extends LitElement {
     }
   }
 
-  // Lock multiple line ranges from database
-  // ranges: [{start: 10, end: 15}, {start: 20, end: 25}]
+  // Lock multiple line ranges when first load the document
+  // Ranges data is from database, format: [{start: 10, end: 15, path: 'note.md'}, {start: 20, end: 25, path: 'note2.md'}]
   lockLineRanges(ranges) {
     if (!this.editorView || !ranges || ranges.length === 0) return
 
-    // Add all ranges to lockedLines set
+    // Clear existing data from last document load
+    this.lockedLines.clear()
+    this.lockedRanges = []
+
+    // Store complete range information for tracking
     for (let range of ranges) {
+      const lockRange = new LockedRange(
+        range.start,
+        range.end,
+        range.start, // currontStart and end initially same as original
+        range.end,
+        range.path // Associated child note path
+      )
+      this.lockedRanges.push(lockRange)
+
+      // Populate lockedLines Set for rendering
       for (let i = range.start; i <= range.end; i++) {
         this.lockedLines.add(i)
       }
@@ -447,6 +494,7 @@ export class CodeMirrorViewer extends LitElement {
       effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
     })
 
+    this.hasRangeChanges = false
     console.log('Locked line ranges:', ranges)
     console.log('Total locked lines:', this.lockedLines.size)
   }
@@ -500,6 +548,93 @@ export class CodeMirrorViewer extends LitElement {
   // Check whether the viewer is in edit mode
   isEditMode() {
     return this.isEditable
+  }
+
+  // Update locked ranges when document changes (for line shift tracking)
+  updateLockedRangesForChanges(changes, oldDoc, newDoc) {
+    if (this.lockedRanges.length === 0) return
+
+    let hasChanges = false
+
+    changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+      // toA: original end position in old text
+      // toB: new end position in new change
+      const oldEndLine = oldDoc.lineAt(toA).number
+      const newEndLine = newDoc.lineAt(toB).number
+
+      // Calculate how many lines the endlines shifts (added/removed) for each change
+      // Only need to consider end line shifts, as previous changes will have adjusted start positions
+      const lineDelta = newEndLine - oldEndLine
+
+      if (lineDelta === 0) return // No line count change
+
+      const changeStartLine = oldDoc.lineAt(fromA).number
+      for (let range of this.lockedRanges) {
+        // If range is entirely after the change, shift both start and end
+        if (range.currentStart > changeStartLine) {
+          range.currentStart += lineDelta
+          range.currentEnd += lineDelta
+          hasChanges = true
+        }
+        // When lines are inserted/deleted within a locked range, only adjust end
+        // This is not expected to be happening, but handle it just in case
+        else if (range.currentEnd >= changeStartLine && range.currentStart < changeStartLine) {
+          range.currentEnd += lineDelta
+          hasChanges = true
+        }
+      }
+    })
+
+    if (hasChanges) {
+      this.hasRangeChanges = true
+      this.rebuildLockedLinesSet()
+    }
+  }
+
+  // Rebuild lockedLines Set from lockedRanges
+  rebuildLockedLinesSet() {
+    this.lockedLines.clear()
+
+    for (let range of this.lockedRanges) {
+      for (let i = range.currentStart; i <= range.currentEnd; i++) {
+        this.lockedLines.add(i)
+      }
+    }
+
+    // Re-render decorations
+    if (this.editorView) {
+      this.editorView.dispatch({
+        effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
+      })
+    }
+  }
+
+  // Get range updates that need to be saved to database
+  getRangeUpdates() {
+    const updates = []
+
+    for (let range of this.lockedRanges) {
+      if (range.currentStart !== range.originalStart || range.currentEnd !== range.originalEnd) {
+        updates.push({
+          childPath: range.childPath,
+          originalStart: range.originalStart,
+          originalEnd: range.originalEnd,
+          newStart: range.currentStart,
+          newEnd: range.currentEnd,
+        })
+      }
+    }
+
+    return updates
+  }
+
+  // Confirm range updates after successful save
+  confirmRangeUpdates() {
+    for (let range of this.lockedRanges) {
+      range.originalStart = range.currentStart
+      range.originalEnd = range.currentEnd
+    }
+    this.hasRangeChanges = false
   }
 
   disconnectedCallback() {

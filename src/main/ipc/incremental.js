@@ -392,6 +392,50 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
   }
 }
 
+// Update locked line ranges in database after line shifts
+async function updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
+
+    // Use transaction to ensure atomicity
+    const updateStmt = db.prepare(`
+      UPDATE note_source 
+      SET range_start = ?, range_end = ?
+      WHERE library_id = ? 
+        AND parent_path = ? 
+        AND relative_path = ?
+    `)
+
+    const transaction = db.transaction((updates) => {
+      for (let update of updates) {
+        updateStmt.run(
+          update.newStart,
+          update.newEnd,
+          libraryId,
+          parentRelativePath,
+          update.childPath
+        )
+      }
+    })
+
+    transaction(rangeUpdates)
+    db.close()
+
+    return {
+      success: true,
+      updatedCount: rangeUpdates.length,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
 async function readFile(filePath) {
   try {
     const content = await fs.readFile(filePath, 'utf-8')
@@ -682,6 +726,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     getChildRanges(parentPath, libraryId, getCentralDbPath)
   )
 
+  ipcMain.handle('update-locked-ranges', async (event, parentPath, rangeUpdates, libraryId) =>
+    updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentralDbPath)
+  )
+
   // PDF extraction handlers
   ipcMain.handle('extract-pdf-pages', async (event, pdfPath, startPage, endPage, libraryId) =>
     extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
@@ -706,6 +754,7 @@ export {
   validateAndRecoverNoteRange,
   compareFilenameWithDbRange,
   getChildRanges,
+  updateLockedRanges,
   extractPdfPages,
   getNoteExtractInfo,
 }
