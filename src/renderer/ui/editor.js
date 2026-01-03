@@ -162,14 +162,7 @@ export async function openFile(filePath) {
           await loadAndLockExtractedRanges(filePath)
           codeMirrorEditor.disableEditing()
           pdfViewer.resetView?.()
-          if (ext === '.md' || ext === '.markdown') {
-            // Show pdf-viewer in markdown mode
-            codeMirrorEditor.classList.add('hidden')
-            pdfViewer.classList.remove('hidden')
-            pdfViewer.contentType = 'markdown'
-            pdfViewer.content = result.content
-            pdfViewer.requestUpdate()
-          } else if (ext === '.html' || ext === '.htm') {
+          if (ext === '.html' || ext === '.htm') {
             // Show pdf-viewer in html mode
             codeMirrorEditor.classList.add('hidden')
             pdfViewer.classList.remove('hidden')
