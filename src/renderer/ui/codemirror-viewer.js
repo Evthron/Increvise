@@ -814,7 +814,7 @@ export class CodeMirrorViewer extends LitElement {
   // Ranges data is from database with child content
   // Format: [{start: 10, end: 15, path: 'note.md', content: '...', lineCount: 5}, ...]
   // Returns: { success: boolean, error?: string }
-  lockLineRanges(ranges) {
+  lockLineRanges(ranges, useDynamicContent = true) {
     if (!this.editorView || !ranges || ranges.length === 0) {
       return { success: false, error: 'No editor or no ranges' }
     }
@@ -823,11 +823,7 @@ export class CodeMirrorViewer extends LitElement {
     this.lockedLines.clear()
     this.lockedRanges = []
 
-    // Check if ranges have dynamic content (new format)
-    const hasDynamicContent = ranges.length > 0 && ranges[0].content !== undefined
-
-    if (hasDynamicContent) {
-      // New path: use dynamic content display
+    if (useDynamicContent) {
       // Step 1: Calculate line offsets for dynamic expansion/contraction
       const adjustedRanges = calculateLineOffsets(ranges)
 
@@ -930,7 +926,7 @@ export class CodeMirrorViewer extends LitElement {
 
       return { success: true }
     } else {
-      // Old path: no dynamic content (backwards compatibility)
+      // no dynamic content
       for (let range of ranges) {
         const lockRange = new LockedRange(
           range.start,
@@ -956,8 +952,6 @@ export class CodeMirrorViewer extends LitElement {
 
       return { success: true }
     }
-
-    this.hasRangeChanges = false
   }
 
   // Apply dynamic content decorations (called by lockLineRanges)
