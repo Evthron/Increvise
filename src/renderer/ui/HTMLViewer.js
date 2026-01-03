@@ -39,6 +39,16 @@ export class HTMLViewer extends LitElement {
       padding: 1rem;
     }
 
+    /* Locked/extracted content styles */
+    .extracted-content {
+      background-color: rgba(100, 100, 100, 0.1);
+      border-left: 3px solid #999;
+      padding-left: 0.5rem;
+      opacity: 0.6;
+      pointer-events: none;
+      user-select: none;
+    }
+
     .link-dialog-backdrop {
       position: fixed;
       inset: 0;
@@ -103,6 +113,7 @@ export class HTMLViewer extends LitElement {
     this.content = '';
     this.showLinkDialog = false;
     this.previewUrl = '';
+    this.extractedTexts = [];
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -112,6 +123,60 @@ export class HTMLViewer extends LitElement {
         this.openLinkDialog(href)
       }
     }
+  }
+  
+  /**
+   * Get currently selected text and its position info
+   * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
+   * @returns {Object|null} { text: string, hasSelection: boolean } or null
+   */
+  getSemanticSelection() {
+    // Prefer shadow selection; fallback to document selection
+    const selection = (this.shadowRoot && this.shadowRoot.getSelection && this.shadowRoot.getSelection()) || document.getSelection()
+    if (!selection || selection.rangeCount === 0) return null
+
+    const range = selection.getRangeAt(0)
+    let container = range.commonAncestorContainer
+    if (container.nodeType === Node.TEXT_NODE) {
+      container = container.parentElement
+    }
+
+    const BLOCK_SELECTOR = 'h1,h2,h3,p,article,section,li,blockquote'
+    const block = container?.closest?.(BLOCK_SELECTOR)
+    const selectedText = selection.toString().trim()
+
+    if (block && block.textContent) {
+      return {
+        text: block.textContent.trim(),
+        tag: block.tagName.toLowerCase(),
+        hasSelection: true,
+      }
+    }
+
+    if (!selectedText) return null
+
+    return {
+      text: selectedText,
+      tag: 'inline',
+      hasSelection: true,
+    }
+  }
+
+  /**
+   * Lock/highlight already extracted content
+   * @param {Array<Object>} ranges, array of objects with extracted_text property
+   */
+  lockContent(ranges) {
+    this.extractedTexts = ranges.map(r => r.extracted_text || r.text).filter(Boolean);
+    this.requestUpdate(); // Re-render with locked styling
+  }
+
+  /**
+   * Clear all locked content
+   */
+  clearLockedContent() {
+    this.extractedTexts = [];
+    this.requestUpdate();
   }
   
   connectedCallback() {
@@ -162,9 +227,21 @@ export class HTMLViewer extends LitElement {
       return html`<div class="empty-message">No content</div>`;
     }
 
+    // Apply locked styling to extracted content
+    let renderedContent = this.content;
+    if (this.extractedTexts.length > 0) {
+      this.extractedTexts.forEach(extractedText => {
+        if (extractedText) {
+          // Escape special regex characters
+          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedText})`, 'gi');
+          renderedContent = renderedContent.replace(regex, '<span class="extracted-content">$1</span>');
+        }
+      });
+    }
 
     return html`
-      <div class="html-viewer" .innerHTML=${this.content}></div>
+      <div class="html-viewer" .innerHTML=${renderedContent}></div>
       ${this.showLinkDialog
         ? html`
             <div class="link-dialog-backdrop" @click=${this.closeLinkDialog}>

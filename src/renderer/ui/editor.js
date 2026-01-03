@@ -244,6 +244,39 @@ async function loadAndLockExtractedRanges(filePath) {
   }
 }
 
+/**
+ * Load extracted content and lock them in markdown/html viewers
+ * @param {string} filePath aka file path to load extracted content for
+ * @param {Object} viewer aka viewer component (markdownViewer or htmlViewer)
+ */
+async function loadAndLockExtractedContent(filePath, viewer) {
+  try {
+    if (!window.currentFileLibraryId) {
+      console.warn('No library ID set, cannot load extracted content')
+      viewer.clearLockedContent?.()
+      return
+    }
+
+    const rangesResult = await window.fileManager.getChildRanges(
+      filePath,
+      window.currentFileLibraryId
+    )
+
+    if (rangesResult.success) {
+      if (rangesResult.ranges.length > 0) {
+        viewer.lockContent?.(rangesResult.ranges)
+      } else {
+        viewer.clearLockedContent?.()
+      }
+    } else {
+      viewer.clearLockedContent?.()
+    }
+  } catch (error) {
+    console.error('Error loading extracted content:', error)
+    viewer.clearLockedContent?.()
+  }
+}
+
 function showToast(message, isError = false) {
   const toast = document.getElementById('toast')
   toast.textContent = message
@@ -308,6 +341,19 @@ extractBtn.addEventListener('click', async () => {
     return
   }
 
+  // 1) HTML viewer active
+  if (htmlViewer && !htmlViewer.classList.contains('hidden')) {
+    await handleSemanticExtraction(htmlViewer)
+    return
+  }
+
+  // 2) Markdown viewer active
+  if (markdownViewer && !markdownViewer.classList.contains('hidden')) {
+    await handleSemanticExtraction(markdownViewer)
+    return
+  }
+
+  // 3) Default: CodeMirror (text files)
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
     return
@@ -360,6 +406,49 @@ extractBtn.addEventListener('click', async () => {
     showToast(`Error extracting note: ${error.message}`, true)
   }
 })
+
+// helper for HTML/Markdown semantic extraction
+async function handleSemanticExtraction(viewer) {
+  const selection = viewer.getSemanticSelection?.()
+
+  if (!selection || !selection.text) {
+    showToast('Please select text or a block to extract', true)
+    return
+  }
+
+  const selectedText = selection.text
+
+  if (!selectedText.trim()) {
+    showToast('Please select text to extract', true)
+    return
+  }
+
+  if (!window.currentFileLibraryId) {
+    showToast('Error: Library ID not set. Please reopen the file.', true)
+    console.error('currentFileLibraryId is not set')
+    return
+  }
+
+  try {
+    const result = await window.fileManager.extractNote(
+      currentOpenFile,
+      selectedText,
+      0,
+      0,
+      window.currentFileLibraryId
+    )
+
+    if (result.success) {
+      await loadAndLockExtractedContent(currentOpenFile, viewer)
+      showToast(`Note extracted to ${result.fileName}`)
+    } else {
+      showToast(`Error: ${result.error}`, true)
+    }
+  } catch (error) {
+    console.error('Error extracting note:', error)
+    showToast(`Error extracting note: ${error.message}`, true)
+  }
+}
 
 // PDF Extract Text button handler
 extractTextBtn.addEventListener('click', async () => {
@@ -439,6 +528,33 @@ extractPageBtn.addEventListener('click', async () => {
   } catch (error) {
     console.error('Error extracting pages:', error)
     showToast(`Error extracting pages: ${error.message}`, true)
+  }
+})
+
+// Listen for extraction events from markdown/html viewers
+document.addEventListener('extract-requested', async (e) => {
+  const { text, viewerType } = e.detail
+  
+  if (!window.currentFileLibraryId) {
+    showToast('Error: Library ID not set', true)
+    return
+  }
+  
+  try {
+    const result = await window.fileManager.extractNote(
+      currentOpenFile,
+      text,
+      0, 0,
+      window.currentFileLibraryId
+    )
+    
+    if (result.success) {
+      const viewer = viewerType === 'markdown' ? markdownViewer : htmlViewer
+      await loadAndLockExtractedContent(currentOpenFile, viewer)
+      showToast(`Note extracted to ${result.fileName}`)
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, true)
   }
 })
 

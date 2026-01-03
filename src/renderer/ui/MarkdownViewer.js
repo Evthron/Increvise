@@ -63,6 +63,16 @@ export class MarkdownViewer extends LitElement {
     }
     img { max-width: 100%; height: auto; }
 
+    /* Locked/extracted content styles */
+    .extracted-content {
+      background-color: rgba(100, 100, 100, 0.1);
+      border-left: 3px solid #999;
+      padding-left: 0.5rem;
+      opacity: 0.6;
+      pointer-events: none;
+      user-select: none;
+    }
+
     .link-dialog-backdrop {
       position: fixed;
       inset: 0;
@@ -127,6 +137,7 @@ export class MarkdownViewer extends LitElement {
     this.content = '';
     this.showLinkDialog = false;
     this.previewUrl = '';
+    this.extractedTexts = []; // Store extracted content for locking
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -136,6 +147,66 @@ export class MarkdownViewer extends LitElement {
         this.openLinkDialog(href)
       }
     }
+  }
+
+  /**
+   * Get currently selected text and its position info
+   * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
+   * @returns {Object|null} - { text: string, hasSelection: boolean } or null
+   */
+  getSelectedText() {
+    const selection = this.shadowRoot.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+
+    const selectedText = selection.toString().trim();
+    if (!selectedText) {
+      return null;
+    }
+
+    return {
+      text: selectedText,
+      hasSelection: true
+    };
+  }
+
+  /**
+   * Lock/highlight already extracted content
+   * @param {Array<Object>} ranges - Array of objects with extracted_text property
+   */
+  lockContent(ranges) {
+    this.extractedTexts = ranges.map(r => r.extracted_text || r.text).filter(Boolean);
+    this.requestUpdate(); // Re-render with locked styling
+  }
+
+
+  async extractSelection() {
+    const selection = this.getSelectedText()
+    if (!selection || !selection.text) {
+      return { success: false, error: 'No text selected' }
+    }
+    
+    // Dispatch custom event for editor.js to handle
+    this.dispatchEvent(new CustomEvent('extract-requested', {
+      detail: { 
+        text: selection.text,
+        viewerType: 'markdown'
+      },
+      bubbles: true,
+      composed: true
+    }))
+    
+    return { success: true }
+  }
+
+
+  /**
+   * Clear all locked content
+   */
+  clearLockedContent() {
+    this.extractedTexts = [];
+    this.requestUpdate();
   }
 
   // Intercept clicks on external links to open them in a dialog/pop up
@@ -195,8 +266,21 @@ export class MarkdownViewer extends LitElement {
       return html`<div class="empty-message">No content</div>`;
     }
 
-    // Render markdown to HTML
-    const rendered = marked.parse(this.content || '');
+    // Render markdown to HTML with locked content highlighting
+    let rendered = marked.parse(this.content || '');
+    
+    // Apply locked styling to extracted content
+    if (this.extractedTexts.length > 0) {
+      this.extractedTexts.forEach(extractedText => {
+        if (extractedText) {
+          // Escape special regex characters
+          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedText})`, 'gi');
+          rendered = rendered.replace(regex, '<span class="extracted-content">$1</span>');
+        }
+      });
+    }
+
     return html`
       <div class="markdown-viewer" .innerHTML=${rendered}></div>
       ${this.showLinkDialog
