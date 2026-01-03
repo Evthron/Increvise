@@ -348,106 +348,6 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
   }
 }
 
-// Recursively expand child note content by replacing extract markers with actual content
-async function expandNoteContentRecursively(
-  notePath,
-  noteContent,
-  libraryId,
-  getCentralDbPath,
-  currentDepth = 0,
-  maxDepth = 10,
-  visitedPaths = new Set()
-) {
-  // Check recursion depth limit
-  if (currentDepth >= maxDepth) {
-    console.warn(`[expandNoteContentRecursively] Max depth ${maxDepth} reached for ${notePath}`)
-    return noteContent
-  }
-
-  // Check for circular references
-  const normalizedPath = path.normalize(notePath)
-  if (visitedPaths.has(normalizedPath)) {
-    console.warn(`[expandNoteContentRecursively] Circular reference detected: ${notePath}`)
-    return '[Circular reference detected]'
-  }
-
-  // Add current path to visited set
-  const newVisitedPaths = new Set(visitedPaths)
-  newVisitedPaths.add(normalizedPath)
-
-  try {
-    // Get child ranges for this note
-    const childResult = await getChildRanges(notePath, libraryId, getCentralDbPath)
-
-    // If no children or error, return original content
-    if (!childResult.success || !childResult.ranges || childResult.ranges.length === 0) {
-      return noteContent
-    }
-
-    // Split content into lines for manipulation
-    let lines = noteContent.split('\n')
-
-    // Sort ranges in descending order (process from end to start to avoid offset issues)
-    const sortedRanges = [...childResult.ranges].sort((a, b) => b.start - a.start)
-
-    // Process each child range
-    for (const childRange of sortedRanges) {
-      try {
-        // Get child's absolute path
-        const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-        if (!dbInfo.found) {
-          console.warn(`[expandNoteContentRecursively] Database not found for ${notePath}`)
-          continue
-        }
-
-        const childAbsPath = path.join(dbInfo.folderPath, childRange.path)
-
-        // Read child content
-        let childContent = ''
-        try {
-          childContent = await fs.readFile(childAbsPath, 'utf-8')
-        } catch (err) {
-          console.warn(
-            `[expandNoteContentRecursively] Failed to read child ${childRange.path}:`,
-            err.message
-          )
-          childContent = '[Content unavailable]'
-        }
-
-        // Recursively expand child content
-        const expandedChildContent = await expandNoteContentRecursively(
-          childAbsPath,
-          childContent,
-          libraryId,
-          getCentralDbPath,
-          currentDepth + 1,
-          maxDepth,
-          newVisitedPaths
-        )
-
-        // Replace the range with expanded content
-        // Note: range_start is 1-based, array indices are 0-based
-        const beforeLines = lines.slice(0, childRange.start - 1)
-        const expandedLines = expandedChildContent.split('\n')
-        const afterLines = lines.slice(childRange.end) // range_end is inclusive, slice is exclusive
-
-        lines = [...beforeLines, ...expandedLines, ...afterLines]
-      } catch (err) {
-        console.error(
-          `[expandNoteContentRecursively] Error processing child ${childRange.path}:`,
-          err.message
-        )
-        // Continue processing other children even if one fails
-      }
-    }
-
-    return lines.join('\n')
-  } catch (error) {
-    console.error(`[expandNoteContentRecursively] Error expanding ${notePath}:`, error.message)
-    return noteContent
-  }
-}
-
 /**
  * Get the extracted ranges from all child notes of a parent note
  * @param {string} parentPath - Absolute path to parent note
@@ -468,77 +368,98 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
     // Use recursive CTE to calculate nesting depth for all children at once
     const children = db
       .prepare(
-        `
-        WITH RECURSIVE parent_chain AS (
-          -- Base case: get all direct children of the parent
-          SELECT 
+        `WITH RECURSIVE parent_chain AS (
+          SELECT
             relative_path,
-            parent_path,
+            parent_path, 
             range_start,
             range_end,
-            1 AS nesting_depth
+            1 AS recur_depth
           FROM note_source
-          WHERE library_id = ? 
-            AND parent_path = ? 
-            AND extract_type = 'text-lines'
-          
+          WHERE library_id = ? AND parent_path = ?
+
           UNION ALL
           
-          -- Recursive case: traverse up the parent chain to count depth
-          SELECT 
-            pc.relative_path,
+          SELECT
+            ns.relative_path,
             ns.parent_path,
-            pc.range_start,
-            pc.range_end,
-            pc.nesting_depth + 1
-          FROM parent_chain pc
-          INNER JOIN note_source ns ON pc.parent_path = ns.relative_path
-          WHERE ns.library_id = ? AND pc.nesting_depth < 10  -- Safety limit
+            ns.range_start,
+            ns.range_end,
+            pc.recur_depth + 1
+          FROM parent_chain AS pc
+          INNER JOIN note_source AS ns ON pc.relative_path = ns.parent_path
+          WHERE ns.library_id = ? AND recur_depth < 10 -- max 10 child layers 
         )
-        SELECT 
+  
+        SELECT
           relative_path,
+          parent_path,
           range_start,
-          range_end
+          range_end,
+          recur_depth
         FROM parent_chain
-        GROUP BY relative_path, range_start, range_end
-        ORDER BY range_start ASC
+        ORDER BY recur_depth DESC, range_start DESC
       `
       )
       .all(libraryId, parentRelativePath, libraryId)
-    console.log('[get childranges], children', children)
 
-    const ranges = []
-
-    for (const child of children) {
+    // Read all children content
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
       const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
-
-      // Read child note content
-      let childContent = ''
       try {
-        childContent = await fs.readFile(childAbsPath, 'utf-8')
+        child.content = await fs.readFile(childAbsPath, 'utf-8')
       } catch (err) {
         console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
-        childContent = '[Content unavailable]'
+        child.content = '[Content unavailable]'
       }
+    }
 
-      // Recursively expand child content to show nested extracts
-      const expandedContent = await expandNoteContentRecursively(
-        childAbsPath,
-        childContent,
-        libraryId,
-        getCentralDbPath,
-        0, // Start at depth 0
-        10 // Max 10 levels
-      )
+    // Create a Map for O(1) lookup of children by relative_path
+    const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
 
-      ranges.push({
+    // Merging content from grandchild and deeper notes to direct child
+    // recur_depth DESC: bottom-to-top traversal
+    // range_start DESC: Ensures that replacing lines in a parent does not disrupt the line numbers for other children
+    for (const child of children) {
+      // direct children are skipped
+      if (child.recur_depth === 1) continue
+
+      const parent = childrenMap.get(child.parent_path)
+
+      if (parent && parent.content) {
+        // Replace lines in parent with child content
+        const lines = parent.content.split('\n')
+        // range_start and range_end are 1-based
+        const rangeStart = parseInt(child.range_start) - 1
+        const rangeEnd = parseInt(child.range_end) - 1
+
+        // Split parent content into: before, (replaced with child), after
+        const beforeLines = lines.slice(0, rangeStart)
+        const childLines = child.content.split('\n')
+        const afterLines = lines.slice(rangeEnd + 1)
+
+        // Update parent content
+        parent.content = [...beforeLines, ...childLines, ...afterLines].join('\n')
+      }
+    }
+
+    // Filter to only return direct children (depth=1)
+    const directChildren = children.filter((c) => c.recur_depth === 1)
+
+    // Sort by range_start ASC for final output
+    directChildren.sort((a, b) => parseInt(a.range_start) - parseInt(b.range_start))
+
+    // Map to result format
+    const ranges = directChildren.map((child) => {
+      return {
         path: child.relative_path,
         start: parseInt(child.range_start),
         end: parseInt(child.range_end),
-        content: expandedContent,
-        lineCount: expandedContent.split('\n').length,
-      })
-    }
+        content: child.content,
+        lineCount: child.content.split('\n').length,
+      }
+    })
 
     db.close()
 
@@ -913,7 +834,6 @@ export {
   validateAndRecoverNoteRange,
   compareFilenameWithDbRange,
   getChildRanges,
-  expandNoteContentRecursively,
   updateLockedRanges,
   extractPdfPages,
   getNoteExtractInfo,
