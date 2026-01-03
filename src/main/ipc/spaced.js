@@ -345,6 +345,70 @@ async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   }
 }
 
+async function forgetFile(filePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
+
+      // Check if file exists in database
+      const { exists_flag } = db
+        .prepare(
+          'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+        )
+        .get(libraryId, relativePath)
+      const exists = exists_flag === 1
+      if (!exists) {
+        db.close()
+        return { success: false, error: 'File not found in database' }
+      }
+
+      // Delete all revision data from note_source table
+      const deleteNoteSource = db.prepare(
+        'DELETE FROM note_source WHERE library_id = ? AND relative_path = ?'
+      )
+      const noteSourceResult = deleteNoteSource.run(libraryId, relativePath)
+
+      // Reset spaced repetition data in file table
+      const resetFile = db.prepare(`
+        UPDATE file
+        SET last_revised_time = NULL,
+            review_count = 0,
+            easiness = 0.0,
+            rank = 70.0,
+            interval = 1,
+            due_time = datetime('now')
+        WHERE library_id = ? AND relative_path = ?
+      `)
+      const fileResult = resetFile.run(libraryId, relativePath)
+
+      db.close()
+      return {
+        success: true,
+        message: 'File revision data erased, but entry kept in database',
+        deletedRevisions: noteSourceResult.changes,
+        updatedFile: fileResult.changes > 0,
+        resetValues: {
+          last_revised_time: null,
+          review_count: 0,
+          easiness: 0.0,
+          rank: 70.0,
+          interval: 1,
+          due_time: new Date().toISOString()
+        }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
 export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('create-database', (event, folderPath) =>
     createDatabase(folderPath, getCentralDbPath)
@@ -360,6 +424,9 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('update-revision-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
     updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   )
+  ipcMain.handle('forget-file', (event, filePath, libraryId) =>
+    forgetFile(filePath, libraryId, getCentralDbPath)
+  )
 }
 
 // Export functions for testing
@@ -370,4 +437,5 @@ export {
   getFilesForRevision,
   getAllFilesForRevision,
   updateRevisionFeedback,
+  forgetFile,
 }
