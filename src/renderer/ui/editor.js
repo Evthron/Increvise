@@ -69,6 +69,7 @@ export async function openFile(filePath) {
       const { parentPath, rangeStart, rangeEnd } = pdfExtractInfo
       const sourcePdfPath = parentPath // Absolute path from database
 
+      // Update UI state
       currentOpenFile = filePath
       currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
       editorToolbar.classList.remove('hidden')
@@ -109,7 +110,7 @@ export async function openFile(filePath) {
       currentFilePath.textContent = filePath
       editorToolbar.classList.remove('hidden')
 
-      // Hide text editor, show PDF viewer
+      // Show PDF viewer
       codeMirrorEditor.classList.add('hidden')
       pdfViewer.classList.remove('hidden')
 
@@ -160,47 +161,50 @@ export async function openFile(filePath) {
           // Load and lock extracted line ranges from database
           await loadAndLockExtractedRanges(filePath)
           codeMirrorEditor.disableEditing()
-        pdfViewer.resetView?.()
-        if (ext === '.md' || ext === '.markdown') {
-          // Show pdf-viewer in markdown mode
-          codeMirrorEditor.classList.add('hidden')
-          pdfViewer.classList.remove('hidden')
-          pdfViewer.contentType = 'markdown'
-          pdfViewer.content = result.content
-          pdfViewer.requestUpdate()
-        } else if (ext === '.html' || ext === '.htm') {
-          // Show pdf-viewer in html mode
-          codeMirrorEditor.classList.add('hidden')
-          pdfViewer.classList.remove('hidden')
-          pdfViewer.contentType = 'html'
-          pdfViewer.content = result.content
-          pdfViewer.requestUpdate()
-        } else {
+          pdfViewer.resetView?.()
+          if (ext === '.md' || ext === '.markdown') {
+            // Show pdf-viewer in markdown mode
+            codeMirrorEditor.classList.add('hidden')
+            pdfViewer.classList.remove('hidden')
+            pdfViewer.contentType = 'markdown'
+            pdfViewer.content = result.content
+            pdfViewer.requestUpdate()
+          } else if (ext === '.html' || ext === '.htm') {
+            // Show pdf-viewer in html mode
+            codeMirrorEditor.classList.add('hidden')
+            pdfViewer.classList.remove('hidden')
+            pdfViewer.contentType = 'html'
+            pdfViewer.content = result.content
+            pdfViewer.requestUpdate()
+          } else {
+            // Default: show text editor
+            pdfViewer.classList.add('hidden')
+            codeMirrorEditor.classList.remove('hidden')
+            extractTextBtn.classList.add('hidden')
+            extractPageBtn.classList.add('hidden')
+            extractBtn.classList.remove('hidden')
+            saveFileBtn.classList.remove('hidden')
+            toggleEditBtn.classList.remove('hidden')
 
-          // Default: show text editor
-          pdfViewer.classList.add('hidden')
-          codeMirrorEditor.classList.remove('hidden')
-          extractTextBtn.classList.add('hidden')
-          extractPageBtn.classList.add('hidden')
-          extractBtn.classList.remove('hidden')
-          saveFileBtn.classList.remove('hidden')
-          toggleEditBtn.classList.remove('hidden')
-
-          if (codeMirrorEditor) {
-            codeMirrorEditor.setContent(result.content)
-            await loadAndLockExtractedRanges(filePath)
-            codeMirrorEditor.disableEditing()
+            if (codeMirrorEditor) {
+              codeMirrorEditor.setContent(result.content)
+              await loadAndLockExtractedRanges(filePath)
+              codeMirrorEditor.disableEditing()
+            }
           }
-        }}
+        }
       } else {
         alert(`Error reading file: ${result.error}`)
       }
-
     }
   } catch (error) {
-    console.error('Error opening file:', error)
-    alert(`Error opening file: ${error.message}`)
+    console.error('[openTextFile] Error loading extracted ranges:', error)
+    // Continue without locking ranges
   }
+
+  // Finalize editor state
+  codeMirrorEditor.disableEditing()
+  codeMirrorEditor.clearHistory()
 }
 
 /**
@@ -208,35 +212,34 @@ export async function openFile(filePath) {
  * @param {string} filePath - The file path to load ranges for
  */
 async function loadAndLockExtractedRanges(filePath) {
-  try {
-    // Need library ID to query database
-    if (!window.currentFileLibraryId) {
-      console.warn('No library ID set, cannot load extracted ranges')
-      codeMirrorEditor.clearLockedLines()
-      return
-    }
-
-    // Get child notes line ranges from database
-    const rangesResult = await window.fileManager.getChildRanges(
-      filePath,
-      window.currentFileLibraryId
-    )
-
-    if (rangesResult.success) {
-      if (rangesResult.ranges.length > 0) {
-        console.log(`Locking ${rangesResult.ranges.length} extracted ranges:`, rangesResult.ranges)
-        codeMirrorEditor.lockLineRanges(rangesResult.ranges)
-      } else {
-        console.log('No extracted ranges found for this file')
-        codeMirrorEditor.clearLockedLines()
-      }
-    } else {
-      console.error('Failed to get child notes ranges:', rangesResult.error)
-      codeMirrorEditor.clearLockedLines()
-    }
-  } catch (error) {
-    console.error('Error loading extracted ranges:', error)
+  // Check library ID
+  if (!window.currentFileLibraryId) {
+    console.warn('[loadAndLockExtractedRanges] No library ID set')
     codeMirrorEditor.clearLockedLines()
+    return
+  }
+
+  // Get child notes line ranges from database
+  let rangesResult
+  try {
+    rangesResult = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+  } catch (error) {
+    console.error('[loadAndLockExtractedRanges] Error querying database:', error)
+    codeMirrorEditor.clearLockedLines()
+    throw error
+  }
+
+  if (rangesResult.ranges.length === 0) {
+    codeMirrorEditor.clearLockedLines()
+    return
+  }
+
+  // Lock ranges in editor
+  try {
+    codeMirrorEditor.lockLineRanges(rangesResult.ranges)
+  } catch (error) {
+    console.error('[loadAndLockExtractedRanges] Error locking ranges in editor:', error)
+    throw error
   }
 }
 
@@ -258,21 +261,58 @@ function updateExtractButtonState() {
   extractBtn.disabled = false
 }
 
-saveFileBtn.addEventListener('click', async () => {
-  if (!currentOpenFile) return
+// Save file with optional silent mode (no toast on success)
+async function saveFile(silent = false) {
+  if (!currentOpenFile) return { success: false, error: 'No file open' }
+
   try {
-    const content = codeMirrorEditor.editorView.state.doc.toString()
+    // Step 1: Check if there are line number changes that need updating
+    if (codeMirrorEditor.hasRangeChanges) {
+      const rangeUpdates = codeMirrorEditor.getRangeUpdates()
+
+      if (rangeUpdates.length > 0) {
+        const updateResult = await window.fileManager.updateLockedRanges(
+          currentOpenFile,
+          rangeUpdates,
+          window.currentFileLibraryId
+        )
+
+        if (!updateResult.success) {
+          showToast(`Error updating line numbers: ${updateResult.error}`, true)
+          return { success: false, error: updateResult.error }
+        }
+
+        // Confirm update success, set current as new original
+        codeMirrorEditor.confirmRangeUpdates()
+      }
+    }
+
+    // Step 2: Save file content
+    // Use getOriginalContent() to exclude temporary expansion lines
+    const content = codeMirrorEditor.getOriginalContent
+      ? codeMirrorEditor.getOriginalContent()
+      : codeMirrorEditor.editorView.state.doc.toString()
+
     const result = await window.fileManager.writeFile(currentOpenFile, content)
     if (result.success) {
       hasUnsavedChanges = false
-      showToast('File saved successfully!')
+      if (!silent) {
+        showToast('File saved successfully!')
+      }
+      return { success: true }
     } else {
       showToast(`Error saving file: ${result.error}`, true)
+      return { success: false, error: result.error }
     }
   } catch (error) {
     console.error('Error saving file:', error)
     showToast(`Error saving file: ${error.message}`, true)
+    return { success: false, error: error.message }
   }
+}
+
+saveFileBtn.addEventListener('click', async () => {
+  await saveFile()
 })
 
 // Toggle between preview and edit mode
@@ -286,17 +326,22 @@ toggleEditBtn.addEventListener('click', () => {
   if (isEditMode) {
     codeMirrorEditor.enableEditing()
     toggleEditBtn.textContent = 'Preview'
+    extractBtn.classList.add('hidden')
+    saveFileBtn.classList.remove('hidden')
   } else {
     codeMirrorEditor.disableEditing()
     toggleEditBtn.textContent = 'Edit'
+    extractBtn.classList.remove('hidden')
+    saveFileBtn.classList.add('hidden')
   }
 })
 
-// codeMirrorEditor.addEventListener('input', () => {
-//   if (currentOpenFile) {
-//     hasUnsavedChanges = true
-//   }
-// })
+// Listen for content changes in CodeMirror
+codeMirrorEditor.addEventListener('content-changed', () => {
+  if (currentOpenFile && isEditMode) {
+    hasUnsavedChanges = true
+  }
+})
 
 extractBtn.addEventListener('click', async () => {
   if (!currentOpenFile) {
@@ -307,6 +352,21 @@ extractBtn.addEventListener('click', async () => {
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
     return
+  }
+
+  if (isEditMode === true) {
+    showToast('Please switch to preview mode before extracting', true)
+    return
+  }
+
+  // Check if there are unsaved changes or line range changes
+  if (hasUnsavedChanges || codeMirrorEditor.hasRangeChanges) {
+    showToast('Saving changes before extraction...')
+    const saveResult = await saveFile(true)
+    if (!saveResult.success) {
+      showToast('Please save your changes before extracting', true)
+      return
+    }
   }
 
   const selectedLines = codeMirrorEditor.getSelectedLines()
@@ -341,10 +401,14 @@ extractBtn.addEventListener('click', async () => {
       rangeEnd,
       window.currentFileLibraryId
     )
-    console.log('Extracting note for library:', window.currentFileLibraryId)
     if (result.success) {
       // Reload and lock all extracted ranges (including the new one)
       await loadAndLockExtractedRanges(currentOpenFile)
+
+      // Clear undo history after extraction to prevent undoing the extraction
+      // This is necessary because extraction creates permanent database records
+      // and child files that cannot be automatically rolled back
+      codeMirrorEditor.clearHistory()
 
       showToast(`Note extracted to ${result.fileName}`)
       // Optionally, refresh the file tree here if needed
@@ -453,3 +517,31 @@ async function reloadPdfExtractedRanges() {
     console.error('Error reloading PDF extracted ranges:', error)
   }
 }
+
+// Listen for child note open requests from CodeMirror widget badges
+window.addEventListener('open-child-note', async (event) => {
+  const { path: childPath } = event.detail
+
+  // Validate child path
+  if (!childPath) {
+    console.error('[open-child-note] No child path provided')
+    showToast('Error: No child note path specified', true)
+    return
+  }
+
+  // Check workspace root path
+  if (!window.currentRootPath) {
+    console.error('[open-child-note] No workspace root path set')
+    showToast('Cannot open child note: no workspace open', true)
+    return
+  }
+
+  // Construct absolute path
+  try {
+    const absolutePath = `${window.currentRootPath}/${childPath}`
+    await openFile(absolutePath)
+  } catch (error) {
+    console.error('[open-child-note] Error:', error)
+    showToast(`Error opening child note: ${error.message}`, true)
+  }
+})

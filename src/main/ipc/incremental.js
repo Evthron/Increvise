@@ -353,9 +353,10 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
  * @param {string} parentPath - Absolute path to parent note
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
+ * @param {boolean} useDynamicContent - Whether to expand nested children (default: true)
  * @returns {Promise<Object>} - Child notes ranges information
  */
-async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
+async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynamicContent = true) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
@@ -365,27 +366,199 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
     const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
 
+    // Check if parent is a PDF file
+    const isPdfParent = path.extname(parentPath).toLowerCase() === '.pdf'
+
+    // Simple query: only get direct children
+    if (!useDynamicContent) {
+      const children = db
+        .prepare(
+          `SELECT
+            relative_path,
+            parent_path,
+            range_start,
+            range_end
+          FROM note_source
+          WHERE library_id = ? AND parent_path = ?
+          ORDER BY range_start ASC
+        `
+        )
+        .all(libraryId, parentRelativePath)
+
+      // Read direct children content (skip if parent is PDF)
+      if (!isPdfParent) {
+        for (const child of children) {
+          const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+          try {
+            child.content = await fs.readFile(childAbsPath, 'utf-8')
+          } catch (err) {
+            console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
+            child.content = '[Content unavailable]'
+          }
+        }
+      }
+
+      const ranges = children.map((child) => ({
+        path: child.relative_path,
+        start: parseInt(child.range_start),
+        end: parseInt(child.range_end),
+        content: isPdfParent ? undefined : child.content,
+        lineCount: isPdfParent ? undefined : child.content.split('\n').length,
+      }))
+
+      db.close()
+
+      return {
+        success: true,
+        ranges,
+      }
+    }
+
+    // Dynamic content: use recursive CTE to get all nested children
     const children = db
       .prepare(
-        `
-        SELECT relative_path, range_start, range_end
-        FROM note_source
-        WHERE library_id = ? AND parent_path = ?
+        `WITH RECURSIVE parent_chain AS (
+          SELECT
+            relative_path,
+            parent_path, 
+            range_start,
+            range_end,
+            1 AS recur_depth
+          FROM note_source
+          WHERE library_id = ? AND parent_path = ?
+
+          UNION ALL
+          
+          SELECT
+            ns.relative_path,
+            ns.parent_path,
+            ns.range_start,
+            ns.range_end,
+            pc.recur_depth + 1
+          FROM parent_chain AS pc
+          INNER JOIN note_source AS ns ON pc.relative_path = ns.parent_path
+          WHERE ns.library_id = ? AND recur_depth < 10 -- max 10 child layers 
+        )
+  
+        SELECT
+          relative_path,
+          parent_path,
+          range_start,
+          range_end,
+          recur_depth
+        FROM parent_chain
+        ORDER BY recur_depth DESC, range_start DESC
       `
       )
-      .all(libraryId, parentRelativePath)
+      .all(libraryId, parentRelativePath, libraryId)
+
+    // Read all children content
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+      try {
+        child.content = await fs.readFile(childAbsPath, 'utf-8')
+      } catch (err) {
+        console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
+        child.content = '[Content unavailable]'
+      }
+    }
+
+    // Create a Map for O(1) lookup of children by relative_path
+    const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
+
+    // Merging content from grandchild and deeper notes to direct child
+    // recur_depth DESC: bottom-to-top traversal
+    // range_start DESC: Ensures that replacing lines in a parent does not disrupt the line numbers for other children
+    for (const child of children) {
+      // direct children are skipped
+      if (child.recur_depth === 1) continue
+
+      const parent = childrenMap.get(child.parent_path)
+
+      if (parent && parent.content) {
+        // Replace lines in parent with child content
+        const lines = parent.content.split('\n')
+        // range_start and range_end are 1-based
+        const rangeStart = parseInt(child.range_start) - 1
+        const rangeEnd = parseInt(child.range_end) - 1
+
+        // Split parent content into: before, (replaced with child), after
+        const beforeLines = lines.slice(0, rangeStart)
+        const childLines = child.content.split('\n')
+        const afterLines = lines.slice(rangeEnd + 1)
+
+        // Update parent content
+        parent.content = [...beforeLines, ...childLines, ...afterLines].join('\n')
+      }
+    }
+
+    // Filter to only return direct children (depth=1)
+    const directChildren = children.filter((c) => c.recur_depth === 1)
+
+    // Sort by range_start ASC for final output
+    directChildren.sort((a, b) => parseInt(a.range_start) - parseInt(b.range_start))
+
+    // Map to result format
+    const ranges = directChildren.map((child) => {
+      return {
+        path: child.relative_path,
+        start: parseInt(child.range_start),
+        end: parseInt(child.range_end),
+        content: child.content,
+        lineCount: child.content.split('\n').length,
+      }
+    })
 
     db.close()
-
-    const ranges = children.map((child) => ({
-      path: child.relative_path,
-      start: parseInt(child.range_start),
-      end: parseInt(child.range_end),
-    }))
 
     return {
       success: true,
       ranges,
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+// Update locked line ranges in database after line shifts
+async function updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
+
+    // Use transaction to ensure atomicity
+    const updateStmt = db.prepare(`
+      UPDATE note_source 
+      SET range_start = ?, range_end = ?
+      WHERE library_id = ? 
+        AND parent_path = ? 
+        AND relative_path = ?
+    `)
+
+    const transaction = db.transaction((updates) => {
+      for (let update of updates) {
+        updateStmt.run(
+          update.newStart,
+          update.newEnd,
+          libraryId,
+          parentRelativePath,
+          update.childPath
+        )
+      }
+    })
+
+    transaction(rangeUpdates)
+    db.close()
+
+    return {
+      success: true,
+      updatedCount: rangeUpdates.length,
     }
   } catch (error) {
     return { success: false, error: error.message }
@@ -678,8 +851,14 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
   )
 
-  ipcMain.handle('get-child-ranges', async (event, parentPath, libraryId) =>
-    getChildRanges(parentPath, libraryId, getCentralDbPath)
+  ipcMain.handle(
+    'get-child-ranges',
+    async (event, parentPath, libraryId, useDynamicContent = true) =>
+      getChildRanges(parentPath, libraryId, getCentralDbPath, useDynamicContent)
+  )
+
+  ipcMain.handle('update-locked-ranges', async (event, parentPath, rangeUpdates, libraryId) =>
+    updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentralDbPath)
   )
 
   // PDF extraction handlers
@@ -706,6 +885,7 @@ export {
   validateAndRecoverNoteRange,
   compareFilenameWithDbRange,
   getChildRanges,
+  updateLockedRanges,
   extractPdfPages,
   getNoteExtractInfo,
 }
