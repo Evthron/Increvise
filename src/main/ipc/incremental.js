@@ -353,9 +353,10 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
  * @param {string} parentPath - Absolute path to parent note
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
+ * @param {boolean} useDynamicContent - Whether to expand nested children (default: true)
  * @returns {Promise<Object>} - Child notes ranges information
  */
-async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
+async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynamicContent = true) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
@@ -365,7 +366,55 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath) {
     const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
 
-    // Use recursive CTE to calculate nesting depth for all children at once
+    // Check if parent is a PDF file
+    const isPdfParent = path.extname(parentPath).toLowerCase() === '.pdf'
+
+    // Simple query: only get direct children
+    if (!useDynamicContent) {
+      const children = db
+        .prepare(
+          `SELECT
+            relative_path,
+            parent_path,
+            range_start,
+            range_end
+          FROM note_source
+          WHERE library_id = ? AND parent_path = ?
+          ORDER BY range_start ASC
+        `
+        )
+        .all(libraryId, parentRelativePath)
+
+      // Read direct children content (skip if parent is PDF)
+      if (!isPdfParent) {
+        for (const child of children) {
+          const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+          try {
+            child.content = await fs.readFile(childAbsPath, 'utf-8')
+          } catch (err) {
+            console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
+            child.content = '[Content unavailable]'
+          }
+        }
+      }
+
+      const ranges = children.map((child) => ({
+        path: child.relative_path,
+        start: parseInt(child.range_start),
+        end: parseInt(child.range_end),
+        content: isPdfParent ? undefined : child.content,
+        lineCount: isPdfParent ? undefined : child.content.split('\n').length,
+      }))
+
+      db.close()
+
+      return {
+        success: true,
+        ranges,
+      }
+    }
+
+    // Dynamic content: use recursive CTE to get all nested children
     const children = db
       .prepare(
         `WITH RECURSIVE parent_chain AS (
@@ -802,8 +851,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
   )
 
-  ipcMain.handle('get-child-ranges', async (event, parentPath, libraryId) =>
-    getChildRanges(parentPath, libraryId, getCentralDbPath)
+  ipcMain.handle(
+    'get-child-ranges',
+    async (event, parentPath, libraryId, useDynamicContent = true) =>
+      getChildRanges(parentPath, libraryId, getCentralDbPath, useDynamicContent)
   )
 
   ipcMain.handle('update-locked-ranges', async (event, parentPath, rangeUpdates, libraryId) =>
