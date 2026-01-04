@@ -416,7 +416,7 @@ async function handleSemanticExtraction(viewer) {
     return
   }
   // selectected text is for check length,
-  // selected html is for extraction with formatting like including sth like <p></p> etc
+  // selected html is for extraction with formatting like including sth like <p></p>
   const selectedText = selection.text
   const selectedHtml = selection.html || selectedText
 

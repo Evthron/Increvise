@@ -126,6 +126,65 @@ export class HTMLViewer extends LitElement {
   }
   
   /**
+   * Close any unclosed HTML tags using a stack-based approach
+   * @param {string} html - HTML string that may have unclosed tags
+   * @returns {string} HTML with all tags properly closed
+   */
+closeMissingTags(html) {
+
+  // these have no closing tags so when meet them we don't push to stack and skip them directly
+  const voidElements = new Set([
+    "area", "base", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr"
+  ]);
+  console.log('📌 Current HTML text:', html);
+  // Stack to keep track of open tags, like we see <body> first then we push this to stack; <div> then push to stack etc
+  const stack = [];
+  const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+
+
+  console.log('📌📌📌 Unclosed tags in stack:', stack)
+  let match;
+  // loop through the html string to find open tags AND closing tags, then will result in an array of tags
+  while ((match = tagRegex.exec(html)) !== null) {
+    console.log('📌 Unclosed tags in stack:', stack)
+    const [fullMatch, tagName] = match;
+    const lowerTag = tagName.toLowerCase();
+
+    if (voidElements.has(lowerTag)) {
+      // Skip void elements
+      continue;
+    }
+
+    if (fullMatch.startsWith("</")) {
+      // Closing tag: pop if matches top of stack
+      if (stack.length > 0 && stack[stack.length - 1] === lowerTag) {
+        stack.pop();
+      } else {
+        // If mismatched, ignore (browser would auto-close earlier)
+      }
+    } else {
+      // Opening tag: push to stack
+      stack.push(lowerTag);
+    }
+  }
+
+
+  // compare the array and see if there are some neighboring tags that are closing tags for the previous one, e.g. <div></div>, then we pop both of them in the stack using while loop until no more closing tags found
+
+  console.log('📌📌📌 Unclosed tags in stack:', stack)
+  ;
+  // append the remaining unclosed tags in the stack to the end of the html string, like if stack has <div>, <body>, then we append </body></div> to the end of html string, which is the string variable result
+  let result = html;
+  while (stack.length > 0) {
+    const openTag = stack.pop();
+    result += `</${openTag}>`;
+  }
+
+  return result;
+}
+
+  /**
    * Get currently selected text and its position info
    * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
    * @returns {Object|null} { text: string, hasSelection: boolean } or null
@@ -148,9 +207,13 @@ getSemanticSelection() {
   
   console.log('📌 Extracted HTML texts:', selectedText);
   console.log('📌 Extracted HTML selection:', extractedHtml);
+
+  const appendedHtml = this.closeMissingTags(extractedHtml);
+  console.log('📌 Extracted HTML with closed tags:', appendedHtml);
+  console.log('📌 Original length:', extractedHtml.length, 'Fixed length:', appendedHtml.length);
   return {
     text: selectedText,
-    html: extractedHtml,
+    html: appendedHtml,
     hasSelection: true,
   };
 }

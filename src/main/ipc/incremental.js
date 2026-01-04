@@ -439,8 +439,10 @@ async function extractNote(
       await fs.mkdir(noteFolder, { recursive: true })
 
       // Generate new filename using hierarchical naming scheme
+      // Preserve parent file's extension to maintain format (.html, .md, etc.)
+      const parentExt = path.extname(parentFilePath)
       const newFileName =
-        generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + '.md'
+        generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + parentExt
       const newFilePath = path.join(noteFolder, newFileName)
 
       // Check if file already exists
