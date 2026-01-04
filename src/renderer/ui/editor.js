@@ -415,8 +415,10 @@ async function handleSemanticExtraction(viewer) {
     showToast('Please select text or a block to extract', true)
     return
   }
-
+  // selectected text is for check length,
+  // selected html is for extraction with formatting like including sth like <p></p> etc
   const selectedText = selection.text
+  const selectedHtml = selection.html || selectedText
 
   if (!selectedText.trim()) {
     showToast('Please select text to extract', true)
@@ -432,7 +434,7 @@ async function handleSemanticExtraction(viewer) {
   try {
     const result = await window.fileManager.extractNote(
       currentOpenFile,
-      selectedText,
+      selectedHtml,
       0,
       0,
       window.currentFileLibraryId

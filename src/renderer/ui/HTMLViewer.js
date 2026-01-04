@@ -130,37 +130,30 @@ export class HTMLViewer extends LitElement {
    * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
    * @returns {Object|null} { text: string, hasSelection: boolean } or null
    */
-  getSemanticSelection() {
-    // Prefer shadow selection; fallback to document selection
-    const selection = (this.shadowRoot && this.shadowRoot.getSelection && this.shadowRoot.getSelection()) || document.getSelection()
-    if (!selection || selection.rangeCount === 0) return null
+getSemanticSelection() {
+  const selection = (this.shadowRoot && this.shadowRoot.getSelection && this.shadowRoot.getSelection()) || document.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
 
-    const range = selection.getRangeAt(0)
-    let container = range.commonAncestorContainer
-    if (container.nodeType === Node.TEXT_NODE) {
-      container = container.parentElement
-    }
+  const range = selection.getRangeAt(0);
+  const selectedText = selection.toString().trim();
+  if (!selectedText) return null;
 
-    const BLOCK_SELECTOR = 'h1,h2,h3,p,article,section,li,blockquote'
-    const block = container?.closest?.(BLOCK_SELECTOR)
-    const selectedText = selection.toString().trim()
-
-    if (block && block.textContent) {
-      return {
-        text: block.textContent.trim(),
-        tag: block.tagName.toLowerCase(),
-        hasSelection: true,
-      }
-    }
-
-    if (!selectedText) return null
-
-    return {
-      text: selectedText,
-      tag: 'inline',
-      hasSelection: true,
-    }
-  }
+  // Extract the exact HTML that was selected without complex manipulation
+  const extractedFragment = range.cloneContents();
+  const tempContainer = document.createElement('div');
+  tempContainer.appendChild(extractedFragment);
+  
+  // Get the HTML directly from what was selected
+  const extractedHtml = tempContainer.innerHTML;
+  
+  console.log('📌 Extracted HTML texts:', selectedText);
+  console.log('📌 Extracted HTML selection:', extractedHtml);
+  return {
+    text: selectedText,
+    html: extractedHtml,
+    hasSelection: true,
+  };
+}
 
   /**
    * Lock/highlight already extracted content

@@ -135,6 +135,7 @@ export class MarkdownViewer extends LitElement {
     this.isLoading = false;
     this.errorMessage = '';
     this.content = '';
+    this.markdownSource = ''; // Store raw markdown source for extraction
     this.showLinkDialog = false;
     this.previewUrl = '';
     this.extractedTexts = []; // Store extracted content for locking
@@ -150,7 +151,47 @@ export class MarkdownViewer extends LitElement {
   }
 
   /**
-   * Get currently selected text and its position info
+   * Get currently selected text and its markdown source
+   * Extracts both plain text and original markdown formatting
+   * @returns {Object|null} { text: string, markdown: string, hasSelection: boolean } or null
+   */
+  getSemanticSelection() {
+    const selection = this.shadowRoot.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+
+    const selectedText = selection.toString().trim();
+    if (!selectedText) {
+      return null;
+    }
+
+    // Try to extract the markdown source that corresponds to the selected text
+    // by finding the selected text in the markdown source
+    let markdownContent = this.markdownSource;
+    let extractedMarkdown = selectedText;
+
+    // If we have the markdown source, try to find the selected text and extract with formatting
+    if (markdownContent && markdownContent.includes(selectedText)) {
+      const startIndex = markdownContent.indexOf(selectedText);
+      if (startIndex !== -1) {
+        // Extract a reasonable chunk around the selected text to preserve formatting
+        const beforeStart = Math.max(0, startIndex - 100);
+        const afterEnd = Math.min(markdownContent.length, startIndex + selectedText.length + 100);
+        extractedMarkdown = markdownContent.substring(startIndex, startIndex + selectedText.length);
+      }
+    }
+  console.log('📌 Extracted md texts:', selectedText);
+  console.log('📌 Extracted md selection:', extractedMarkdown);
+    return {
+      text: selectedText,
+      markdown: extractedMarkdown,
+      hasSelection: true
+    };
+  }
+
+  /**
+   * Get currently selected text (plain text only)
    * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
    * @returns {Object|null} - { text: string, hasSelection: boolean } or null
    */
@@ -226,6 +267,7 @@ export class MarkdownViewer extends LitElement {
    * @param {string} content - raw markdown text
    */
   setMarkdown(content) {
+    this.markdownSource = content // Store raw markdown for extraction
     this.content = content
     this.requestUpdate()
   }
