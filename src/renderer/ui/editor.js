@@ -93,15 +93,14 @@ export async function openFile(filePath) {
       pdfViewer.resetView?.()
       // Load PDF with all configurations at once (single render!)
       await pdfViewer.loadPdf(sourcePdfPath, {
-        pageRange: [rangeStart, rangeEnd], // Restrict to extracted pages
-        initialPage: rangeStart, // Start at first extracted page
-        selectedPages: [rangeStart, rangeEnd], // Highlight extracted pages
+        pageStart: rangeStart, // Restrict to extracted pages - start
+        pageEnd: rangeEnd, // Restrict to extracted pages - end
         extractedRanges: rangesResult?.success ? rangesResult.ranges : [], // Lock extracted ranges
       })
 
       console.log('PDF extract loaded with configuration:', {
-        pageRange: [rangeStart, rangeEnd],
-        initialPage: rangeStart,
+        pageStart: rangeStart,
+        pageEnd: rangeEnd,
         extractedRanges: rangesResult?.success ? rangesResult.ranges.length : 0,
       })
     } else if (isPdf) {

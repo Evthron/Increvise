@@ -354,7 +354,14 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
  * @param {boolean} useDynamicContent - Whether to expand nested children (default: true)
- * @returns {Promise<Object>} - Child notes ranges information
+ * Return list of child notes, each child note object:
+ *   {
+ *     path: relative path of the child note,
+ *     start: range start
+ *     end: range end
+ *     content: inner content of the child note
+ *     lineCount: line count of the child note
+ *   }
  */
 async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynamicContent = true) {
   try {

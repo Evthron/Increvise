@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import { configs } from 'eslint-plugin-lit'
 
 export default [
   js.configs.recommended,
@@ -30,8 +31,5 @@ export default [
   {
     ignores: ['node_modules/**', 'dist/**', 'out/**'],
   },
-  {
-    plugins: ['lit'],
-    extends: ['plugin:lit/recommended'],
-  },
+  configs['flat/recommended'],
 ]
