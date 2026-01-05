@@ -4,6 +4,7 @@
 
 import { LitElement, html, css } from 'lit'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { TextLayer, setLayerDimensions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { marked } from 'marked'
 // Configure PDF.js worker for Electron
 const workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
@@ -227,10 +228,46 @@ class PdfCanvas extends LitElement {
       background: white;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       margin-bottom: 1rem;
+      /* CSS variables required by PDF.js for proper scaling */
+      --scale-factor: 1;
+      --user-unit: 1;
+      --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+      --scale-round-x: 1px;
+      --scale-round-y: 1px;
     }
 
     .pdf-canvas {
       display: block;
+    }
+
+    .text-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      line-height: 1;
+      text-align: initial;
+      opacity: 1;
+      transform-origin: 0 0;
+      caret-color: black;
+    }
+
+    .text-layer :is(span, br) {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+    }
+
+    .text-layer ::selection {
+      background: rgba(59, 130, 246, 0.3);
+    }
+
+    .text-layer br::selection {
+      background: transparent;
     }
 
     .page-selection-overlay {
@@ -268,6 +305,7 @@ class PdfCanvas extends LitElement {
     super()
     this.currentRenderTask = null
     this._renderScheduled = null
+    this.textLayer = null
   }
 
   /**
@@ -276,24 +314,16 @@ class PdfCanvas extends LitElement {
   updated(changedProperties) {
     super.updated(changedProperties)
 
-    // Check if we need to render the PDF page
-    const shouldRender =
-      changedProperties.has('pdfDocument') ||
-      changedProperties.has('currentPage') ||
-      changedProperties.has('scale')
-
-    if (shouldRender && this.pdfDocument) {
-      // Cancel any previously scheduled render
-      if (this._renderScheduled) {
-        cancelAnimationFrame(this._renderScheduled)
-      }
-
-      // Schedule render using requestAnimationFrame
-      this._renderScheduled = requestAnimationFrame(() => {
-        this._renderScheduled = null
-        this._renderPage()
-      })
+    // Cancel any previously scheduled render
+    if (this._renderScheduled) {
+      cancelAnimationFrame(this._renderScheduled)
     }
+
+    // Schedule render using requestAnimationFrame
+    this._renderScheduled = requestAnimationFrame(() => {
+      this._renderScheduled = null
+      this._renderPage()
+    })
   }
 
   /**
@@ -338,6 +368,19 @@ class PdfCanvas extends LitElement {
       this.currentRenderTask = page.render(renderContext)
       await this.currentRenderTask.promise
       this.currentRenderTask = null
+
+      // Render text layer for text selection (only in text mode)
+      if (this.selectionMode === 'text') {
+        await this._renderTextLayer(page, viewport)
+      } else {
+        // Clear text layer in page mode
+        const textLayer = this.shadowRoot.querySelector('.text-layer')
+        console.log('Clearing text layer for page selection mode')
+        if (textLayer) {
+          textLayer.innerHTML = ''
+        }
+      }
+
       page.cleanup()
 
       // Notify parent that render is complete
@@ -356,6 +399,56 @@ class PdfCanvas extends LitElement {
     }
   }
 
+  /**
+   * Render text layer for text selection
+   */
+  async _renderTextLayer(page, viewport) {
+    const textLayerDiv = this.shadowRoot.querySelector('.text-layer')
+    if (!textLayerDiv) return
+
+    // Clear previous text layer
+    textLayerDiv.innerHTML = ''
+
+    // Set CSS variables for proper scaling
+    // These variables are required by PDF.js for correct transform calculations
+    const pageContainer = this.shadowRoot.querySelector('.pdf-page-container')
+    if (pageContainer) {
+      pageContainer.style.setProperty('--scale-factor', this.scale)
+      pageContainer.style.setProperty('--user-unit', '1')
+    }
+
+    // Use setLayerDimensions to set proper dimensions with CSS variables
+    setLayerDimensions(textLayerDiv, viewport)
+
+    try {
+      // Cancel previous text layer rendering
+      if (this.textLayer) {
+        this.textLayer.cancel()
+        this.textLayer = null
+      }
+
+      const textContent = await page.getTextContent()
+
+      // Need to stop rendering if the page doesn't have text content, otherwise the app's vertical dimension collapses
+      if (textContent.items.length === 0) {
+        console.warn('No text content available for this page')
+        return
+      }
+
+      // Create new TextLayer instance
+      this.textLayer = new TextLayer({
+        textContentSource: textContent,
+        container: textLayerDiv,
+        viewport: viewport,
+      })
+
+      // Render the text layer
+      await this.textLayer.render()
+    } catch (error) {
+      console.error('Error rendering text layer:', error)
+    }
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback()
 
@@ -370,6 +463,12 @@ class PdfCanvas extends LitElement {
       this.currentRenderTask.cancel()
       this.currentRenderTask = null
     }
+
+    // Cancel text layer
+    if (this.textLayer) {
+      this.textLayer.cancel()
+      this.textLayer = null
+    }
   }
 
   handlePageClick() {
@@ -380,6 +479,7 @@ class PdfCanvas extends LitElement {
     return html`
       <div class="pdf-page-container" @click=${this.handlePageClick}>
         <canvas class="pdf-canvas"></canvas>
+        <div class="text-layer"></div>
         ${this.isPageSelected ? html`<div class="page-selection-overlay"></div>` : ''}
         ${this.isExtracted
           ? html`
@@ -849,6 +949,31 @@ export class PdfViewer extends LitElement {
     this.requestUpdate()
   }
 
+  /**
+   * Get selected text from PDF
+   * @returns {Object|null} - {text, pageNum} or null if no selection
+   */
+  getSelectedText() {
+    // Get the text layer from PdfCanvas component
+    const pdfCanvas = this.shadowRoot.querySelector('pdf-canvas')
+    if (!pdfCanvas) return null
+
+    const textLayer = pdfCanvas.shadowRoot?.querySelector('.text-layer')
+    if (!textLayer) return null
+
+    // Get selected text from window selection
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed) return null
+
+    const selectedText = selection.toString().trim()
+    if (!selectedText) return null
+
+    return {
+      text: selectedText,
+      pageNum: this.currentPage,
+    }
+  }
+
   lockExtractedRanges(ranges) {
     this.extractedRanges = ranges
     this.requestUpdate()
@@ -857,7 +982,7 @@ export class PdfViewer extends LitElement {
   isPageExtracted() {
     return this.extractedRanges.some(
       (range) =>
-        range.extract_type === 'pdf-page' &&
+        (range.extract_type === 'pdf-page' || range.extract_type === 'pdf-text') &&
         parseInt(range.range_start) <= this.currentPage &&
         parseInt(range.range_end) >= this.currentPage
     )
