@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('update-revision-feedback', dbPath, libraryId, relativePath, feedback),
   forgetFile: (filePath, libraryId) =>
     ipcRenderer.invoke('forget-file', filePath, libraryId),
+  updateFileRank: (filePath, libraryId, newRank) =>
+    ipcRenderer.invoke('update-file-rank', filePath, libraryId, newRank),
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
