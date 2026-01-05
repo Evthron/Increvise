@@ -223,6 +223,13 @@ export class RevisionList extends LitElement {
     this.currentIndex = globalIndex
     this.requestUpdate()
 
+    // Dispatch a custom event so feedback bar updates
+    this.dispatchEvent(new CustomEvent('file-selected', {
+      detail: { index: globalIndex },
+      bubbles: true,
+      composed: true
+    }))
+
     // Import and call openFile
     const { openFile } = await import('./editor.js')
     await openFile(file.file_path)
