@@ -787,6 +787,136 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
 }
 
 /**
+ * Extract text from PDF page
+ * @param {string} pdfPath - Path to PDF file
+ * @param {string} text - Selected text content
+ * @param {number} pageNum - Page number (1-indexed)
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Result object
+ */
+async function extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPath) {
+  try {
+    console.log('[extractPdfText] Starting extraction:', {
+      pdfPath,
+      pageNum,
+      textLength: text.length,
+      libraryId,
+    })
+
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const rootPath = dbInfo.folderPath
+
+    try {
+      // Create PDF container folder
+      const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
+      console.log('[extractPdfText] Creating container folder:', containerFolder)
+
+      try {
+        await fs.mkdir(containerFolder, { recursive: true })
+      } catch (mkdirError) {
+        console.error('[extractPdfText] mkdir error:', mkdirError)
+        return {
+          success: false,
+          error: `Failed to create container folder: ${mkdirError.message}`,
+        }
+      }
+
+      // Generate filename from first 3 words
+      let words = ''
+      const trimmedText = text.trim()
+      let wordCount = 0
+      let currentWord = ''
+
+      for (let i = 0; i < trimmedText.length && wordCount < 3; i++) {
+        const char = trimmedText[i]
+        const lower = char.toLowerCase()
+        const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+        if (isAlphaNum) {
+          currentWord += lower
+        } else if (currentWord.length > 0) {
+          if (words) words += '-'
+          words += currentWord
+          currentWord = ''
+          wordCount++
+        }
+      }
+      // Add last word if exists
+      if (currentWord.length > 0 && wordCount < 3) {
+        if (words) words += '-'
+        words += currentWord
+      }
+
+      if (!words) words = 'text'
+
+      const fileName = `${pageNum}-${pageNum}-${words}.md`
+      const textFilePath = path.join(containerFolder, fileName)
+      console.log('[extractPdfText] Will create text file:', textFilePath)
+      const relativePath = path.relative(rootPath, textFilePath)
+      const parentRelativePath = path.relative(rootPath, pdfPath)
+
+      // Check if file already exists
+      try {
+        await fs.access(textFilePath)
+        return {
+          success: false,
+          error: 'A note with this name already exists. Please select different text.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
+      }
+
+      // Write text to file
+      await fs.writeFile(textFilePath, text, 'utf-8')
+
+      // Insert into database
+      db.prepare(
+        `
+        INSERT INTO file (library_id, relative_path, added_time, due_time)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `
+      ).run(libraryId, relativePath)
+
+      // Create source hash for text
+      const sourceHash = crypto.createHash('sha256').update(text).digest('hex')
+
+      db.prepare(
+        `
+        INSERT INTO note_source 
+        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        'pdf-text',
+        String(pageNum),
+        String(pageNum),
+        sourceHash
+      )
+
+      return {
+        success: true,
+        filePath: textFilePath,
+        fileName: fileName,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('Error extracting PDF text:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
  * Get extract information for a note file from database
  * Simple query to check if file is an extract and get its source info
  *
@@ -873,6 +1003,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
   )
 
+  ipcMain.handle('extract-pdf-text', async (event, pdfPath, text, pageNum, libraryId) =>
+    extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPath)
+  )
+
   ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
     getNoteExtractInfo(notePath, libraryId, getCentralDbPath)
   )
@@ -894,5 +1028,6 @@ export {
   getChildRanges,
   updateLockedRanges,
   extractPdfPages,
+  extractPdfText,
   getNoteExtractInfo,
 }

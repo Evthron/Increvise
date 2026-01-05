@@ -420,33 +420,32 @@ extractTextBtn.addEventListener('click', async () => {
     return
   }
 
-  showToast('Text extraction is not yet implemented', true)
-  // TODO: Implement PDF text extraction
-  // const selectedText = pdfViewer.getSelectedText()
-  // if (!selectedText || !selectedText.text.trim()) {
-  //   showToast('Please select text to extract', true)
-  //   return
-  // }
-  //
-  // try {
-  //   const result = await window.fileManager.extractPdfText(
-  //     currentOpenFile,
-  //     selectedText.text,
-  //     selectedText.pageNum,
-  //     selectedText.startOffset,
-  //     selectedText.endOffset,
-  //     window.currentFileLibraryId
-  //   )
-  //
-  //   if (result.success) {
-  //     showToast(`Text extracted to ${result.fileName}`)
-  //     await reloadPdfExtractedRanges()
-  //   } else {
-  //     showToast(`Error: ${result.error}`, true)
-  //   }
-  // } catch (error) {
-  //   showToast(`Error extracting text: ${error.message}`, true)
-  // }
+  const selectedText = pdfViewer.getSelectedText()
+  if (!selectedText || !selectedText.text.trim()) {
+    showToast('Please select text to extract', true)
+    return
+  }
+
+  try {
+    const result = await window.fileManager.extractPdfText(
+      currentOpenFile,
+      selectedText.text,
+      selectedText.pageNum,
+      window.currentFileLibraryId
+    )
+
+    if (result.success) {
+      showToast(`Text extracted to ${result.fileName}`)
+      await reloadPdfExtractedRanges()
+      // Clear text selection
+      window.getSelection().removeAllRanges()
+    } else {
+      showToast(`Error: ${result.error}`, true)
+    }
+  } catch (error) {
+    console.error('Error extracting text:', error)
+    showToast(`Error extracting text: ${error.message}`, true)
+  }
 })
 
 // PDF Extract Page button handler
