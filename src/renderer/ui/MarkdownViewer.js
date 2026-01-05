@@ -2,6 +2,13 @@
 import { LitElement, html, css } from 'lit';
 import { marked } from 'marked';
 
+// Configure marked to use GitHub Flavored Markdown (GFM) for tables and other features
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+  tables: true
+});
+
 export class MarkdownViewer extends LitElement {
   static properties = {
     isLoading: { type: Boolean },
@@ -62,6 +69,34 @@ export class MarkdownViewer extends LitElement {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
     }
     img { max-width: 100%; height: auto; }
+
+    /* Table styles */
+    .markdown-viewer table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0;
+      display: table;
+      overflow-x: auto;
+    }
+    .markdown-viewer table thead {
+      background-color: #f6f8fa;
+    }
+    .markdown-viewer table th,
+    .markdown-viewer table td {
+      border: 1px solid #d0d7de;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    .markdown-viewer table th {
+      font-weight: 600;
+      border-bottom: 2px solid #d0d7de;
+    }
+    .markdown-viewer table tr:nth-child(even) {
+      background-color: #f6f8fa;
+    }
+    .markdown-viewer table tr:hover {
+      background-color: #f0f3f6;
+    }
 
     /* Locked/extracted content styles */
     .extracted-content {
@@ -151,38 +186,359 @@ export class MarkdownViewer extends LitElement {
   }
 
   /**
-   * Get currently selected text and its markdown source
-   * Extracts both plain text and original markdown formatting
+   * Close any unclosed HTML tags using a stack-based approach
+   * Needed because when selecting partial content from rendered markdown,
+   * the HTML fragment may have unclosed tags that need to be closed
+   * before converting back to markdown format
+   * Yes this is basically the one in HTMLViewer.js but needed here too
+   * @param {string} html - HTML string that may have unclosed tags
+   * @returns {string} HTML with all tags properly closed
+   */
+  closeMissingTags(html) {
+    // These have no closing tags so when we meet them we dont push to stack and skip them directly
+    const voidElements = new Set([
+      "area", "base", "col", "embed", "hr", "img", "input",
+      "link", "meta", "param", "source", "track", "wbr"
+    ]);
+
+    // Stack to keep track of open tags
+    const stack = [];
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+
+    let match;
+    // Loop through the html string to find open tags AND closing tags
+    while ((match = tagRegex.exec(html)) !== null) {
+      const [fullMatch, tagName] = match;
+      const lowerTag = tagName.toLowerCase();
+
+      if (voidElements.has(lowerTag)) {
+        // Skip void elements
+        continue;
+      }
+
+      if (fullMatch.startsWith("</")) {
+        // Closing tag, pop if matches top of stack
+        if (stack.length > 0 && stack[stack.length - 1] === lowerTag) {
+          stack.pop();
+        }
+      } else {
+        // Opening tag: push to stack
+        stack.push(lowerTag);
+      }
+    }
+
+    // Append the remaining unclosed tags in the stack to the end of the html string
+    let result = html;
+    while (stack.length > 0) {
+      const openTag = stack.pop();
+      result += `</${openTag}>`;
+    }
+
+    return result;
+  }
+
+  /**
+   * Convert HTML back to markdown format
+   * Uses tag handlers for clean, maintainable conversion
+   * The reason this exists is that when you select partial content from rendered markdown,
+   * we are actually selecting the HTML fragment and we need to convert this back to markdown for extraction
+   * @param {string} html - HTML string to convert
+   * @returns {string} Markdown representation
+   */
+  htmlToMarkdown(html) {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+
+    // Tag handler functions for clean organization, they will be referenced later
+    const handlers = {
+      // level = number like 1 to 6 and # repeat based on level
+      // like heading 1 = #, heading 2 = ## etc
+      // the children is the inner text content like Title, Section or whatever words you think is appropriate
+      // e.g. heading(1, 'Title') => '# Title\n\n' ; heading(2, 'Section') => '## Section\n\n' etc
+      heading: (level, children) => `${'#'.repeat(level)} ${children}\n\n`,
+
+      // wraps children text with market
+      // like maybe bold then **children** or italic then *children*, or strikethrough then ~~children~~
+      format: (marker, children) => `${marker}${children}${marker}`,
+      
+      // converts <a> tags to markdown link format
+      // reads href and title attributes, include title if exists
+      link: (node, children) => {
+        const href = node.getAttribute('href') || '';
+        const title = node.getAttribute('title');
+        return title ? `[${children}](${href} "${title}")` : `[${children}](${href})`;
+      },
+
+      // tbh the rest are basically what they do but anyways
+      // converts <img> tags to markdown image format aka alt
+      image: (node) => {
+        const src = node.getAttribute('src') || '';
+        const alt = node.getAttribute('alt') || '';
+        const title = node.getAttribute('title');
+        return title ? `![${alt}](${src} "${title}")` : `![${alt}](${src})`;
+      },
+
+      // convert inline <code> tags to markdown inline code format like `code` something like that
+      code: (node, children) => {
+        if (node.parentElement?.tagName.toLowerCase() === 'pre') return children;
+        return `\`${children}\``;
+      },
+
+      // convert <pre><code> blocks to markdown code block format
+      // tries to detect language from class like js or python etc
+      codeBlock: (node, children) => {
+        const codeEl = node.querySelector('code');
+        const lang = codeEl?.className.split(' ')
+          .find(c => c.startsWith('language-'))
+          ?.replace('language-', '') || '';
+        return lang ? `\`\`\`${lang}\n${children}\n\`\`\`\n\n` : `\`\`\`\n${children}\n\`\`\`\n\n`;
+      },
+
+      // convert <li> items to markdown list format
+      list: (node, children) => {
+        const parent = node.parentElement;
+        const isOrdered = parent?.tagName.toLowerCase() === 'ol';
+        if (isOrdered) {
+          const index = Array.from(parent.children).indexOf(node) + 1;
+          return `${index}. ${children}\n`;
+        }
+        // Task list check
+        const firstChild = node.firstChild;
+        if (firstChild?.nodeName === 'INPUT' && firstChild.type === 'checkbox') {
+          const checked = firstChild.checked ? 'x' : ' ';
+          const text = Array.from(node.childNodes).slice(1)
+            .map(n => this.processNode(n)).join('');
+          return `- [${checked}]${text}\n`;
+        }
+        return `- ${children}\n`;
+      }
+    };
+
+    // Main node processor, recursive as call itself for each child nodes
+    this.processNode = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+      const tag = node.tagName.toLowerCase();
+      const children = Array.from(node.childNodes).map(n => this.processNode(n)).join('');
+
+      // Map tags to handlers
+      const tagMap = {
+        // intuitive and mentioned already above 
+        h1: () => handlers.heading(1, children),
+        h2: () => handlers.heading(2, children),
+        h3: () => handlers.heading(3, children),
+        h4: () => handlers.heading(4, children),
+        h5: () => handlers.heading(5, children),
+        h6: () => handlers.heading(6, children),
+        p: () => `${children}\n\n`,
+        strong: () => handlers.format('**', children),
+        b: () => handlers.format('**', children),
+        em: () => handlers.format('*', children),
+        i: () => handlers.format('*', children),
+        del: () => handlers.format('~~', children),
+        s: () => handlers.format('~~', children),
+        strike: () => handlers.format('~~', children),
+        code: () => handlers.code(node, children),
+        pre: () => handlers.codeBlock(node, children),
+        a: () => handlers.link(node, children),
+        img: () => handlers.image(node),
+        ul: () => `${children}\n`,
+        ol: () => `${children}\n`,
+        li: () => handlers.list(node, children),
+        blockquote: () => `> ${children}\n\n`,
+        hr: () => `---\n\n`,
+        br: () => '\n',
+        table: () => this.processTable(node),
+        thead: () => '',
+        tbody: () => '',
+        tr: () => '',
+        td: () => '',
+        th: () => ''
+      };
+
+      // if tagMap[tag] exists, call the function and return result, else return children as is
+      return tagMap[tag] ? tagMap[tag]() : children;
+    };
+
+    // use regex to replace multiple newlines with max 2 newlines and trim
+    const markdown = this.processNode(temp);
+    return markdown.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  /**
+   * Process HTML table to markdown table format
+   * @param {HTMLElement} tableNode - The table element
+   * @returns {string} Markdown table
+   */
+  processTable(tableNode) {
+    const rows = Array.from(tableNode.querySelectorAll('tr'));
+    if (rows.length === 0) return '';
+
+    // collect all cell contents and calculate max widths
+    const tableData = [];
+    const maxWidths = [];
+
+    // for each row select all <th> and <td> cells
+    // for each cell get text content, trim and escape pipes
+    // update maxWidths for each column based on content length
+    // math.max to ensure min width of 15 chars which is min col width for readability
+    // store row data with isHeader flag
+    rows.forEach((row) => {
+      const cells = Array.from(row.querySelectorAll('th, td'));
+      const rowData = cells.map((cell, idx) => {
+        const content = cell.textContent.trim().replace(/\|/g, '\\|');
+        maxWidths[idx] = Math.max(maxWidths[idx] || 10, content.length, 15); // Min 15 chars
+        return content;
+      });
+      tableData.push({ cells: rowData, isHeader: row.querySelector('th') !== null });
+    });
+
+    // build markdown with padded cells, start the output with newline so table separated from prev content
+    let markdown = '\n';
+    let headerProcessed = false;
+
+    // for each row, pad each cell to max width and join with pipes
+    // after header row, add separator row with dashes
+    // use isHeader flag to determine header row
+    tableData.forEach((row, rowIndex) => {
+      const paddedCells = row.cells.map((content, idx) => 
+        content.padEnd(maxWidths[idx], ' ')
+      );
+      markdown += `| ${paddedCells.join(' | ')} |\n`;
+
+      // Add separator after header
+      if ((row.isHeader || rowIndex === 0) && !headerProcessed) {
+        const separator = maxWidths.map(width => '-'.repeat(width)).join(' | ');
+        markdown += `| ${separator} |\n`;
+        headerProcessed = true;
+      }
+    });
+
+    return markdown + '\n';
+  }
+
+  /**
+   * Clean up formatting markers from partial selections using pairing algorithm
+   * Similar to HTML tag stack matching, but for markdown markers
+   * @param {string} markdown - Markdown text to clean
+   * @returns {string} Cleaned markdown
+   */
+  cleanPartialFormatting(markdown) {
+    // Remove leading/trailing whitespace between markers and content
+    // like `** bold text **` => `**bold text**` cuz spaces between markers and text are not valid and cause issues
+    markdown = markdown.replace(/^(\*+|_+)\s+/, '$1').replace(/\s+(\*+|_+)$/, '$1');
+    
+    // Find all marker sequences at start and end
+    const startMarkers = markdown.match(/^(\*+|_+)/)?.[1] || '';
+    const endMarkers = markdown.match(/(\*+|_+)$/)?.[1] || '';
+    
+    if (!startMarkers && !endMarkers) return markdown; // No markers to clean
+    
+    // Extract content without edge markers
+    const content = markdown.replace(/^(\*+|_+)|(\*+|_+)$/g, '');
+    
+    // Check if markers are properly paired (same type and count)
+    // tbh most of the time it isnt paired but what if it is then just return
+    const markerType = startMarkers[0] || endMarkers[0];
+    const isPaired = startMarkers.length > 0 && 
+                     endMarkers.length > 0 && 
+                     startMarkers[0] === endMarkers[0] &&
+                     startMarkers.length === endMarkers.length;
+    
+    if (isPaired) {
+      // Markers are balanced very good then just quit
+      return markdown;
+    }
+    
+    // Markers are orphaned or unbalanced - determine what to do
+    if (startMarkers && endMarkers) {
+      // Both exist but unbalanced - use minimum count
+      const minCount = Math.min(startMarkers.length, endMarkers.length);
+      return markerType.repeat(minCount) + content + markerType.repeat(minCount);
+    }
+    // e.g. ***hello** we know markertype is *, startmarker length is 3 and end is 2, 
+    // mincount = Math.min(3,2) = 2, so return **hello**
+
+    
+    // Only one side has markers - remove orphaned markers
+    return content;
+  }
+
+  /**
+   * Get currently selected text and convert to markdown format
+   * Similar to HTMLViewer's extraction logic so not explained again
    * @returns {Object|null} { text: string, markdown: string, hasSelection: boolean } or null
    */
   getSemanticSelection() {
-    const selection = this.shadowRoot.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      return null;
-    }
+    const selection = (this.shadowRoot?.getSelection?.() || document.getSelection());
+    if (!selection?.rangeCount) return null;
 
+    const range = selection.getRangeAt(0);
     const selectedText = selection.toString().trim();
-    if (!selectedText) {
-      return null;
-    }
+    if (!selectedText) return null;
 
-    // Try to extract the markdown source that corresponds to the selected text
-    // by finding the selected text in the markdown source
-    let markdownContent = this.markdownSource;
-    let extractedMarkdown = selectedText;
-
-    // If we have the markdown source, try to find the selected text and extract with formatting
-    if (markdownContent && markdownContent.includes(selectedText)) {
-      const startIndex = markdownContent.indexOf(selectedText);
-      if (startIndex !== -1) {
-        // Extract a reasonable chunk around the selected text to preserve formatting
-        const beforeStart = Math.max(0, startIndex - 100);
-        const afterEnd = Math.min(markdownContent.length, startIndex + selectedText.length + 100);
-        extractedMarkdown = markdownContent.substring(startIndex, startIndex + selectedText.length);
+    // Extract HTML from rendered markdown
+    const extractedFragment = range.cloneContents();
+    const tempContainer = document.createElement('div');
+    tempContainer.appendChild(extractedFragment);
+    
+    let extractedHtml = tempContainer.innerHTML;
+    
+    // Check if selection is entirely within a single block element (h1-h6, p, li, blockquote, etc.)
+    const commonAncestor = range.commonAncestorContainer;
+    const parentElement = commonAncestor.nodeType === Node.TEXT_NODE 
+      ? commonAncestor.parentElement 
+      : commonAncestor;
+    
+    // If the extracted HTML is just text (no tags) and parent is a block element, wrap it
+    if (extractedHtml && !/^<[a-z]/i.test(extractedHtml.trim())) {
+      const parentTag = parentElement?.tagName?.toLowerCase();
+      
+      // Preserve structure for these elements even with partial selection
+      const structuralElements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre'];
+      // Only preserve for full selection
+      const contextualElements = ['p', 'li'];
+      
+      if (parentTag) {
+        if (structuralElements.includes(parentTag)) {
+          // Always wrap structural elements (headings, blockquotes) to preserve context
+          extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`;
+        } else if (contextualElements.includes(parentTag)) {
+          // Only wrap if selecting entire content
+          const parentText = parentElement.textContent.trim();
+          if (selectedText === parentText) {
+            extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`;
+          }
+        }
       }
     }
-  console.log('📌 Extracted md texts:', selectedText);
-  console.log('📌 Extracted md selection:', extractedMarkdown);
+    
+    // Simplify inline-only selections to avoid over-nesting
+    const hasBlockElements = /<(p|div|h[1-6]|ul|ol|table|pre|blockquote)\b/i.test(extractedHtml);
+    if (!hasBlockElements) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = extractedHtml;
+      const strong = tempDiv.querySelector('strong');
+      const em = tempDiv.querySelector('em');
+      
+      // If nested formatting contains same text as selection, it's likely partial
+      if (strong && em && 
+          strong.textContent.trim() === selectedText && 
+          em.textContent.trim() === selectedText) {
+        extractedHtml = selectedText;
+      }
+    }
+    
+    // Process HTML to markdown
+    const closedHtml = this.closeMissingTags(extractedHtml);
+    let extractedMarkdown = this.htmlToMarkdown(closedHtml);
+    extractedMarkdown = this.cleanPartialFormatting(extractedMarkdown);
+
+    // console.log('📌 Extracted md text:', selectedText);
+    // console.log('📌 Extracted md HTML:', extractedHtml);
+    // console.log('📌 Extracted md markdown:', extractedMarkdown);
+
     return {
       text: selectedText,
       markdown: extractedMarkdown,

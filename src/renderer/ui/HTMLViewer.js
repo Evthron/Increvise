@@ -39,6 +39,59 @@ export class HTMLViewer extends LitElement {
       padding: 1rem;
     }
 
+    /* Table styles */
+    .html-viewer table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0;
+      display: table;
+      overflow-x: auto;
+    }
+    .html-viewer table thead {
+      background-color: #f6f8fa;
+    }
+    .html-viewer table th,
+    .html-viewer table td {
+      border: 1px solid #d0d7de;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    .html-viewer table th {
+      font-weight: 600;
+      border-bottom: 2px solid #d0d7de;
+    }
+    .html-viewer table tr:nth-child(even) {
+      background-color: #f6f8fa;
+    }
+    .html-viewer table tr:hover {
+      background-color: #f0f3f6;
+    }
+
+    /* Basic HTML element styles */
+    .html-viewer h1, .html-viewer h2, .html-viewer h3 {
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .html-viewer p {
+      margin: 0.5rem 0;
+    }
+    .html-viewer pre {
+      background: #f6f8fa;
+      padding: 0.75rem;
+      border-radius: 6px;
+      overflow: auto;
+    }
+    .html-viewer code {
+      background: #f3f4f6;
+      padding: 0.1rem 0.25rem;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+    }
+    .html-viewer img {
+      max-width: 100%;
+      height: auto;
+    }
+
     /* Locked/extracted content styles */
     .extracted-content {
       background-color: rgba(100, 100, 100, 0.1);
@@ -137,17 +190,17 @@ closeMissingTags(html) {
     "area", "base", "col", "embed", "hr", "img", "input",
     "link", "meta", "param", "source", "track", "wbr"
   ]);
-  console.log('📌 Current HTML text:', html);
+  // console.log('📌 Current HTML text:', html);
   // Stack to keep track of open tags, like we see <body> first then we push this to stack; <div> then push to stack etc
   const stack = [];
   const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
 
 
-  console.log('📌📌📌 Unclosed tags in stack:', stack)
+  // console.log('📌📌📌 Unclosed tags in stack:', stack)
   let match;
   // loop through the html string to find open tags AND closing tags, then will result in an array of tags
   while ((match = tagRegex.exec(html)) !== null) {
-    console.log('📌 Unclosed tags in stack:', stack)
+    // console.log('📌 Unclosed tags in stack:', stack)
     const [fullMatch, tagName] = match;
     const lowerTag = tagName.toLowerCase();
 
@@ -172,7 +225,7 @@ closeMissingTags(html) {
 
   // compare the array and see if there are some neighboring tags that are closing tags for the previous one, e.g. <div></div>, then we pop both of them in the stack using while loop until no more closing tags found
 
-  console.log('📌📌📌 Unclosed tags in stack:', stack)
+  // console.log('📌📌📌 Unclosed tags in stack:', stack)
   ;
   // append the remaining unclosed tags in the stack to the end of the html string, like if stack has <div>, <body>, then we append </body></div> to the end of html string, which is the string variable result
   let result = html;
@@ -197,20 +250,81 @@ getSemanticSelection() {
   const selectedText = selection.toString().trim();
   if (!selectedText) return null;
 
-  // Extract the exact HTML that was selected without complex manipulation
+  // Extract the exact HTML that was selected
   const extractedFragment = range.cloneContents();
   const tempContainer = document.createElement('div');
   tempContainer.appendChild(extractedFragment);
   
-  // Get the HTML directly from what was selected
-  const extractedHtml = tempContainer.innerHTML;
+  // specifically deal with table selections to preserve structure as much as possible 
+  let extractedHtml = tempContainer.innerHTML;
   
-  console.log('📌 Extracted HTML texts:', selectedText);
-  console.log('📌 Extracted HTML selection:', extractedHtml);
-
+  // Check if selection is within a structural element that should be preserved
+  const commonAncestor = range.commonAncestorContainer;
+  const parentElement = commonAncestor.nodeType === Node.TEXT_NODE 
+    ? commonAncestor.parentElement 
+    : commonAncestor;
+  
+  // If extracted HTML is just text (no tags), check if parent structure should be preserved
+  if (extractedHtml && !/^<[a-z]/i.test(extractedHtml.trim())) {
+    const parentTag = parentElement?.tagName?.toLowerCase();
+    
+    // Always preserve structure for these elements
+    const structuralElements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code'];
+    
+    if (parentTag && structuralElements.includes(parentTag)) {
+      extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`;
+    }
+  }
+  
+  // Handle table selections - preserve table structure
+  if (parentElement) {
+    // Check if selection is within a table
+    const tableAncestor = parentElement.closest('table');
+    if (tableAncestor) {
+      // Check if incomplete table structure in extraction
+      const hasTableTags = /<(table|thead|tbody|tr|td|th)\b/i.test(extractedHtml);
+      
+      if (hasTableTags) {
+        // We have partial table tags, need to ensure proper structure
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = extractedHtml;
+        
+        // If we don't have a table wrapper, add it
+        if (!tempDiv.querySelector('table')) {
+          extractedHtml = `<table>${extractedHtml}</table>`;
+        }
+        
+        // If have rows but no tbody/thead, wrap in tbody
+        tempDiv.innerHTML = extractedHtml;
+        const table = tempDiv.querySelector('table');
+        if (table) {
+          const hasBody = table.querySelector('tbody, thead');
+          const rows = table.querySelectorAll('tr');
+          if (!hasBody && rows.length > 0) {
+            const tbody = document.createElement('tbody');
+            rows.forEach(row => tbody.appendChild(row.cloneNode(true)));
+            table.innerHTML = '';
+            table.appendChild(tbody);
+            extractedHtml = table.outerHTML;
+          }
+        }
+      } else if (selectedText) {
+        // Text only selection within table like checking if it's a cell
+        const cellAncestor = parentElement.closest('td, th');
+        if (cellAncestor) {
+          const cellTag = cellAncestor.tagName.toLowerCase();
+          const rowHtml = `<tr><${cellTag}>${extractedHtml}</${cellTag}></tr>`;
+          extractedHtml = `<table><tbody>${rowHtml}</tbody></table>`;
+        }
+      }
+    }
+  }
+  
   const appendedHtml = this.closeMissingTags(extractedHtml);
-  console.log('📌 Extracted HTML with closed tags:', appendedHtml);
-  console.log('📌 Original length:', extractedHtml.length, 'Fixed length:', appendedHtml.length);
+  
+  // console.log('📌 Extracted HTML texts:', selectedText);
+  // console.log('📌 Extracted HTML selection:', appendedHtml);
+  
   return {
     text: selectedText,
     html: appendedHtml,

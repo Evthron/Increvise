@@ -365,11 +365,20 @@ extractBtn.addEventListener('click', async () => {
     return
   }
 
-  const selectedText = selectedLines.map((line) => line.text).join('\n')
+  let selectedText = selectedLines.map((line) => line.text).join('\n')
 
   if (!selectedText.trim()) {
     showToast('Please select text to extract', true)
     return
+  }
+
+  // Check if current file is markdown - if so, apply markdown cleaning
+  const isMarkdownFile = currentOpenFile && 
+    (currentOpenFile.endsWith('.md') || currentOpenFile.endsWith('.markdown'))
+  
+  if (isMarkdownFile && markdownViewer) {
+    // Apply markdown formatting cleanup using MarkdownViewer's cleaning logic
+    selectedText = markdownViewer.cleanPartialFormatting?.(selectedText) || selectedText
   }
 
   // Extract line numbers for range tracking
@@ -415,10 +424,10 @@ async function handleSemanticExtraction(viewer) {
     showToast('Please select text or a block to extract', true)
     return
   }
-  // selectected text is for check length,
-  // selected html is for extraction with formatting like including sth like <p></p>
+  // selected text is for check length,
+  // selected html/markdown is for extraction with formatting
   const selectedText = selection.text
-  const selectedHtml = selection.html || selectedText
+  const extractedContent = selection.html || selection.markdown || selectedText
 
   if (!selectedText.trim()) {
     showToast('Please select text to extract', true)
@@ -434,7 +443,7 @@ async function handleSemanticExtraction(viewer) {
   try {
     const result = await window.fileManager.extractNote(
       currentOpenFile,
-      selectedHtml,
+      extractedContent,
       0,
       0,
       window.currentFileLibraryId
