@@ -28,8 +28,7 @@ contextBridge.exposeInMainWorld('fileManager', {
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, libraryId, relativePath, feedback) =>
     ipcRenderer.invoke('update-revision-feedback', dbPath, libraryId, relativePath, feedback),
-  forgetFile: (filePath, libraryId) =>
-    ipcRenderer.invoke('forget-file', filePath, libraryId),
+  forgetFile: (filePath, libraryId) => ipcRenderer.invoke('forget-file', filePath, libraryId),
   updateFileRank: (filePath, libraryId, newRank) =>
     ipcRenderer.invoke('update-file-rank', filePath, libraryId, newRank),
 
@@ -52,8 +51,8 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3b. PDF Extraction
   extractPdfPages: (pdfPath, startPage, endPage, libraryId) =>
     ipcRenderer.invoke('extract-pdf-pages', pdfPath, startPage, endPage, libraryId),
-  extractPdfText: (pdfPath, text, pageNum, charStart, charEnd, libraryId) =>
-    ipcRenderer.invoke('extract-pdf-text', pdfPath, text, pageNum, charStart, charEnd, libraryId),
+  extractPdfText: (pdfPath, text, pageNum, lineStart, lineEnd, libraryId) =>
+    ipcRenderer.invoke('extract-pdf-text', pdfPath, text, pageNum, lineStart, lineEnd, libraryId),
   extractPdfAnnotation: (pdfPath, annotation, libraryId) =>
     ipcRenderer.invoke('extract-pdf-annotation', pdfPath, annotation, libraryId),
 
