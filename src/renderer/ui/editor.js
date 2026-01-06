@@ -173,12 +173,10 @@ export async function openFile(filePath) {
       toggleEditBtn.classList.remove('hidden')
 
       if (ext === '.md' || ext === '.markdown') {
-        // Show CodeMirror for markdown files
-        codeMirrorEditor.classList.remove('hidden')
-        codeMirrorEditor.setContent(result.content)
-        await loadAndLockExtractedRanges(filePath)
-        codeMirrorEditor.disableEditing()
-        codeMirrorEditor.clearHistory()
+        // Show Markdown viewer for markdown files
+        markdownViewer?.classList.remove('hidden')
+        markdownViewer?.setMarkdown(result.content ?? '')
+        await loadAndLockExtractedContent(filePath, markdownViewer)
       } else if (ext === '.html' || ext === '.htm') {
         // Show HTML viewer
         htmlViewer?.classList.remove('hidden')
