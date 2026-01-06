@@ -48,9 +48,13 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
   const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
   const parentLayers = parseNoteFileName(parentFileName)
 
+  // Strip HTML tags to get plain text for naming
+  // This regex removes all HTML tags including their attributes
+  const plainText = extractedText.replace(/<[^>]*>/g, '').trim()
+
   // Generate name from first 3 words of extracted text - optimized
   let words = ''
-  const text = extractedText.trim()
+  const text = plainText
   let wordCount = 0
   let currentWord = ''
 
@@ -75,7 +79,7 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
   }
 
   if (!parentLayers) {
-    // Parent is a top-level file - extract name from filename
+    // Parent is a top-level file - extract name from filename (as fallback)
     let parentName = ''
     wordCount = 0
     currentWord = ''
@@ -99,7 +103,13 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
       parentName += currentWord
     }
 
-    return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+    // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
+    // For text-line extractions, use range-based naming with parent name as fallback
+    if (rangeStart === 0 && rangeEnd === 0) {
+      return `0-0-${words || parentName || 'note'}`
+    } else {
+      return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+    }
   } else {
     // Flat structure: keep all parent layers, append new layer
     const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
