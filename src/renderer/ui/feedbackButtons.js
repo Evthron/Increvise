@@ -163,11 +163,65 @@ export function initFeedbackButtons() {
     }
   })
 
+  async function updateFileRank(newRank) {
+    const file = revisionFiles[currentRevisionIndex]
+    if (!file) return
+
+    const clampedRank = Math.max(1, Math.min(100, Math.round(newRank)))
+    
+    try {
+      const result = await window.fileManager.updateFileRank(
+        file.file_path,
+        file.library_id,
+        clampedRank
+      )
+    
+      if (result && result.success) {
+        file.rank = clampedRank
+        
+        // Re-sort files by rank within the same day
+        revisionFiles.sort((a, b) => {
+          const dateA = new Date(a.due_time)
+          const dateB = new Date(b.due_time)
+          if (dateA.toDateString() === dateB.toDateString()) {
+            return (a.rank || 70) - (b.rank || 70)
+          }
+          return dateA - dateB
+        })
+        
+        // Update the revision list component
+        if (revisionListElement) {
+          revisionListElement.files = revisionFiles
+          revisionListElement.currentIndex = revisionFiles.indexOf(file)
+        }
+        
+        // Update current index
+        currentRevisionIndex = revisionFiles.indexOf(file)
+        
+        showRevisionFile(currentRevisionIndex)
+        showToast(`Rank updated to ${clampedRank}`)
+      } else {
+        showToast('Failed to update rank', true)
+      }
+    } catch (error) {
+      console.error('Error updating rank:', error)
+      showToast('Error updating rank', true)
+    }
+  }
+
   function showRevisionFile(index) {
     if (index >= revisionFiles.length) return
     const file = revisionFiles[index]
     const fileName = file.file_path.split('/').pop()
     const workspaceName = file.workspacePath ? file.workspacePath.split('/').pop() : 'Unknown'
+    const rank = Math.round(file.rank || 70)
+    
+    // Calculate order number within the same day
+    const dueDate = new Date(file.due_time).toDateString()
+    const sameDayFiles = revisionFiles.filter(f => new Date(f.due_time).toDateString() === dueDate)
+    sameDayFiles.sort((a, b) => (a.rank || 70) - (b.rank || 70))
+    const orderNumber = sameDayFiles.indexOf(file) + 1
+    
     currentFileName.innerHTML = `
       <div class="current-file-header">
         <div class="current-file-title">${fileName}</div>
@@ -181,9 +235,48 @@ export function initFeedbackButtons() {
             <span class="meta-icon">📊</span>
             <span>${index + 1} of ${revisionFiles.length}</span>
           </span>
+          <span class="file-meta-separator">•</span>
+          <span class="file-meta-item" title="Order within today's revisions">
+            <span class="meta-icon">🔢</span>
+            <span>Order #${orderNumber}</span>
+          </span>
+          <span class="file-meta-separator">•</span>
+          <span class="file-meta-item rank-control" title="Priority rank (1-100)">
+            <span class="meta-icon">⭐</span>
+            <button class="rank-btn rank-decrease" data-action="decrease" title="Decrease rank">−</button>
+            <input type="number" class="rank-input" value="${rank}" min="1" max="100" title="Enter rank (1-100)">
+            <button class="rank-btn rank-increase" data-action="increase" title="Increase rank">+</button>
+          </span>
         </div>
       </div>
     `
+    
+    // Add event listeners for rank controls
+    const rankInput = currentFileName.querySelector('.rank-input')
+    const rankDecrease = currentFileName.querySelector('.rank-decrease')
+    const rankIncrease = currentFileName.querySelector('.rank-increase')
+    
+    if (rankInput) {
+      rankInput.addEventListener('change', (e) => {
+        updateFileRank(parseInt(e.target.value))
+      })
+      rankInput.addEventListener('click', (e) => e.stopPropagation())
+    }
+    
+    if (rankDecrease) {
+      rankDecrease.addEventListener('click', (e) => {
+        e.stopPropagation()
+        updateFileRank(rank - 1)
+      })
+    }
+    
+    if (rankIncrease) {
+      rankIncrease.addEventListener('click', (e) => {
+        e.stopPropagation()
+        updateFileRank(rank + 1)
+      })
+    }
+    
     revisionControls.style.display = 'block'
   }
 }

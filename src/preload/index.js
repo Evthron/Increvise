@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
   updateRevisionFeedback: (dbPath, libraryId, relativePath, feedback) =>
     ipcRenderer.invoke('update-revision-feedback', dbPath, libraryId, relativePath, feedback),
+  forgetFile: (filePath, libraryId) =>
+    ipcRenderer.invoke('forget-file', filePath, libraryId),
+  updateFileRank: (filePath, libraryId, newRank) =>
+    ipcRenderer.invoke('update-file-rank', filePath, libraryId, newRank),
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
@@ -40,6 +44,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('compare-filename-with-db-range', notePath, libraryId),
   getChildRanges: (parentPath, libraryId) =>
     ipcRenderer.invoke('get-child-ranges', parentPath, libraryId),
+  updateLockedRanges: (parentPath, rangeUpdates, libraryId) =>
+    ipcRenderer.invoke('update-locked-ranges', parentPath, rangeUpdates, libraryId),
   getNoteExtractInfo: (notePath, libraryId) =>
     ipcRenderer.invoke('get-note-extract-info', notePath, libraryId),
 
