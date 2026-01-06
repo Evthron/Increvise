@@ -502,7 +502,10 @@ extractBtn.addEventListener('click', async () => {
 
 // PDF Extract Text button handler
 extractTextBtn.addEventListener('click', async () => {
-  if (!currentOpenFile || !currentOpenFile.endsWith('.pdf')) {
+  // Get the current PDF path from pdfViewer
+  const pdfPath = pdfViewer.getCurrentPdfPath()
+
+  if (!pdfPath || !pdfPath.endsWith('.pdf')) {
     showToast('Please open a PDF file first', true)
     return
   }
@@ -518,7 +521,7 @@ extractTextBtn.addEventListener('click', async () => {
   try {
     // Extract with line numbers if available
     const result = await window.fileManager.extractPdfText(
-      currentOpenFile,
+      pdfPath,
       selectedText.text,
       selectedText.pageNum,
       selectedText.lineStart,
@@ -548,7 +551,10 @@ extractTextBtn.addEventListener('click', async () => {
 
 // PDF Extract Page button handler
 extractPageBtn.addEventListener('click', async () => {
-  if (!currentOpenFile || !currentOpenFile.endsWith('.pdf')) {
+  // Get the current PDF path from pdfViewer
+  const pdfPath = pdfViewer.getCurrentPdfPath()
+
+  if (!pdfPath || !pdfPath.endsWith('.pdf')) {
     showToast('Please open a PDF file first', true)
     return
   }
@@ -570,7 +576,7 @@ extractPageBtn.addEventListener('click', async () => {
 
   try {
     const result = await window.fileManager.extractPdfPages(
-      currentOpenFile,
+      pdfPath,
       startPage,
       endPage,
       window.currentFileLibraryId
@@ -592,11 +598,14 @@ extractPageBtn.addEventListener('click', async () => {
 })
 
 async function reloadPdfExtractedRanges() {
-  if (!currentOpenFile || !currentOpenFile.endsWith('.pdf')) return
+  // Get the current PDF path from pdfViewer
+  const pdfPath = pdfViewer.getCurrentPdfPath()
+
+  if (!pdfPath || !pdfPath.endsWith('.pdf')) return
 
   try {
     const rangesResult = await window.fileManager.getChildRanges(
-      currentOpenFile,
+      pdfPath,
       window.currentFileLibraryId
     )
     if (rangesResult && rangesResult.success) {

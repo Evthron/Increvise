@@ -1314,6 +1314,14 @@ export class PdfViewer extends LitElement {
     return this.selectedPages.length > 0 ? this.selectedPages : []
   }
 
+  /**
+   * Get the current PDF file path
+   * @returns {string} The absolute path to the currently loaded PDF
+   */
+  getCurrentPdfPath() {
+    return this.pdfPath
+  }
+
   openRangeDialog() {
     this.rangeStart = this.currentPage
     this.rangeEnd = Math.min(this.currentPage + 1, this.totalPages)
