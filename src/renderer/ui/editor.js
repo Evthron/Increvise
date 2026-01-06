@@ -254,32 +254,53 @@ export async function openFile(filePath) {
         extractedLineRangesPages: extractedLineRanges.size,
       })
     } else {
+      // Non-PDF files (text, markdown, html, etc.)
+      pdfViewer.resetView?.()
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const result = await window.fileManager.readFile(filePath)
-      if (result.success) {
-        currentOpenFile = filePath
-        currentFilePath.textContent = filePath
-        editorToolbar.classList.remove('hidden')
-        isEditMode = false
-        hasUnsavedChanges = false
-        toggleEditBtn.textContent = 'Edit'
-        // Hide PDF viewer, show text editor
-        pdfViewer.classList.add('hidden')
-        codeMirrorEditor.classList.remove('hidden')
-        // Adjust toolbar buttons
-        extractTextBtn.classList.add('hidden')
-        extractPageBtn.classList.add('hidden')
-        extractBtn.classList.remove('hidden')
-        saveFileBtn.classList.remove('hidden')
-        toggleEditBtn.classList.remove('hidden')
-        if (codeMirrorEditor) {
-          codeMirrorEditor.setContent(result.content)
-          // Load and lock extracted line ranges from database
-          await loadAndLockExtractedRanges(filePath)
-          codeMirrorEditor.disableEditing()
-        }
-      } else {
+      if (!result.success) {
         alert(`Error reading file: ${result.error}`)
+        return
+      }
+
+      currentOpenFile = filePath
+      currentFilePath.textContent = filePath
+      editorToolbar.classList.remove('hidden')
+      isEditMode = false
+      hasUnsavedChanges = false
+      toggleEditBtn.textContent = 'Edit'
+
+      // Hide all viewers initially
+      pdfViewer.classList.add('hidden')
+      codeMirrorEditor.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
+
+      // Adjust toolbar buttons
+      extractTextBtn.classList.add('hidden')
+      extractPageBtn.classList.add('hidden')
+      extractBtn.classList.remove('hidden')
+      saveFileBtn.classList.remove('hidden')
+      toggleEditBtn.classList.remove('hidden')
+
+      if (ext === '.md' || ext === '.markdown') {
+        // Show CodeMirror for markdown files
+        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.setContent(result.content)
+        await loadAndLockExtractedRanges(filePath)
+        codeMirrorEditor.disableEditing()
+        codeMirrorEditor.clearHistory()
+      } else if (ext === '.html' || ext === '.htm') {
+        // Show HTML viewer
+        htmlViewer?.classList.remove('hidden')
+        htmlViewer?.setHtml(result.content ?? '')
+      } else {
+        // Show text editor for other files
+        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.setContent(result.content)
+        await loadAndLockExtractedRanges(filePath)
+        codeMirrorEditor.disableEditing()
+        codeMirrorEditor.clearHistory()
       }
     }
   } catch (error) {
