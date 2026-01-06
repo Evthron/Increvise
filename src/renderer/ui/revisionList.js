@@ -223,6 +223,13 @@ export class RevisionList extends LitElement {
     this.currentIndex = globalIndex
     this.requestUpdate()
 
+    // Dispatch a custom event so feedback bar updates
+    this.dispatchEvent(new CustomEvent('file-selected', {
+      detail: { index: globalIndex },
+      bubbles: true,
+      composed: true
+    }))
+
     // Import and call openFile
     const { openFile } = await import('./editor.js')
     await openFile(file.file_path)
@@ -284,11 +291,11 @@ export class RevisionList extends LitElement {
             class="forget-file-btn"
             title="Forget this file (erase revision data)"
             @click=${handleForget}
-            style="color: #888; background: transparent; border: 1px solid #666; border-radius: 3px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin-left: 8px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.15s ease;"
+            style="color: #888; background: transparent; border: 1px solid #666; border-radius: 3px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin-left: 8px; cursor: pointer; font-size: 12px; transition: all 0.15s ease;"
             onmouseover="this.style.background='#555'; this.style.color='#fff'"
             onmouseout="this.style.background='transparent'; this.style.color='#888'"
           >
-            ✕
+            ↻
           </button>
         </div>
       </div>

@@ -221,10 +221,10 @@ async function getFilesForRevision(rootPath) {
           .prepare(
             `
             SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, easiness, due_time
+                   review_count, easiness, rank, due_time
             FROM file
             WHERE date(due_time) <= date('now')
-            ORDER BY due_time ASC
+            ORDER BY date(due_time) ASC, rank ASC
           `
           )
           .all()
@@ -270,7 +270,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
           .prepare(
             `
             SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, easiness, due_time
+                   review_count, easiness, rank, due_time
             FROM file
             WHERE date(due_time) <= date('now')
             ORDER BY due_time ASC
@@ -288,7 +288,14 @@ async function getAllFilesForRevision(getCentralDbPath) {
         db.close()
       } catch (err) {}
     }
-    allFiles.sort((a, b) => new Date(a.due_time) - new Date(b.due_time))
+    allFiles.sort((a, b) => {
+      const dateA = new Date(a.due_time)
+      const dateB = new Date(b.due_time)
+      if (dateA.toDateString() === dateB.toDateString()) {
+        return (a.rank || 70) - (b.rank || 70)
+      }
+      return dateA - dateB
+    })
     return { success: true, files: allFiles }
   } catch (error) {
     return { success: false, error: error.message, files: [] }
@@ -409,6 +416,48 @@ async function forgetFile(filePath, libraryId, getCentralDbPath) {
   }
 }
 
+async function updateFileRank(filePath, libraryId, newRank, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
+
+      const { exists_flag } = db
+        .prepare(
+          'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+        )
+        .get(libraryId, relativePath)
+      const exists = exists_flag === 1
+      if (!exists) {
+        db.close()
+        return { success: false, error: 'File not found in database' }
+      }
+
+      const stmt = db.prepare(`
+        UPDATE file
+        SET rank = ?
+        WHERE library_id = ? AND relative_path = ?
+      `)
+      const info = stmt.run(newRank, libraryId, relativePath)
+      db.close()
+
+      return {
+        success: true,
+        message: 'Rank updated successfully',
+        changes: info.changes,
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
 export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('create-database', (event, folderPath) =>
     createDatabase(folderPath, getCentralDbPath)
@@ -427,6 +476,9 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('forget-file', (event, filePath, libraryId) =>
     forgetFile(filePath, libraryId, getCentralDbPath)
   )
+  ipcMain.handle('update-file-rank', (event, filePath, libraryId, newRank) =>
+    updateFileRank(filePath, libraryId, newRank, getCentralDbPath)
+  )
 }
 
 // Export functions for testing
@@ -438,4 +490,5 @@ export {
   getAllFilesForRevision,
   updateRevisionFeedback,
   forgetFile,
+  updateFileRank,
 }
