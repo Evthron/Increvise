@@ -151,76 +151,51 @@ export async function openFile(filePath) {
         alert(`Error reading file: ${result.error}`)
         return
       }
-      if (result.success) {
-        currentOpenFile = filePath
-        currentFilePath.textContent = filePath
-        editorToolbar.classList.remove('hidden')
-        isEditMode = false
-        hasUnsavedChanges = false
-        toggleEditBtn.textContent = 'Edit'
 
-        // Hide all viewers initially
-        pdfViewer.classList.add('hidden')
-        codeMirrorEditor.classList.add('hidden')
-        markdownViewer?.classList.add('hidden')
-        htmlViewer?.classList.add('hidden')
+      currentOpenFile = filePath
+      currentFilePath.textContent = filePath
+      editorToolbar.classList.remove('hidden')
+      isEditMode = false
+      hasUnsavedChanges = false
+      toggleEditBtn.textContent = 'Edit'
 
-        // Adjust toolbar buttons
-        extractTextBtn.classList.add('hidden')
-        extractPageBtn.classList.add('hidden')
-        extractBtn.classList.remove('hidden')
-        saveFileBtn.classList.remove('hidden')
-        toggleEditBtn.classList.remove('hidden')
+      // Hide all viewers initially
+      pdfViewer.classList.add('hidden')
+      codeMirrorEditor.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
 
-        if (codeMirrorEditor) {
-          codeMirrorEditor.setContent(result.content)
-          // Load and lock extracted line ranges from database
-          await loadAndLockExtractedRanges(filePath)
-          codeMirrorEditor.disableEditing()
-          pdfViewer.resetView?.()
-          if (ext === '.md' || ext === '.markdown') {
-            // Show pdf-viewer in markdown mode
-            codeMirrorEditor.classList.add('hidden')
-            pdfViewer.classList.remove('hidden')
-            pdfViewer.contentType = 'markdown'
-            pdfViewer.content = result.content
-            pdfViewer.requestUpdate()
-          } else if (ext === '.html' || ext === '.htm') {
-            // Show pdf-viewer in html mode
-            codeMirrorEditor.classList.add('hidden')
-            pdfViewer.classList.remove('hidden')
-            pdfViewer.contentType = 'html'
-            pdfViewer.content = result.content
-            pdfViewer.requestUpdate()
-          } else {
-            // Default: show text editor
-            pdfViewer.classList.add('hidden')
-            codeMirrorEditor.classList.remove('hidden')
-            extractTextBtn.classList.add('hidden')
-            extractPageBtn.classList.add('hidden')
-            extractBtn.classList.remove('hidden')
-            saveFileBtn.classList.remove('hidden')
-            toggleEditBtn.classList.remove('hidden')
+      // Adjust toolbar buttons
+      extractTextBtn.classList.add('hidden')
+      extractPageBtn.classList.add('hidden')
+      extractBtn.classList.remove('hidden')
+      saveFileBtn.classList.remove('hidden')
+      toggleEditBtn.classList.remove('hidden')
 
-            if (codeMirrorEditor) {
-              codeMirrorEditor.setContent(result.content)
-              await loadAndLockExtractedRanges(filePath)
-              codeMirrorEditor.disableEditing()
-            }
-          }
-        }
+      if (ext === '.md' || ext === '.markdown') {
+        // Show CodeMirror for markdown files
+        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.setContent(result.content)
+        await loadAndLockExtractedRanges(filePath)
+        codeMirrorEditor.disableEditing()
+        codeMirrorEditor.clearHistory()
+      } else if (ext === '.html' || ext === '.htm') {
+        // Show HTML viewer
+        htmlViewer?.classList.remove('hidden')
+        htmlViewer?.setHtml(result.content ?? '')
       } else {
-        alert(`Error reading file: ${result.error}`)
+        // Show text editor for other files
+        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.setContent(result.content)
+        await loadAndLockExtractedRanges(filePath)
+        codeMirrorEditor.disableEditing()
+        codeMirrorEditor.clearHistory()
       }
     }
   } catch (error) {
-    console.error('[openTextFile] Error loading extracted ranges:', error)
-    // Continue without locking ranges
+    console.error('[openFile] Error opening file:', error)
+    alert(`Error opening file: ${error.message}`)
   }
-
-  // Finalize editor state
-  codeMirrorEditor.disableEditing()
-  codeMirrorEditor.clearHistory()
 }
 
 /**
