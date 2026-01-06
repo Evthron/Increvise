@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: http: https:; connect-src 'self' http: https:; frame-src http: https: data:; media-src 'self' http: https:;"
     />
     <title>Increvise</title>
     <link rel="stylesheet" href="./style.css" />
@@ -65,6 +65,8 @@
           <div class="editor-content">
             <codemirror-viewer content="Select a file to revise"> </codemirror-viewer>
             <pdf-viewer class="hidden"></pdf-viewer>
+            <html-viewer class="hidden"></html-viewer>
+            <markdown-viewer class="hidden"></markdown-viewer>
           </div>
           <div id="revision-controls" class="hidden">
             <div id="current-file-name"></div>

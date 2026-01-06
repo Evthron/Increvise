@@ -4,7 +4,7 @@
 
 import { LitElement, html, css } from 'lit'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { marked } from 'marked'
+
 // Configure PDF.js worker for Electron
 const workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
 GlobalWorkerOptions.workerSrc = workerSrc
@@ -657,22 +657,6 @@ export class PdfViewer extends LitElement {
   }
 
   render() {
-    if (this.contentType === 'markdown') {
-    return html`
-      <div class="markdown-viewer" .innerHTML=${marked(this.content)}></div>
-    `;
-
-    }
-    else if (this.contentType === 'html') {
-      return html`
-        <div class="html-viewer" .innerHTML=${this.content}></div>
-      `;
-    }
-    else if (this.contentType === 'embed') {
-      return html`<iframe src=${this.content} style="width:100%; height:100%; border:none;"></iframe>`;
-    }
-
-    // else then is pdf
     if (this.isLoading) {
       return html`<div class="loading-message">Loading PDF...</div>`
     }

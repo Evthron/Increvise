@@ -14,6 +14,8 @@ const extractPageBtn = document.getElementById('extract-page-btn')
 const editorToolbar = document.getElementById('editor-toolbar')
 const codeMirrorEditor = document.querySelector('codemirror-viewer')
 const pdfViewer = document.querySelector('pdf-viewer')
+const htmlViewer = document.querySelector('html-viewer')
+const markdownViewer = document.querySelector('markdown-viewer')
 
 // Editor state
 let currentOpenFile = null
@@ -58,7 +60,7 @@ export async function openFile(filePath) {
     }
 
     // Check if file is a regular PDF
-    const ext = filePath.slice(filePath.lastIndexOf('.'))
+    const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
     const isPdf = ext === '.pdf'
 
     if (pdfExtractInfo) {
@@ -74,9 +76,11 @@ export async function openFile(filePath) {
       currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
       editorToolbar.classList.remove('hidden')
 
-      // Show PDF viewer
+      // Show PDF viewer, hide others
       pdfViewer.classList.remove('hidden')
       codeMirrorEditor.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
 
       // Adjust toolbar buttons
       extractBtn.classList.add('hidden')
@@ -110,8 +114,10 @@ export async function openFile(filePath) {
       currentFilePath.textContent = filePath
       editorToolbar.classList.remove('hidden')
 
-      // Show PDF viewer
+      // Hide text editor and other viewers, show PDF viewer
       codeMirrorEditor.classList.add('hidden')
+      htmlViewer?.classList.add('hidden')
+      markdownViewer?.classList.add('hidden')
       pdfViewer.classList.remove('hidden')
 
       // Adjust toolbar buttons
@@ -137,9 +143,14 @@ export async function openFile(filePath) {
         rangesResult?.success ? rangesResult.ranges.length : 0
       )
     } else {
+      // Non-PDF files (text, markdown, html, etc.)
       pdfViewer.resetView?.()
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const result = await window.fileManager.readFile(filePath)
+      if (!result.success) {
+        alert(`Error reading file: ${result.error}`)
+        return
+      }
       if (result.success) {
         currentOpenFile = filePath
         currentFilePath.textContent = filePath
@@ -147,22 +158,34 @@ export async function openFile(filePath) {
         isEditMode = false
         hasUnsavedChanges = false
         toggleEditBtn.textContent = 'Edit'
-        // Hide PDF viewer, show text editor
+
+        // Hide all viewers initially
         pdfViewer.classList.add('hidden')
-        codeMirrorEditor.classList.remove('hidden')
+        codeMirrorEditor.classList.add('hidden')
+        markdownViewer?.classList.add('hidden')
+        htmlViewer?.classList.add('hidden')
+
         // Adjust toolbar buttons
         extractTextBtn.classList.add('hidden')
         extractPageBtn.classList.add('hidden')
         extractBtn.classList.remove('hidden')
         saveFileBtn.classList.remove('hidden')
         toggleEditBtn.classList.remove('hidden')
+
         if (codeMirrorEditor) {
           codeMirrorEditor.setContent(result.content)
           // Load and lock extracted line ranges from database
           await loadAndLockExtractedRanges(filePath)
           codeMirrorEditor.disableEditing()
           pdfViewer.resetView?.()
-          if (ext === '.html' || ext === '.htm') {
+          if (ext === '.md' || ext === '.markdown') {
+            // Show pdf-viewer in markdown mode
+            codeMirrorEditor.classList.add('hidden')
+            pdfViewer.classList.remove('hidden')
+            pdfViewer.contentType = 'markdown'
+            pdfViewer.content = result.content
+            pdfViewer.requestUpdate()
+          } else if (ext === '.html' || ext === '.htm') {
             // Show pdf-viewer in html mode
             codeMirrorEditor.classList.add('hidden')
             pdfViewer.classList.remove('hidden')
@@ -233,6 +256,39 @@ async function loadAndLockExtractedRanges(filePath) {
   } catch (error) {
     console.error('[loadAndLockExtractedRanges] Error locking ranges in editor:', error)
     throw error
+  }
+}
+
+/**
+ * Load extracted content and lock them in markdown/html viewers
+ * @param {string} filePath aka file path to load extracted content for
+ * @param {Object} viewer aka viewer component (markdownViewer or htmlViewer)
+ */
+async function loadAndLockExtractedContent(filePath, viewer) {
+  try {
+    if (!window.currentFileLibraryId) {
+      console.warn('No library ID set, cannot load extracted content')
+      viewer.clearLockedContent?.()
+      return
+    }
+
+    const rangesResult = await window.fileManager.getChildRanges(
+      filePath,
+      window.currentFileLibraryId
+    )
+
+    if (rangesResult.success) {
+      if (rangesResult.ranges.length > 0) {
+        viewer.lockContent?.(rangesResult.ranges)
+      } else {
+        viewer.clearLockedContent?.()
+      }
+    } else {
+      viewer.clearLockedContent?.()
+    }
+  } catch (error) {
+    console.error('Error loading extracted content:', error)
+    viewer.clearLockedContent?.()
   }
 }
 
@@ -342,6 +398,19 @@ extractBtn.addEventListener('click', async () => {
     return
   }
 
+  // 1) HTML viewer active
+  if (htmlViewer && !htmlViewer.classList.contains('hidden')) {
+    await handleSemanticExtraction(htmlViewer)
+    return
+  }
+
+  // 2) Markdown viewer active
+  if (markdownViewer && !markdownViewer.classList.contains('hidden')) {
+    await handleSemanticExtraction(markdownViewer)
+    return
+  }
+
+  // 3) Default: CodeMirror (text files)
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
     return
@@ -413,6 +482,51 @@ extractBtn.addEventListener('click', async () => {
     showToast(`Error extracting note: ${error.message}`, true)
   }
 })
+
+// helper for HTML/Markdown semantic extraction
+async function handleSemanticExtraction(viewer) {
+  const selection = viewer.getSemanticSelection?.()
+
+  if (!selection || !selection.text) {
+    showToast('Please select text or a block to extract', true)
+    return
+  }
+  // selectected text is for check length,
+  // selected html is for extraction with formatting like including sth like <p></p>
+  const selectedText = selection.text
+  const selectedHtml = selection.html || selectedText
+
+  if (!selectedText.trim()) {
+    showToast('Please select text to extract', true)
+    return
+  }
+
+  if (!window.currentFileLibraryId) {
+    showToast('Error: Library ID not set. Please reopen the file.', true)
+    console.error('currentFileLibraryId is not set')
+    return
+  }
+
+  try {
+    const result = await window.fileManager.extractNote(
+      currentOpenFile,
+      selectedHtml,
+      0,
+      0,
+      window.currentFileLibraryId
+    )
+
+    if (result.success) {
+      await loadAndLockExtractedContent(currentOpenFile, viewer)
+      showToast(`Note extracted to ${result.fileName}`)
+    } else {
+      showToast(`Error: ${result.error}`, true)
+    }
+  } catch (error) {
+    console.error('Error extracting note:', error)
+    showToast(`Error extracting note: ${error.message}`, true)
+  }
+}
 
 // PDF Extract Text button handler
 extractTextBtn.addEventListener('click', async () => {
@@ -492,6 +606,34 @@ extractPageBtn.addEventListener('click', async () => {
   } catch (error) {
     console.error('Error extracting pages:', error)
     showToast(`Error extracting pages: ${error.message}`, true)
+  }
+})
+
+// Listen for extraction events from markdown/html viewers
+document.addEventListener('extract-requested', async (e) => {
+  const { text, viewerType } = e.detail
+
+  if (!window.currentFileLibraryId) {
+    showToast('Error: Library ID not set', true)
+    return
+  }
+
+  try {
+    const result = await window.fileManager.extractNote(
+      currentOpenFile,
+      text,
+      0,
+      0,
+      window.currentFileLibraryId
+    )
+
+    if (result.success) {
+      const viewer = viewerType === 'markdown' ? markdownViewer : htmlViewer
+      await loadAndLockExtractedContent(currentOpenFile, viewer)
+      showToast(`Note extracted to ${result.fileName}`)
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, true)
   }
 })
 
