@@ -49,8 +49,8 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3b. PDF Extraction
   extractPdfPages: (pdfPath, startPage, endPage, libraryId) =>
     ipcRenderer.invoke('extract-pdf-pages', pdfPath, startPage, endPage, libraryId),
-  extractPdfText: (pdfPath, text, pageNum, libraryId) =>
-    ipcRenderer.invoke('extract-pdf-text', pdfPath, text, pageNum, libraryId),
+  extractPdfText: (pdfPath, text, pageNum, lineStart, lineEnd, libraryId) =>
+    ipcRenderer.invoke('extract-pdf-text', pdfPath, text, pageNum, lineStart, lineEnd, libraryId),
   extractPdfAnnotation: (pdfPath, annotation, libraryId) =>
     ipcRenderer.invoke('extract-pdf-annotation', pdfPath, annotation, libraryId),
 

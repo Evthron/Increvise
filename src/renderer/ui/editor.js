@@ -5,6 +5,51 @@
 // Editor UI logic extracted from renderer.js
 // Handles file editor, preview, and related events
 
+import { pdfOptions } from './pdfViewer.js'
+
+/**
+ * Convert database extractedRanges to pdfViewer-ready format
+ * @param {Array} ranges - Raw ranges from database (getChildRanges result)
+ * @returns {{extractedPageRanges: Array<number>, extractedLineRanges: Map<number, Array>}}
+ */
+function processExtractedRanges(ranges) {
+  const extractedPageRanges = []
+  const extractedLineRanges = new Map()
+
+  for (const range of ranges) {
+    // Handle pdf-page extracts (whole page extracts)
+    if (range.extract_type === 'pdf-page') {
+      const startPage = parseInt(range.pageNum || range.start)
+      const endPage = parseInt(range.pageNum || range.end)
+
+      // Add all pages in the range
+      for (let page = startPage; page <= endPage; page++) {
+        if (!extractedPageRanges.includes(page)) {
+          extractedPageRanges.push(page)
+        }
+      }
+    }
+
+    // Handle pdf-text extracts (line range extracts)
+    if (range.extract_type === 'pdf-text' && range.lineStart !== null && range.lineEnd !== null) {
+      const pageNum = range.pageNum
+
+      // Organize by page number
+      if (!extractedLineRanges.has(pageNum)) {
+        extractedLineRanges.set(pageNum, [])
+      }
+
+      extractedLineRanges.get(pageNum).push({
+        start: range.lineStart,
+        end: range.lineEnd,
+        notePath: range.path,
+      })
+    }
+  }
+
+  return { extractedPageRanges, extractedLineRanges }
+}
+
 const currentFilePath = document.getElementById('current-file-path')
 const saveFileBtn = document.getElementById('save-file-btn')
 const toggleEditBtn = document.getElementById('toggle-edit-btn')
@@ -19,6 +64,27 @@ const pdfViewer = document.querySelector('pdf-viewer')
 let currentOpenFile = null
 let isEditMode = false
 let hasUnsavedChanges = false
+
+// Listen for jump to note events from PDF viewer
+pdfViewer.addEventListener('pdf-jump-to-note', async (e) => {
+  const { notePath } = e.detail
+  console.log('Jumping to note:', notePath)
+
+  // Check if path is relative or absolute
+  let absolutePath = notePath
+
+  // If path doesn't start with /, it's relative - convert to absolute
+  if (!window.currentRootPath) {
+    console.error('Cannot jump to note: no workspace root path set')
+    showToast('Cannot jump to note: no workspace open', true)
+    return
+  }
+  absolutePath = `${window.currentRootPath}/${notePath}`
+  console.log('Resolved absolute path:', absolutePath)
+
+  // Open the note file
+  await openFile(absolutePath)
+})
 
 /**
  * Opens a file and displays its content in the editor and preview.
@@ -66,12 +132,39 @@ export async function openFile(filePath) {
       console.log('Opening PDF extract file:', filePath)
       console.log('Extract info:', pdfExtractInfo)
 
-      const { parentPath, rangeStart, rangeEnd } = pdfExtractInfo
+      const { parentPath, rangeStart, rangeEnd, extractType } = pdfExtractInfo
       const sourcePdfPath = parentPath // Absolute path from database
+
+      // Parse range to check if it includes line numbers
+      let pageStart = null
+      let pageEnd = null
+      let lineStart = null
+      let lineEnd = null
+      let displayText = ''
+
+      console.log('Parsing range:', { rangeStart, rangeEnd, type: typeof rangeStart })
+
+      if (typeof rangeStart === 'string' && rangeStart.includes(':')) {
+        // Text extract with line numbers: "pageNum:lineNum"
+        const [pageStr, lineStartStr] = rangeStart.split(':')
+        const [endPageStr, lineEndStr] = rangeEnd.split(':')
+        pageStart = parseInt(pageStr)
+        pageEnd = parseInt(endPageStr)
+        lineStart = parseInt(lineStartStr)
+        lineEnd = parseInt(lineEndStr)
+        displayText = `(Page ${pageStart}, Lines ${lineStart}-${lineEnd})`
+        console.log('Text extract detected:', { pageStart, pageEnd, lineStart, lineEnd })
+      } else {
+        // Page extract: just page numbers
+        pageStart = typeof rangeStart === 'string' ? parseInt(rangeStart) : rangeStart
+        pageEnd = typeof rangeEnd === 'string' ? parseInt(rangeEnd) : rangeEnd
+        displayText = `(Pages ${pageStart}-${pageEnd})`
+        console.log('Page extract detected:', { pageStart, pageEnd })
+      }
 
       // Update UI state
       currentOpenFile = filePath
-      currentFilePath.textContent = `(Pages ${rangeStart}-${rangeEnd})`
+      currentFilePath.textContent = displayText
       editorToolbar.classList.remove('hidden')
 
       // Show PDF viewer
@@ -90,18 +183,28 @@ export async function openFile(filePath) {
         sourcePdfPath,
         window.currentFileLibraryId
       )
-      pdfViewer.resetView?.()
+
+      // Convert database ranges to pdfViewer format
+      const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+        rangesResult?.success ? rangesResult.ranges : []
+      )
+
       // Load PDF with all configurations at once (single render!)
-      await pdfViewer.loadPdf(sourcePdfPath, {
-        pageStart: rangeStart, // Restrict to extracted pages - start
-        pageEnd: rangeEnd, // Restrict to extracted pages - end
-        extractedRanges: rangesResult?.success ? rangesResult.ranges : [], // Lock extracted ranges
+      const options = new pdfOptions({
+        pageStart: pageStart, // Restrict to extracted pages - start
+        pageEnd: pageEnd, // Restrict to extracted pages - end
+        extractedPageRanges: extractedPageRanges, // Already extracted pages
+        extractedLineRanges: extractedLineRanges, // Already extracted line ranges
       })
 
+      console.log('Final pdfOptions:', options)
+      await pdfViewer.loadPdf(sourcePdfPath, options)
+
       console.log('PDF extract loaded with configuration:', {
-        pageStart: rangeStart,
-        pageEnd: rangeEnd,
-        extractedRanges: rangesResult?.success ? rangesResult.ranges.length : 0,
+        pageStart,
+        pageEnd,
+        extractedPageRanges: extractedPageRanges.length,
+        extractedLineRangesPages: extractedLineRanges.size,
       })
     } else if (isPdf) {
       // Open regular PDF file
@@ -125,18 +228,26 @@ export async function openFile(filePath) {
         filePath,
         window.currentFileLibraryId
       )
-      pdfViewer.resetView?.()
-      // Load PDF with extracted ranges (single render!)
-      await pdfViewer.loadPdf(filePath, {
-        extractedRanges: rangesResult?.success ? rangesResult.ranges : [],
-      })
 
-      console.log(
-        'Regular PDF loaded with extracted ranges:',
-        rangesResult?.success ? rangesResult.ranges.length : 0
+      // Convert database ranges to pdfViewer format
+      const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+        rangesResult?.success ? rangesResult.ranges : []
       )
+
+      // Load PDF with extracted ranges (single render!)
+      await pdfViewer.loadPdf(
+        filePath,
+        new pdfOptions({
+          extractedPageRanges: extractedPageRanges,
+          extractedLineRanges: extractedLineRanges,
+        })
+      )
+
+      console.log('Regular PDF loaded with extracted ranges:', {
+        extractedPageRanges: extractedPageRanges.length,
+        extractedLineRangesPages: extractedLineRanges.size,
+      })
     } else {
-      pdfViewer.resetView?.()
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const result = await window.fileManager.readFile(filePath)
       if (result.success) {
@@ -160,30 +271,6 @@ export async function openFile(filePath) {
           // Load and lock extracted line ranges from database
           await loadAndLockExtractedRanges(filePath)
           codeMirrorEditor.disableEditing()
-          pdfViewer.resetView?.()
-          if (ext === '.html' || ext === '.htm') {
-            // Show pdf-viewer in html mode
-            codeMirrorEditor.classList.add('hidden')
-            pdfViewer.classList.remove('hidden')
-            pdfViewer.contentType = 'html'
-            pdfViewer.content = result.content
-            pdfViewer.requestUpdate()
-          } else {
-            // Default: show text editor
-            pdfViewer.classList.add('hidden')
-            codeMirrorEditor.classList.remove('hidden')
-            extractTextBtn.classList.add('hidden')
-            extractPageBtn.classList.add('hidden')
-            extractBtn.classList.remove('hidden')
-            saveFileBtn.classList.remove('hidden')
-            toggleEditBtn.classList.remove('hidden')
-
-            if (codeMirrorEditor) {
-              codeMirrorEditor.setContent(result.content)
-              await loadAndLockExtractedRanges(filePath)
-              codeMirrorEditor.disableEditing()
-            }
-          }
         }
       } else {
         alert(`Error reading file: ${result.error}`)
@@ -420,25 +507,36 @@ extractTextBtn.addEventListener('click', async () => {
     return
   }
 
-  const selectedText = pdfViewer.getSelectedText()
+  // First try to get line-based selection
+  const selectedText = pdfViewer.getSelectedTextWithLines()
+
   if (!selectedText || !selectedText.text.trim()) {
     showToast('Please select text to extract', true)
     return
   }
 
   try {
+    // Extract with line numbers if available
     const result = await window.fileManager.extractPdfText(
       currentOpenFile,
       selectedText.text,
       selectedText.pageNum,
+      selectedText.lineStart,
+      selectedText.lineEnd,
       window.currentFileLibraryId
     )
 
     if (result.success) {
       showToast(`Text extracted to ${result.fileName}`)
       await reloadPdfExtractedRanges()
-      // Clear text selection
-      window.getSelection().removeAllRanges()
+
+      // Clear line selection if it was used (check if lineStart and lineEnd exist)
+      if (selectedText.lineStart !== undefined && selectedText.lineEnd !== undefined) {
+        pdfViewer.clearLineSelection()
+      } else {
+        // Clear text selection
+        window.getSelection().removeAllRanges()
+      }
     } else {
       showToast(`Error: ${result.error}`, true)
     }
@@ -502,7 +600,14 @@ async function reloadPdfExtractedRanges() {
       window.currentFileLibraryId
     )
     if (rangesResult && rangesResult.success) {
-      pdfViewer.lockExtractedRanges(rangesResult.ranges)
+      // Convert database ranges to pdfViewer format
+      const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+        rangesResult.ranges
+      )
+
+      // Update the PDF viewer with new extracted ranges
+      pdfViewer.extractedPageRanges = extractedPageRanges
+      pdfViewer.extractedLineRanges = extractedLineRanges
     }
   } catch (error) {
     console.error('Error reloading PDF extracted ranges:', error)

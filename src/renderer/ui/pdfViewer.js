@@ -11,13 +11,20 @@ const workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.
 GlobalWorkerOptions.workerSrc = workerSrc
 
 export class pdfOptions {
-  constructor({ pageStart = null, pageEnd = null, extractedRanges = [] } = {}) {
+  constructor({
+    pageStart = null,
+    pageEnd = null,
+    extractedPageRanges = [],
+    extractedLineRanges = new Map(),
+  } = {}) {
     // Page range restriction - start page
     this.pageStart = pageStart
     // Page range restriction - end page
     this.pageEnd = pageEnd
-    // Already extracted page ranges to lock
-    this.extractedRanges = extractedRanges
+    // Already extracted pages (whole page extracts) - Array<number>
+    this.extractedPageRanges = extractedPageRanges
+    // Already extracted line ranges (text extracts) - Map<pageNum, Array<{start, end, notePath}>>
+    this.extractedLineRanges = extractedLineRanges
   }
 }
 
@@ -32,6 +39,7 @@ class PdfToolbar extends LitElement {
     scale: { type: Number },
     selectionMode: { type: String },
     selectedPages: { type: Array },
+    selectedLineRange: { type: Object }, // { start, end } or null
   }
 
   static styles = css`
@@ -136,6 +144,10 @@ class PdfToolbar extends LitElement {
     this.dispatchEvent(new CustomEvent('clear-selection'))
   }
 
+  handleClearLineSelection() {
+    this.dispatchEvent(new CustomEvent('clear-line-selection'))
+  }
+
   render() {
     const minPage = this.restrictedRange ? this.restrictedRange.start : 1
     const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
@@ -146,8 +158,8 @@ class PdfToolbar extends LitElement {
       </button>
       <span class="page-info">
         ${this.restrictedRange
-          ? `Page ${this.currentPage} / ${this.restrictedRange.end} (of ${this.totalPages} total)`
-          : `Page ${this.currentPage} / ${this.totalPages}`}
+    ? `Page ${this.currentPage} / ${this.restrictedRange.end} (of ${this.totalPages} total)`
+    : `Page ${this.currentPage} / ${this.totalPages}`}
       </span>
       <button @click=${this.handleNextPage} ?disabled=${this.currentPage === maxPage}>
         Next →
@@ -180,20 +192,32 @@ class PdfToolbar extends LitElement {
           />
           Page Selection
         </label>
+        ${this.selectionMode === 'text'
+    ? html`
+              ${this.selectedLineRange
+    ? html`
+                    <span class="selected-pages-info">
+                      Selected: Lines ${this.selectedLineRange.start}-${this.selectedLineRange.end}
+                    </span>
+                    <button @click=${this.handleClearLineSelection}>Clear</button>
+                  `
+    : ''}
+            `
+    : ''}
         ${this.selectionMode === 'page'
-          ? html`
+    ? html`
               <button @click=${this.handleOpenRangeDialog}>Select Range</button>
               ${this.selectedPages.length > 0
-                ? html`
+    ? html`
                     <span class="selected-pages-info">
                       Selected: ${this.selectedPages.length} page(s)
                       (${Math.min(...this.selectedPages)}-${Math.max(...this.selectedPages)})
                     </span>
                     <button @click=${this.handleClearSelection}>Clear</button>
                   `
-                : ''}
+    : ''}
             `
-          : ''}
+    : ''}
       </div>
     `
   }
@@ -208,6 +232,9 @@ class PdfCanvas extends LitElement {
     currentPage: { type: Number },
     scale: { type: Number },
     isPageSelected: { type: Boolean },
+    selectedLineRange: { type: Object }, // { start, end } or null
+    extractedLineRanges: { type: Array }, // Array<{start, end, notePath}>
+    lineToNotePath: { type: Object }, // Map of line number to note path
     isExtracted: { type: Boolean },
     selectionMode: { type: String },
   }
@@ -299,6 +326,30 @@ class PdfCanvas extends LitElement {
       background: rgba(42, 174, 64, 0.2);
       border: 2px solid #4ade80;
     }
+
+    .text-layer span.extracted-line {
+      background-color: rgba(255, 255, 0, 0.3);
+    }
+
+    .text-layer span.extracted-line.clickable {
+      cursor: pointer;
+    }
+
+    .text-layer span.extracted-line.clickable:hover {
+      background-color: rgba(255, 255, 0, 0.5);
+    }
+
+    .text-layer span.selected-line {
+      background-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .text-layer span.selected-line.clickable {
+      cursor: pointer;
+    }
+
+    .text-layer span.selected-line.clickable:hover {
+      background-color: rgba(59, 130, 246, 0.5);
+    }
   `
 
   constructor() {
@@ -306,6 +357,43 @@ class PdfCanvas extends LitElement {
     this.currentRenderTask = null
     this._renderScheduled = null
     this.textLayer = null
+    this.isDragging = false
+    this.dragStartLine = null
+    this.dragEndLine = null
+    this.dragMode = null // 'select' or 'unselect'
+    this._globalMouseUpHandler = this._handleMouseUp.bind(this)
+    this.extractedLineRanges = []
+    this.lineToNotePath = new Map()
+  }
+
+  connectedCallback() {
+    super.connectedCallback()
+    // Add global mouseup handler to catch mouseup outside text layer
+    document.addEventListener('mouseup', this._globalMouseUpHandler)
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    // Remove global mouseup handler
+    document.removeEventListener('mouseup', this._globalMouseUpHandler)
+
+    // Cancel any scheduled render
+    if (this._renderScheduled) {
+      cancelAnimationFrame(this._renderScheduled)
+      this._renderScheduled = null
+    }
+
+    // Cancel any pending render task
+    if (this.currentRenderTask) {
+      this.currentRenderTask.cancel()
+      this.currentRenderTask = null
+    }
+
+    // Cancel text layer rendering
+    if (this.textLayer) {
+      this.textLayer.cancel()
+      this.textLayer = null
+    }
   }
 
   /**
@@ -314,16 +402,32 @@ class PdfCanvas extends LitElement {
   updated(changedProperties) {
     super.updated(changedProperties)
 
-    // Cancel any previously scheduled render
-    if (this._renderScheduled) {
-      cancelAnimationFrame(this._renderScheduled)
-    }
+    // Check if only highlighting-related properties changed
+    const highlightOnlyProps = ['selectedLineRange', 'extractedLineRanges', 'lineToNotePath']
+    const pageRenderProps = ['pdfDocument', 'currentPage', 'scale', 'selectionMode']
 
-    // Schedule render using requestAnimationFrame
-    this._renderScheduled = requestAnimationFrame(() => {
-      this._renderScheduled = null
-      this._renderPage()
-    })
+    const needsPageRender = Array.from(changedProperties.keys()).some((key) =>
+      pageRenderProps.includes(key)
+    )
+    const needsHighlightUpdate = Array.from(changedProperties.keys()).some((key) =>
+      highlightOnlyProps.includes(key)
+    )
+
+    if (needsPageRender) {
+      // Cancel any previously scheduled render
+      if (this._renderScheduled) {
+        cancelAnimationFrame(this._renderScheduled)
+      }
+
+      // Schedule full page render using requestAnimationFrame
+      this._renderScheduled = requestAnimationFrame(() => {
+        this._renderScheduled = null
+        this._renderPage()
+      })
+    } else if (needsHighlightUpdate && this.selectionMode === 'text') {
+      // Only update highlighting without re-rendering the page
+      this._applyHighlighting()
+    }
   }
 
   /**
@@ -444,31 +548,336 @@ class PdfCanvas extends LitElement {
 
       // Render the text layer
       await this.textLayer.render()
+
+      // After rendering, calculate line numbers and apply highlighting
+      this._calculateLineNumbers()
+      this._setupEventDelegation()
+      this._applyHighlighting()
     } catch (error) {
       console.error('Error rendering text layer:', error)
     }
   }
 
-  disconnectedCallback() {
-    super.disconnectedCallback()
+  /**
+   * Calculate line numbers only (called once when page loads)
+   */
+  _calculateLineNumbers() {
+    const textLayerDiv = this.shadowRoot.querySelector('.text-layer')
+    if (!textLayerDiv) return
 
-    // Cancel any scheduled render
-    if (this._renderScheduled) {
-      cancelAnimationFrame(this._renderScheduled)
-      this._renderScheduled = null
+    // Get all text spans and br elements
+    const children = Array.from(textLayerDiv.children)
+    let lineNumber = 1
+    let currentLineSpans = []
+
+    for (const child of children) {
+      if (child.tagName === 'BR') {
+        // Mark all spans in current line with their line number
+        currentLineSpans.forEach((span) => {
+          span.dataset.lineNumber = lineNumber
+        })
+        // Move to next line
+        lineNumber++
+        currentLineSpans = []
+      } else if (child.tagName === 'SPAN') {
+        currentLineSpans.push(child)
+      }
     }
 
-    // Cancel any pending render task
-    if (this.currentRenderTask) {
-      this.currentRenderTask.cancel()
-      this.currentRenderTask = null
+    // Handle last line (if no trailing <br>)
+    if (currentLineSpans.length > 0) {
+      currentLineSpans.forEach((span) => {
+        span.dataset.lineNumber = lineNumber
+      })
+    }
+  }
+
+  /**
+   * Setup event delegation for line interactions (called once when page loads)
+   */
+  _setupEventDelegation() {
+    const textLayerDiv = this.shadowRoot.querySelector('.text-layer')
+    if (!textLayerDiv) return
+
+    // Check if already setup to avoid duplicate listeners
+    if (textLayerDiv.dataset.eventDelegationSetup === 'true') return
+
+    // Mark as setup
+    textLayerDiv.dataset.eventDelegationSetup = 'true'
+
+    // Disable text selection to prevent interference with line selection
+    textLayerDiv.style.userSelect = 'none'
+
+    // Use event delegation for all span events
+    textLayerDiv.addEventListener('click', (e) => {
+      const span = e.target.closest('span[data-line-number]')
+      if (!span) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      const lineNumber = parseInt(span.dataset.lineNumber)
+      this._handleLineClick(lineNumber)
+    })
+
+    textLayerDiv.addEventListener('mousedown', (e) => {
+      const span = e.target.closest('span[data-line-number]')
+      if (!span) return
+
+      const lineNumber = parseInt(span.dataset.lineNumber)
+
+      // Don't prevent default if this is a clickable extracted line
+      const isExtractedLine = this._isLineExtracted(lineNumber)
+      const hasNotePath = this.lineToNotePath.get(lineNumber)
+
+      if (!(isExtractedLine && hasNotePath)) {
+        e.preventDefault()
+      }
+
+      this._handleMouseDown(lineNumber)
+    })
+
+    textLayerDiv.addEventListener(
+      'mouseenter',
+      (e) => {
+        const span = e.target.closest('span[data-line-number]')
+        if (!span) return
+
+        const lineNumber = parseInt(span.dataset.lineNumber)
+        this._handleMouseEnter(lineNumber)
+      },
+      true
+    ) // Use capture phase for mouseenter
+
+    textLayerDiv.addEventListener('mouseup', () => {
+      this._handleMouseUp()
+    })
+  }
+
+  /**
+   * Check if a line is within any extracted range
+   * @param {number} lineNumber
+   * @returns {boolean}
+   */
+  _isLineExtracted(lineNumber) {
+    return this.extractedLineRanges.some(
+      (range) => lineNumber >= range.start && lineNumber <= range.end
+    )
+  }
+
+  /**
+   * Apply highlighting to text layer (yellow=extracted, blue=selected)
+   */
+  _applyHighlighting() {
+    const textLayerDiv = this.shadowRoot.querySelector('.text-layer')
+    if (!textLayerDiv) return
+
+    const spans = textLayerDiv.querySelectorAll('span[data-line-number]')
+
+    spans.forEach((span) => {
+      const lineNumber = parseInt(span.dataset.lineNumber)
+
+      // Remove all previous highlighting classes
+      span.classList.remove('extracted-line', 'selected-line', 'clickable')
+
+      // Check if this line is extracted
+      const isExtractedLine = this._isLineExtracted(lineNumber)
+
+      // Apply highlighting if this line is extracted
+      if (isExtractedLine) {
+        span.classList.add('extracted-line')
+        // Add clickable class if there's a note path for this line
+        const notePath = this.lineToNotePath.get(lineNumber)
+        if (notePath) {
+          span.classList.add('clickable')
+        }
+      }
+
+      // Apply selection highlighting if this line is in selected range
+      const isInSelectedRange =
+        this.selectedLineRange &&
+        lineNumber >= this.selectedLineRange.start &&
+        lineNumber <= this.selectedLineRange.end
+
+      if (isInSelectedRange) {
+        span.classList.add('selected-line')
+      }
+    })
+  }
+
+  /**
+   * Handle mouse down - start drag selection
+   */
+  _handleMouseDown(lineNumber) {
+    // Prevent selection on already-extracted lines (yellow highlights)
+    if (this._isLineExtracted(lineNumber)) {
+      return
     }
 
-    // Cancel text layer
-    if (this.textLayer) {
-      this.textLayer.cancel()
-      this.textLayer = null
+    // Check if clicking on a selected line
+    const isInSelectedRange =
+      this.selectedLineRange &&
+      lineNumber >= this.selectedLineRange.start &&
+      lineNumber <= this.selectedLineRange.end
+
+    this.isDragging = true
+    this.dragStartLine = lineNumber
+    this.dragEndLine = lineNumber
+
+    // Determine drag mode based on whether the line is in the selected range
+    this.dragMode = isInSelectedRange ? 'unselect' : 'select'
+
+    // If in select mode, clear the previous selection immediately
+    if (this.dragMode === 'select') {
+      this.dispatchEvent(
+        new CustomEvent('clear-selection-immediate', {
+          detail: { pageNum: this.currentPage },
+        })
+      )
     }
+
+    // Update selection immediately
+    this._updateDragSelection()
+  }
+
+  /**
+   * Handle mouse enter - continue drag selection
+   */
+  _handleMouseEnter(lineNumber) {
+    if (!this.isDragging) return
+
+    // Skip if this line is extracted
+    if (this._isLineExtracted(lineNumber)) return
+
+    // Check if there are any extracted lines between dragStartLine and current lineNumber
+    const minLine = Math.min(this.dragStartLine, lineNumber)
+    const maxLine = Math.max(this.dragStartLine, lineNumber)
+
+    // Check if any line in the range is extracted
+    for (let line = minLine; line <= maxLine; line++) {
+      if (this._isLineExtracted(line)) {
+        // Found an extracted line in the path - don't extend selection
+        return
+      }
+    }
+
+    // Safe to extend selection
+    this.dragEndLine = lineNumber
+    this._updateDragSelection()
+  }
+
+  /**
+   * Handle mouse up - end drag selection
+   */
+  _handleMouseUp() {
+    if (this.isDragging) {
+      this.isDragging = false
+      // Finalize selection by dispatching to parent
+      if (this.dragStartLine !== null && this.dragEndLine !== null) {
+        const minLine = Math.min(this.dragStartLine, this.dragEndLine)
+        const maxLine = Math.max(this.dragStartLine, this.dragEndLine)
+        // Dispatch range selection event with mode
+        this.dispatchEvent(
+          new CustomEvent('line-range-select', {
+            detail: {
+              startLine: minLine,
+              endLine: maxLine,
+              pageNum: this.currentPage,
+              mode: this.dragMode, // 'select' or 'unselect'
+            },
+          })
+        )
+      }
+      this.dragStartLine = null
+      this.dragEndLine = null
+      this.dragMode = null
+    }
+  }
+
+  /**
+   * Update visual feedback during drag selection
+   */
+  _updateDragSelection() {
+    if (this.dragStartLine === null || this.dragEndLine === null) return
+
+    const minLine = Math.min(this.dragStartLine, this.dragEndLine)
+    const maxLine = Math.max(this.dragStartLine, this.dragEndLine)
+
+    const textLayerDiv = this.shadowRoot.querySelector('.text-layer')
+    if (!textLayerDiv) return
+
+    // Update visual feedback based on drag mode
+    const spans = textLayerDiv.querySelectorAll('span')
+    spans.forEach((span) => {
+      const lineNum = parseInt(span.dataset.lineNumber)
+      const isInDragRange = lineNum >= minLine && lineNum <= maxLine
+      const isAlreadySelected =
+        this.selectedLineRange &&
+        lineNum >= this.selectedLineRange.start &&
+        lineNum <= this.selectedLineRange.end
+
+      if (this.dragMode === 'select') {
+        // Selecting mode: show ONLY lines in drag range (clear old selection visually)
+        if (isInDragRange) {
+          span.classList.add('selected-line')
+        } else {
+          span.classList.remove('selected-line')
+        }
+      } else if (this.dragMode === 'unselect') {
+        // Unselecting mode: hide selection for lines in drag range
+        if (isInDragRange) {
+          span.classList.remove('selected-line')
+        } else if (isAlreadySelected) {
+          span.classList.add('selected-line')
+        } else {
+          span.classList.remove('selected-line')
+        }
+      }
+    })
+  }
+
+  /**
+   * Handle line click - toggle line selection or jump to note
+   */
+  _handleLineClick(lineNumber) {
+    console.log('_handleLineClick called:', {
+      lineNumber,
+      extractedLineRanges: this.extractedLineRanges,
+      isExtracted: this._isLineExtracted(lineNumber),
+      lineToNotePath: this.lineToNotePath,
+      selectedLineRange: this.selectedLineRange,
+    })
+
+    // Check if this is an extracted line (yellow highlight)
+    const isExtractedLine = this._isLineExtracted(lineNumber)
+
+    if (isExtractedLine) {
+      // Get the note path for this extracted line
+      const notePath = this.lineToNotePath.get(lineNumber)
+      console.log('Extracted line clicked, note path:', notePath)
+
+      if (notePath) {
+        // Jump to the note for this extracted line
+        console.log('Dispatching jump-to-note event for extracted line:', notePath)
+        this.dispatchEvent(
+          new CustomEvent('jump-to-note', {
+            detail: { notePath },
+          })
+        )
+        return
+      } else {
+        console.log('No note path found for extracted line, ignoring click')
+        return
+      }
+    }
+
+    console.log('Dispatching line-click event for selection')
+    // Normal line selection toggle
+    this.dispatchEvent(
+      new CustomEvent('line-click', {
+        detail: { lineNumber, pageNum: this.currentPage },
+      })
+    )
   }
 
   handlePageClick() {
@@ -482,12 +891,12 @@ class PdfCanvas extends LitElement {
         <div class="text-layer"></div>
         ${this.isPageSelected ? html`<div class="page-selection-overlay"></div>` : ''}
         ${this.isExtracted
-          ? html`
+    ? html`
               <div class="extracted-overlay">
                 <div class="page-extracted"></div>
               </div>
             `
-          : ''}
+    : ''}
       </div>
     `
   }
@@ -498,10 +907,21 @@ class PdfCanvas extends LitElement {
 // ============================================================================
 class PageRangeDialog extends LitElement {
   static properties = {
-    show: { type: Boolean },
+    pdfDocument: { type: Object },
+    currentPage: { type: Number },
+    totalPages: { type: Number },
+    scale: { type: Number },
+    isLoading: { type: Boolean },
+    errorMessage: { type: String },
+    selectionMode: { type: String },
+    selectedPages: { type: Array },
+    selectedLineRange: { type: Object },
+    showRangeDialog: { type: Boolean },
     rangeStart: { type: Number },
     rangeEnd: { type: Number },
-    totalPages: { type: Number },
+    restrictedRange: { type: Object },
+    extractedPageRanges: { type: Array },
+    extractedLineRanges: { type: Object },
   }
 
   static styles = css`
@@ -667,20 +1087,19 @@ class PageRangeDialog extends LitElement {
 // ============================================================================
 export class PdfViewer extends LitElement {
   static properties = {
-    pdfPath: { type: String },
     currentPage: { type: Number },
     totalPages: { type: Number },
     scale: { type: Number },
     selectionMode: { type: String },
     selectedPages: { type: Array },
+    selectedLineRange: { type: Object }, // { start: number, end: number } or null
     isLoading: { type: Boolean },
     errorMessage: { type: String },
     showRangeDialog: { type: Boolean },
     rangeStart: { type: Number },
     rangeEnd: { type: Number },
     restrictedRange: { type: Object },
-    contentType: { type: String },
-    content: { type: String },
+    extractedRanges: { type: Array },
   }
 
   static styles = css`
@@ -704,33 +1123,23 @@ export class PdfViewer extends LitElement {
     }
   `
 
-  resetView() {
-    this.contentType = ''
-    this.content = ''
-    this.pdfDoc = null
-    const canvas = this.shadowRoot?.querySelector('#pdf-canvas')
-    if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
-    const htmlContainer = this.shadowRoot?.querySelector('#html-container')
-    if (htmlContainer) htmlContainer.innerHTML = ''
-  }
-
   constructor() {
     super()
-    this.pdfPath = ''
+    this.pdfPath = '' // Internal state only
     this.currentPage = 1
     this.totalPages = 0
     this.scale = 1.5
     this.selectionMode = 'text'
     this.selectedPages = []
+    this.selectedLineRange = null // { start, end } or null
     this.isLoading = false
     this.errorMessage = ''
     this.pdfDocument = null
-    this.extractedRanges = []
+    this.extractedPageRanges = []
+    this.extractedLineRanges = new Map()
     this.showRangeDialog = false
     this.rangeStart = 1
     this.rangeEnd = 1
-    this.contentType = 'pdf'
-    this.content = ''
   }
 
   /**
@@ -778,9 +1187,11 @@ export class PdfViewer extends LitElement {
    * @param {pdfOptions} options
    */
   applyOptions(options) {
+    console.log('applyOptions called with:', options)
     // Clear previous state
     this.restrictedRange = null
     this.selectedPages = []
+    this.selectedLineRange = null
 
     // Apply page range restriction using pageStart and pageEnd
     if (options.pageStart && options.pageEnd) {
@@ -794,14 +1205,16 @@ export class PdfViewer extends LitElement {
     // Set current page: if restricted, start from pageStart, otherwise start from page 1
     this.currentPage = this.restrictedRange ? this.restrictedRange.start : 1
 
-    // Set extracted ranges (for locking)
-    this.extractedRanges = options.extractedRanges
+    // Set extracted page ranges and line ranges
+    this.extractedPageRanges = options.extractedPageRanges || []
+    this.extractedLineRanges = options.extractedLineRanges || new Map()
   }
 
   nextPage() {
     const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
     if (this.currentPage < maxPage) {
       this.currentPage++
+      this.clearLineSelection()
     }
   }
 
@@ -809,6 +1222,7 @@ export class PdfViewer extends LitElement {
     const minPage = this.restrictedRange ? this.restrictedRange.start : 1
     if (this.currentPage > minPage) {
       this.currentPage--
+      this.clearLineSelection()
     }
   }
 
@@ -822,6 +1236,7 @@ export class PdfViewer extends LitElement {
 
     if (pageNum >= minPage && pageNum <= maxPage) {
       this.currentPage = pageNum
+      this.clearLineSelection()
     }
   }
 
@@ -838,8 +1253,6 @@ export class PdfViewer extends LitElement {
       if (this.currentPage < startPage || this.currentPage > endPage) {
         this.currentPage = startPage
       }
-
-      this.requestUpdate()
     }
   }
 
@@ -848,7 +1261,6 @@ export class PdfViewer extends LitElement {
    */
   clearPageRestriction() {
     this.restrictedRange = null
-    this.requestUpdate()
   }
 
   /**
@@ -869,7 +1281,6 @@ export class PdfViewer extends LitElement {
       // Interpret as individual page numbers
       this.selectedPages = pages.filter((p) => p >= 1 && p <= this.totalPages)
     }
-    this.requestUpdate()
   }
 
   zoomIn() {
@@ -941,51 +1352,143 @@ export class PdfViewer extends LitElement {
       this.selectedPages.push(i)
     }
     this.showRangeDialog = false
-    this.requestUpdate()
+  }
+
+  handleTextSpanClick(e) {
+    // Deprecated - replaced by handleLineClick
+  }
+
+  /**
+   * Handle jump to note - forward the event to parent (editor.js)
+   */
+  handleJumpToNote(e) {
+    console.log('PdfViewer.handleJumpToNote called:', e.detail)
+    const { notePath } = e.detail
+    // Dispatch a custom event that editor.js will listen to
+    const jumpEvent = new CustomEvent('pdf-jump-to-note', {
+      detail: { notePath },
+      bubbles: true,
+      composed: true,
+    })
+    console.log('Dispatching pdf-jump-to-note event:', notePath)
+    this.dispatchEvent(jumpEvent)
+  }
+
+  /**
+   * Handle line click from PdfCanvas
+   */
+  handleLineClick(e) {
+    const { lineNumber } = e.detail
+
+    // Simply set the range to just this one line (toggle if already selected)
+    if (
+      this.selectedLineRange &&
+      this.selectedLineRange.start === lineNumber &&
+      this.selectedLineRange.end === lineNumber
+    ) {
+      // Clicking the same single line again - clear selection
+      this.selectedLineRange = null
+    } else {
+      // Select just this line
+      this.selectedLineRange = { start: lineNumber, end: lineNumber }
+    }
+  }
+
+  /**
+   * Handle immediate clear of selection when starting a new drag in select mode
+   */
+  handleClearSelectionImmediate() {
+    this.selectedLineRange = null
+  }
+
+  /**
+   * Handle line range selection (drag) from PdfCanvas
+   */
+  handleLineRangeSelect(e) {
+    const { startLine, endLine, mode } = e.detail
+
+    if (mode === 'unselect') {
+      // Clear selection when dragging on selected lines
+      this.selectedLineRange = null
+    } else {
+      // Set the range to the dragged lines
+      this.selectedLineRange = { start: startLine, end: endLine }
+    }
   }
 
   clearPageSelection() {
     this.selectedPages = []
-    this.requestUpdate()
+  }
+
+  clearLineSelection() {
+    this.selectedLineRange = null
   }
 
   /**
-   * Get selected text from PDF
-   * @returns {Object|null} - {text, pageNum} or null if no selection
+   * Get selected text with line numbers
    */
-  getSelectedText() {
-    // Get the text layer from PdfCanvas component
+  getSelectedTextWithLines() {
+    if (!this.selectedLineRange) {
+      return null
+    }
+
     const pdfCanvas = this.shadowRoot.querySelector('pdf-canvas')
     if (!pdfCanvas) return null
 
-    const textLayer = pdfCanvas.shadowRoot?.querySelector('.text-layer')
-    if (!textLayer) return null
+    const textLayerDiv = pdfCanvas.shadowRoot?.querySelector('.text-layer')
+    if (!textLayerDiv) return null
 
-    // Get selected text from window selection
-    const selection = window.getSelection()
-    if (!selection || selection.isCollapsed) return null
+    // Get all spans for selected line range
+    const spans = textLayerDiv.querySelectorAll('span')
+    const textParts = []
 
-    const selectedText = selection.toString().trim()
-    if (!selectedText) return null
+    for (const span of spans) {
+      const lineNum = parseInt(span.dataset.lineNumber)
+      if (lineNum >= this.selectedLineRange.start && lineNum <= this.selectedLineRange.end) {
+        textParts.push(span.textContent)
+      }
+    }
 
     return {
-      text: selectedText,
+      text: textParts.join(''),
       pageNum: this.currentPage,
+      lineStart: this.selectedLineRange.start,
+      lineEnd: this.selectedLineRange.end,
     }
   }
 
-  lockExtractedRanges(ranges) {
-    this.extractedRanges = ranges
-    this.requestUpdate()
+  /**
+   * Get extracted line ranges for current page
+   * @returns {Array<{start: number, end: number, notePath: string}>}
+   */
+  _getExtractedLineRangesForCurrentPage() {
+    return this.extractedLineRanges.get(this.currentPage) || []
   }
 
-  isPageExtracted() {
-    return this.extractedRanges.some(
-      (range) =>
-        (range.extract_type === 'pdf-page' || range.extract_type === 'pdf-text') &&
-        parseInt(range.range_start) <= this.currentPage &&
-        parseInt(range.range_end) >= this.currentPage
-    )
+  /**
+   * Get mapping of line numbers to note paths for current page
+   * @returns {Map<number, string>}
+   */
+  _getLineToNotePathForCurrentPage() {
+    const ranges = this._getExtractedLineRangesForCurrentPage()
+    const lineToPath = new Map()
+
+    ranges.forEach((range) => {
+      // Map all lines from start to end to the note path
+      for (let line = range.start; line <= range.end; line++) {
+        lineToPath.set(line, range.notePath)
+      }
+    })
+
+    return lineToPath
+  }
+
+  /**
+   * Check if current page is fully extracted
+   * @returns {boolean}
+   */
+  _isCurrentPageExtracted() {
+    return this.extractedPageRanges.includes(this.currentPage)
   }
 
   handleRenderError(e) {
@@ -1022,6 +1525,7 @@ export class PdfViewer extends LitElement {
         .scale=${this.scale}
         .selectionMode=${this.selectionMode}
         .selectedPages=${this.selectedPages}
+        .selectedLineRange=${this.selectedLineRange}
         @page-next=${this.nextPage}
         @page-prev=${this.prevPage}
         @zoom-in=${this.zoomIn}
@@ -1029,6 +1533,7 @@ export class PdfViewer extends LitElement {
         @selection-mode-change=${this.handleSelectionModeChange}
         @open-range-dialog=${this.openRangeDialog}
         @clear-selection=${this.clearPageSelection}
+        @clear-line-selection=${this.clearLineSelection}
       ></pdf-toolbar>
 
       <pdf-canvas
@@ -1036,10 +1541,17 @@ export class PdfViewer extends LitElement {
         .currentPage=${this.currentPage}
         .scale=${this.scale}
         .isPageSelected=${this.selectedPages.includes(this.currentPage)}
-        .isExtracted=${this.isPageExtracted()}
+        .isExtracted=${this._isCurrentPageExtracted()}
+        .extractedLineRanges=${this._getExtractedLineRangesForCurrentPage()}
+        .lineToNotePath=${this._getLineToNotePathForCurrentPage()}
+        .selectedLineRange=${this.selectedLineRange}
         .selectionMode=${this.selectionMode}
         @page-click=${this.handlePageClick}
         @render-error=${this.handleRenderError}
+        @line-click=${this.handleLineClick}
+        @line-range-select=${this.handleLineRangeSelect}
+        @clear-selection-immediate=${this.handleClearSelectionImmediate}
+        @jump-to-note=${this.handleJumpToNote}
       ></pdf-canvas>
 
       <page-range-dialog

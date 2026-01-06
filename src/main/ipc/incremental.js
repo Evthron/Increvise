@@ -384,7 +384,8 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
             relative_path,
             parent_path,
             range_start,
-            range_end
+            range_end,
+            extract_type
           FROM note_source
           WHERE library_id = ? AND parent_path = ?
           ORDER BY range_start ASC
@@ -405,13 +406,31 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
         }
       }
 
-      const ranges = children.map((child) => ({
-        path: child.relative_path,
-        start: parseInt(child.range_start),
-        end: parseInt(child.range_end),
-        content: isPdfParent ? undefined : child.content,
-        lineCount: isPdfParent ? undefined : child.content.split('\n').length,
-      }))
+      const ranges = children.map((child) => {
+        // Parse range_start and range_end to handle line numbers
+        const parseRange = (rangeStr) => {
+          if (rangeStr.includes(':')) {
+            const [page, line] = rangeStr.split(':')
+            return { page: parseInt(page), line: parseInt(line) }
+          }
+          return { page: parseInt(rangeStr), line: null }
+        }
+
+        const startParsed = parseRange(child.range_start)
+        const endParsed = parseRange(child.range_end)
+
+        return {
+          path: child.relative_path,
+          extract_type: child.extract_type,
+          start: parseInt(child.range_start),
+          end: parseInt(child.range_end),
+          pageNum: startParsed.page,
+          lineStart: startParsed.line,
+          lineEnd: endParsed.line,
+          content: isPdfParent ? undefined : child.content,
+          lineCount: isPdfParent ? undefined : child.content.split('\n').length,
+        }
+      })
 
       db.close()
 
@@ -430,6 +449,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
             parent_path, 
             range_start,
             range_end,
+            extract_type,
             1 AS recur_depth
           FROM note_source
           WHERE library_id = ? AND parent_path = ?
@@ -441,6 +461,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
             ns.parent_path,
             ns.range_start,
             ns.range_end,
+            ns.extract_type,
             pc.recur_depth + 1
           FROM parent_chain AS pc
           INNER JOIN note_source AS ns ON pc.relative_path = ns.parent_path
@@ -452,6 +473,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
           parent_path,
           range_start,
           range_end,
+          extract_type,
           recur_depth
         FROM parent_chain
         ORDER BY recur_depth DESC, range_start DESC
@@ -508,12 +530,30 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
 
     // Map to result format
     const ranges = directChildren.map((child) => {
+      // Parse range_start and range_end to handle line numbers
+      // Format: "pageNum:lineNum" or just "pageNum"
+      const parseRange = (rangeStr) => {
+        if (rangeStr.includes(':')) {
+          const [page, line] = rangeStr.split(':')
+          return { page: parseInt(page), line: parseInt(line) }
+        }
+        return { page: parseInt(rangeStr), line: null }
+      }
+
+      const startParsed = parseRange(child.range_start)
+      const endParsed = parseRange(child.range_end)
+
       return {
         path: child.relative_path,
+        extract_type: child.extract_type,
         start: parseInt(child.range_start),
         end: parseInt(child.range_end),
+        // Add parsed page and line numbers for PDFs
+        pageNum: startParsed.page,
+        lineStart: startParsed.line,
+        lineEnd: endParsed.line,
         content: child.content,
-        lineCount: child.content.split('\n').length,
+        lineCount: child.content ? child.content.split('\n').length : 0,
       }
     })
 
@@ -791,11 +831,21 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
  * @param {string} pdfPath - Path to PDF file
  * @param {string} text - Selected text content
  * @param {number} pageNum - Page number (1-indexed)
+ * @param {number} lineStart - Start line number (1-indexed, optional)
+ * @param {number} lineEnd - End line number (1-indexed, optional)
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
  * @returns {Promise<Object>} - Result object
  */
-async function extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPath) {
+async function extractPdfText(
+  pdfPath,
+  text,
+  pageNum,
+  lineStart,
+  lineEnd,
+  libraryId,
+  getCentralDbPath
+) {
   try {
     console.log('[extractPdfText] Starting extraction:', {
       pdfPath,
@@ -886,6 +936,13 @@ async function extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPat
       // Create source hash for text
       const sourceHash = crypto.createHash('sha256').update(text).digest('hex')
 
+      // Store line numbers in range_start and range_end
+      // Format: "pageNum:lineStart-lineEnd" or just "pageNum" if no line numbers
+      const rangeStart =
+        lineStart !== undefined && lineStart !== null ? `${pageNum}:${lineStart}` : String(pageNum)
+      const rangeEnd =
+        lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
+
       db.prepare(
         `
         INSERT INTO note_source 
@@ -897,8 +954,8 @@ async function extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPat
         relativePath,
         parentRelativePath,
         'pdf-text',
-        String(pageNum),
-        String(pageNum),
+        rangeStart,
+        rangeEnd,
         sourceHash
       )
 
@@ -1003,8 +1060,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
   )
 
-  ipcMain.handle('extract-pdf-text', async (event, pdfPath, text, pageNum, libraryId) =>
-    extractPdfText(pdfPath, text, pageNum, libraryId, getCentralDbPath)
+  ipcMain.handle(
+    'extract-pdf-text',
+    async (event, pdfPath, text, pageNum, lineStart, lineEnd, libraryId) =>
+      extractPdfText(pdfPath, text, pageNum, lineStart, lineEnd, libraryId, getCentralDbPath)
   )
 
   ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
