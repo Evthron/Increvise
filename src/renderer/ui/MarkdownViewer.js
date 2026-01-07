@@ -603,7 +603,7 @@ export class MarkdownViewer extends LitElement {
   }
 
   async extractSelection() {
-    const selection = this.getSelectedText()
+    const selection = this.getSemanticSelection()
     if (!selection || !selection.text) {
       return { success: false, error: 'No text selected' }
     }
@@ -612,7 +612,7 @@ export class MarkdownViewer extends LitElement {
     this.dispatchEvent(
       new CustomEvent('extract-requested', {
         detail: {
-          text: selection.text,
+          text: selection.markdown || selection.text,
           viewerType: 'markdown',
         },
         bubbles: true,
