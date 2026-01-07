@@ -19,13 +19,12 @@ function showToast(message, isError = false) {
 }
 
 export function initFeedbackButtons() {
-  const reviseFilesBtn = document.getElementById('revise-files')
   const revisionListElement = document.querySelector('revision-list')
   const revisionControls = document.getElementById('revision-controls')
   const currentFileName = document.getElementById('current-file-name')
 
-  // Handle "Revise Files Today" button click
-  reviseFilesBtn.addEventListener('click', async () => {
+  // Listen for revise-files-requested event from file-manager component
+  document.addEventListener('revise-files-requested', async () => {
     try {
       const result = await window.fileManager.getAllFilesForRevision()
       if (result.success && result.files.length > 0) {
