@@ -214,6 +214,10 @@ export class EditorPanel extends LitElement {
           const viewer = viewerType === 'markdown' ? this.markdownViewer : this.htmlViewer
           await this._loadAndLockExtractedContent(this.currentOpenFile, viewer)
           this._showToast(`Note extracted to ${result.fileName}`)
+          // Refresh file manager to show the new extracted note
+          this._refreshFileManager()
+        } else {
+          this._showToast(`Error: ${result.error}`, true)
         }
       } catch (error) {
         this._showToast(`Error: ${error.message}`, true)
@@ -891,6 +895,8 @@ export class EditorPanel extends LitElement {
         await this._loadAndLockExtractedRanges(this.currentOpenFile)
         this.codeMirrorEditor.clearHistory()
         this._showToast(`Note extracted to ${result.fileName}`)
+        // Refresh file manager to show the new extracted note
+        this._refreshFileManager()
       } else {
         this._showToast(`Error: ${result.error}`, true)
       }
@@ -938,6 +944,8 @@ export class EditorPanel extends LitElement {
       if (result.success) {
         await this._loadAndLockExtractedContent(this.currentOpenFile, viewer)
         this._showToast(`Note extracted to ${result.fileName}`)
+        // Refresh file manager to show the new extracted note
+        this._refreshFileManager()
       } else {
         this._showToast(`Error: ${result.error}`, true)
       }
@@ -984,6 +992,8 @@ export class EditorPanel extends LitElement {
         } else {
           window.getSelection().removeAllRanges()
         }
+        // Refresh file manager to show the new extracted note
+        this._refreshFileManager()
       } else {
         this._showToast(`Error: ${result.error}`, true)
       }
@@ -1031,6 +1041,8 @@ export class EditorPanel extends LitElement {
         this._showToast(`Pages ${startPage}-${endPage} extracted to ${result.fileName}`)
         await this._reloadPdfExtractedRanges()
         this.pdfViewer.clearPageSelection()
+        // Refresh file manager to show the new extracted note
+        this._refreshFileManager()
       } else {
         this._showToast(`Error: ${result.error}`, true)
       }
@@ -1063,6 +1075,16 @@ export class EditorPanel extends LitElement {
       }
     } catch (error) {
       console.error('Error reloading PDF extracted ranges:', error)
+    }
+  }
+
+  /**
+   * Refresh file manager to show newly extracted notes
+   */
+  _refreshFileManager() {
+    const fileManager = document.querySelector('file-manager')
+    if (fileManager && typeof fileManager.refreshCurrentWorkspace === 'function') {
+      fileManager.refreshCurrentWorkspace()
     }
   }
 

@@ -297,6 +297,28 @@ export class FileManager extends LitElement {
     this._registerAddButtonGuard()
   }
 
+  async refreshCurrentWorkspace() {
+    if (!this.currentRootPath) {
+      console.warn('No workspace is currently open')
+      return
+    }
+
+    try {
+      if (this.isAllWorkspacesMode) {
+        await this._openAllWorkspaces()
+      } else {
+        // Refresh the directory tree for single workspace
+        const tree = await window.fileManager.getDirectoryTree(
+          this.currentRootPath,
+          window.currentWorkspaceLibraryId
+        )
+        this.treeData = tree
+      }
+    } catch (error) {
+      console.error('Error refreshing workspace:', error)
+    }
+  }
+
   async _openAllWorkspaces() {
     try {
       const workspaces = await window.fileManager.getRecentWorkspaces()
