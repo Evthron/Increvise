@@ -67,6 +67,10 @@ let currentOpenFile = null
 let isEditMode = false
 let hasUnsavedChanges = false
 
+// Viewer mode state
+let currentViewerType = null // 'pdf' | 'markdown' | 'html' | 'text'
+let currentMode = 'preview' // 'preview' | 'editor'
+
 // Listen for jump to note events from PDF viewer
 pdfViewer.addEventListener('pdf-jump-to-note', async (e) => {
   const { notePath } = e.detail
@@ -87,6 +91,264 @@ pdfViewer.addEventListener('pdf-jump-to-note', async (e) => {
   // Open the note file
   await openFile(absolutePath)
 })
+
+/**
+ * Open a PDF extract file
+ * @param {string} filePath
+ * @param {Object} extractInfo
+ */
+async function openPdfExtract(filePath, extractInfo) {
+  console.log('Opening PDF extract file:', filePath)
+  console.log('Extract info:', extractInfo)
+
+  const { parentPath, rangeStart, rangeEnd, extractType } = extractInfo
+  const sourcePdfPath = parentPath // Absolute path from database
+
+  // Parse range to check if it includes line numbers
+  let pageStart = null
+  let pageEnd = null
+  let lineStart = null
+  let lineEnd = null
+  let displayText = ''
+
+  console.log('Parsing range:', { rangeStart, rangeEnd, type: typeof rangeStart })
+
+  if (typeof rangeStart === 'string' && rangeStart.includes(':')) {
+    // Text extract with line numbers: "pageNum:lineNum"
+    const [pageStr, lineStartStr] = rangeStart.split(':')
+    const [endPageStr, lineEndStr] = rangeEnd.split(':')
+    pageStart = parseInt(pageStr)
+    pageEnd = parseInt(endPageStr)
+    lineStart = parseInt(lineStartStr)
+    lineEnd = parseInt(lineEndStr)
+    displayText = `(Page ${pageStart}, Lines ${lineStart}-${lineEnd})`
+    console.log('Text extract detected:', { pageStart, pageEnd, lineStart, lineEnd })
+  } else {
+    // Page extract: just page numbers
+    pageStart = typeof rangeStart === 'string' ? parseInt(rangeStart) : rangeStart
+    pageEnd = typeof rangeEnd === 'string' ? parseInt(rangeEnd) : rangeEnd
+    displayText = `(Pages ${pageStart}-${pageEnd})`
+    console.log('Page extract detected:', { pageStart, pageEnd })
+  }
+
+  // Update UI state
+  currentOpenFile = filePath
+  currentViewerType = 'pdf'
+  currentMode = 'preview'
+  currentFilePath.textContent = displayText
+  editorToolbar.classList.remove('hidden')
+
+  // Show PDF viewer, hide others
+  pdfViewer.classList.remove('hidden')
+  codeMirrorEditor.classList.add('hidden')
+  htmlViewer?.classList.add('hidden')
+  markdownViewer?.classList.add('hidden')
+
+  // Get extracted ranges for the PDF
+  const rangesResult = await window.fileManager.getChildRanges(
+    sourcePdfPath,
+    window.currentFileLibraryId
+  )
+
+  // Convert database ranges to pdfViewer format
+  const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+    rangesResult?.success ? rangesResult.ranges : []
+  )
+
+  // Load PDF with all configurations at once (single render!)
+  const options = new pdfOptions({
+    pageStart: pageStart, // Restrict to extracted pages - start
+    pageEnd: pageEnd, // Restrict to extracted pages - end
+    extractedPageRanges: extractedPageRanges, // Already extracted pages
+    extractedLineRanges: extractedLineRanges, // Already extracted line ranges
+  })
+
+  console.log('Final pdfOptions:', options)
+  await pdfViewer.loadPdf(sourcePdfPath, options)
+
+  console.log('PDF extract loaded with configuration:', {
+    pageStart,
+    pageEnd,
+    extractedPageRanges: extractedPageRanges.length,
+    extractedLineRangesPages: extractedLineRanges.size,
+  })
+
+  updateToolbarButtons()
+}
+
+/**
+ * Open a regular PDF file
+ * @param {string} filePath
+ */
+async function openRegularPdf(filePath) {
+  currentOpenFile = filePath
+  currentViewerType = 'pdf'
+  currentMode = 'preview'
+  currentFilePath.textContent = filePath
+  editorToolbar.classList.remove('hidden')
+
+  // Hide text editor and other viewers, show PDF viewer
+  codeMirrorEditor.classList.add('hidden')
+  htmlViewer?.classList.add('hidden')
+  markdownViewer?.classList.add('hidden')
+  pdfViewer.classList.remove('hidden')
+
+  // Get extracted ranges for the PDF
+  const rangesResult = await window.fileManager.getChildRanges(
+    filePath,
+    window.currentFileLibraryId
+  )
+
+  // Convert database ranges to pdfViewer format
+  const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+    rangesResult?.success ? rangesResult.ranges : []
+  )
+
+  // Load PDF with extracted ranges (single render!)
+  await pdfViewer.loadPdf(
+    filePath,
+    new pdfOptions({
+      extractedPageRanges: extractedPageRanges,
+      extractedLineRanges: extractedLineRanges,
+    })
+  )
+
+  console.log('Regular PDF loaded with extracted ranges:', {
+    extractedPageRanges: extractedPageRanges.length,
+    extractedLineRangesPages: extractedLineRanges.size,
+  })
+
+  updateToolbarButtons()
+}
+
+/**
+ * Open a text file (markdown, html, or other text formats)
+ * @param {string} filePath
+ * @param {string} content
+ */
+async function openTextFile(filePath, content) {
+  currentOpenFile = filePath
+  currentFilePath.textContent = filePath
+  editorToolbar.classList.remove('hidden')
+  isEditMode = false
+  hasUnsavedChanges = false
+
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+
+  // Determine viewer type
+  if (ext === '.md' || ext === '.markdown') {
+    currentViewerType = 'markdown'
+  } else if (ext === '.html' || ext === '.htm') {
+    currentViewerType = 'html'
+  } else {
+    currentViewerType = 'text'
+  }
+
+  // Default to preview mode
+  currentMode = 'preview'
+  await showPreviewMode(content)
+
+  updateToolbarButtons()
+}
+
+/**
+ * Show preview mode for the current file
+ * @param {string} content - file content (optional, uses current viewer content if not provided)
+ */
+async function showPreviewMode(content) {
+  if (currentViewerType === 'markdown') {
+    markdownViewer.classList.remove('hidden')
+    htmlViewer.classList.add('hidden')
+    codeMirrorEditor.classList.add('hidden')
+    pdfViewer.classList.add('hidden')
+
+    if (content !== undefined) {
+      markdownViewer.setMarkdown(content)
+    }
+
+    await loadAndLockExtractedContent(currentOpenFile, markdownViewer)
+  } else if (currentViewerType === 'html') {
+    htmlViewer.classList.remove('hidden')
+    markdownViewer.classList.add('hidden')
+    codeMirrorEditor.classList.add('hidden')
+    pdfViewer.classList.add('hidden')
+
+    if (content !== undefined) {
+      htmlViewer.setHtml(content)
+    }
+  } else if (currentViewerType === 'text') {
+    // Text files use CodeMirror in readonly mode as "preview"
+    codeMirrorEditor.classList.remove('hidden')
+    markdownViewer.classList.add('hidden')
+    htmlViewer.classList.add('hidden')
+    pdfViewer.classList.add('hidden')
+
+    if (content !== undefined) {
+      codeMirrorEditor.setContent(content)
+    }
+
+    codeMirrorEditor.disableEditing()
+    await loadAndLockExtractedRanges(currentOpenFile)
+    codeMirrorEditor.clearHistory()
+  }
+}
+
+/**
+ * Show editor mode for the current file
+ */
+function showEditorMode() {
+  // Hide all preview viewers
+  markdownViewer.classList.add('hidden')
+  htmlViewer.classList.add('hidden')
+
+  // Show CodeMirror editor
+  codeMirrorEditor.classList.remove('hidden')
+
+  // Load content into CodeMirror
+  let content = ''
+  if (currentViewerType === 'markdown') {
+    content = markdownViewer.markdownSource || ''
+  } else if (currentViewerType === 'html') {
+    // Get original HTML from viewer (need to add this method to HTMLViewer if not exists)
+    content = htmlViewer.content || ''
+  } else {
+    // Text files are already in CodeMirror
+    content = codeMirrorEditor.editorView.state.doc.toString()
+  }
+
+  codeMirrorEditor.setContent(content)
+  codeMirrorEditor.enableEditing()
+}
+
+/**
+ * Update toolbar buttons based on current viewer type and mode
+ */
+function updateToolbarButtons() {
+  if (currentViewerType === 'pdf') {
+    // PDF mode
+    extractBtn.classList.add('hidden')
+    saveFileBtn.classList.add('hidden')
+    toggleEditBtn.classList.add('hidden')
+    extractTextBtn.classList.remove('hidden')
+    extractPageBtn.classList.remove('hidden')
+  } else {
+    // Text file mode (markdown, html, text)
+    extractTextBtn.classList.add('hidden')
+    extractPageBtn.classList.add('hidden')
+    toggleEditBtn.classList.remove('hidden')
+
+    if (currentMode === 'preview') {
+      extractBtn.classList.remove('hidden')
+      saveFileBtn.classList.add('hidden')
+      toggleEditBtn.textContent = 'Edit'
+    } else {
+      // editor mode
+      extractBtn.classList.add('hidden')
+      saveFileBtn.classList.remove('hidden')
+      toggleEditBtn.textContent = 'Preview'
+    }
+  }
+}
 
 /**
  * Opens a file and displays its content in the editor and preview.
@@ -125,181 +387,25 @@ export async function openFile(filePath) {
       }
     }
 
-    // Check if file is a regular PDF
+    // Determine file type and dispatch to appropriate handler
     const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
     const isPdf = ext === '.pdf'
 
     if (pdfExtractInfo) {
-      // Open PDF extract file
-      console.log('Opening PDF extract file:', filePath)
-      console.log('Extract info:', pdfExtractInfo)
-
-      const { parentPath, rangeStart, rangeEnd, extractType } = pdfExtractInfo
-      const sourcePdfPath = parentPath // Absolute path from database
-
-      // Parse range to check if it includes line numbers
-      let pageStart = null
-      let pageEnd = null
-      let lineStart = null
-      let lineEnd = null
-      let displayText = ''
-
-      console.log('Parsing range:', { rangeStart, rangeEnd, type: typeof rangeStart })
-
-      if (typeof rangeStart === 'string' && rangeStart.includes(':')) {
-        // Text extract with line numbers: "pageNum:lineNum"
-        const [pageStr, lineStartStr] = rangeStart.split(':')
-        const [endPageStr, lineEndStr] = rangeEnd.split(':')
-        pageStart = parseInt(pageStr)
-        pageEnd = parseInt(endPageStr)
-        lineStart = parseInt(lineStartStr)
-        lineEnd = parseInt(lineEndStr)
-        displayText = `(Page ${pageStart}, Lines ${lineStart}-${lineEnd})`
-        console.log('Text extract detected:', { pageStart, pageEnd, lineStart, lineEnd })
-      } else {
-        // Page extract: just page numbers
-        pageStart = typeof rangeStart === 'string' ? parseInt(rangeStart) : rangeStart
-        pageEnd = typeof rangeEnd === 'string' ? parseInt(rangeEnd) : rangeEnd
-        displayText = `(Pages ${pageStart}-${pageEnd})`
-        console.log('Page extract detected:', { pageStart, pageEnd })
-      }
-
-      // Update UI state
-      currentOpenFile = filePath
-      currentFilePath.textContent = displayText
-      editorToolbar.classList.remove('hidden')
-
-      // Show PDF viewer, hide others
-      pdfViewer.classList.remove('hidden')
-      codeMirrorEditor.classList.add('hidden')
-      htmlViewer?.classList.add('hidden')
-      markdownViewer?.classList.add('hidden')
-
-      // Adjust toolbar buttons
-      extractBtn.classList.add('hidden')
-      saveFileBtn.classList.add('hidden')
-      toggleEditBtn.classList.add('hidden')
-      extractTextBtn.classList.remove('hidden')
-      extractPageBtn.classList.remove('hidden')
-
-      // Get extracted ranges for the PDF
-      const rangesResult = await window.fileManager.getChildRanges(
-        sourcePdfPath,
-        window.currentFileLibraryId
-      )
-
-      // Convert database ranges to pdfViewer format
-      const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
-        rangesResult?.success ? rangesResult.ranges : []
-      )
-
-      // Load PDF with all configurations at once (single render!)
-      const options = new pdfOptions({
-        pageStart: pageStart, // Restrict to extracted pages - start
-        pageEnd: pageEnd, // Restrict to extracted pages - end
-        extractedPageRanges: extractedPageRanges, // Already extracted pages
-        extractedLineRanges: extractedLineRanges, // Already extracted line ranges
-      })
-
-      console.log('Final pdfOptions:', options)
-      await pdfViewer.loadPdf(sourcePdfPath, options)
-
-      console.log('PDF extract loaded with configuration:', {
-        pageStart,
-        pageEnd,
-        extractedPageRanges: extractedPageRanges.length,
-        extractedLineRangesPages: extractedLineRanges.size,
-      })
+      // PDF extract file
+      await openPdfExtract(filePath, pdfExtractInfo)
     } else if (isPdf) {
-      // Open regular PDF file
-      currentOpenFile = filePath
-      currentFilePath.textContent = filePath
-      editorToolbar.classList.remove('hidden')
-
-      // Hide text editor and other viewers, show PDF viewer
-      codeMirrorEditor.classList.add('hidden')
-      htmlViewer?.classList.add('hidden')
-      markdownViewer?.classList.add('hidden')
-      pdfViewer.classList.remove('hidden')
-
-      // Adjust toolbar buttons
-      extractBtn.classList.add('hidden')
-      saveFileBtn.classList.add('hidden')
-      toggleEditBtn.classList.add('hidden')
-      extractTextBtn.classList.remove('hidden')
-      extractPageBtn.classList.remove('hidden')
-
-      // Get extracted ranges for the PDF
-      const rangesResult = await window.fileManager.getChildRanges(
-        filePath,
-        window.currentFileLibraryId
-      )
-
-      // Convert database ranges to pdfViewer format
-      const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
-        rangesResult?.success ? rangesResult.ranges : []
-      )
-
-      // Load PDF with extracted ranges (single render!)
-      await pdfViewer.loadPdf(
-        filePath,
-        new pdfOptions({
-          extractedPageRanges: extractedPageRanges,
-          extractedLineRanges: extractedLineRanges,
-        })
-      )
-
-      console.log('Regular PDF loaded with extracted ranges:', {
-        extractedPageRanges: extractedPageRanges.length,
-        extractedLineRangesPages: extractedLineRanges.size,
-      })
+      // Regular PDF file
+      await openRegularPdf(filePath)
     } else {
-      // Non-PDF files (text, markdown, html, etc.)
+      // Text file (markdown, html, or other)
       pdfViewer.resetView?.()
-      const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const result = await window.fileManager.readFile(filePath)
       if (!result.success) {
         alert(`Error reading file: ${result.error}`)
         return
       }
-
-      currentOpenFile = filePath
-      currentFilePath.textContent = filePath
-      editorToolbar.classList.remove('hidden')
-      isEditMode = false
-      hasUnsavedChanges = false
-      toggleEditBtn.textContent = 'Edit'
-
-      // Hide all viewers initially
-      pdfViewer.classList.add('hidden')
-      codeMirrorEditor.classList.add('hidden')
-      markdownViewer?.classList.add('hidden')
-      htmlViewer?.classList.add('hidden')
-
-      // Adjust toolbar buttons
-      extractTextBtn.classList.add('hidden')
-      extractPageBtn.classList.add('hidden')
-      extractBtn.classList.remove('hidden')
-      saveFileBtn.classList.remove('hidden')
-      toggleEditBtn.classList.remove('hidden')
-
-      if (ext === '.md' || ext === '.markdown') {
-        // Show Markdown viewer for markdown files
-        markdownViewer?.classList.remove('hidden')
-        markdownViewer?.setMarkdown(result.content ?? '')
-        await loadAndLockExtractedContent(filePath, markdownViewer)
-      } else if (ext === '.html' || ext === '.htm') {
-        // Show HTML viewer
-        htmlViewer?.classList.remove('hidden')
-        htmlViewer?.setHtml(result.content ?? '')
-      } else {
-        // Show text editor for other files
-        codeMirrorEditor.classList.remove('hidden')
-        codeMirrorEditor.setContent(result.content)
-        await loadAndLockExtractedRanges(filePath)
-        codeMirrorEditor.disableEditing()
-        codeMirrorEditor.clearHistory()
-      }
+      await openTextFile(filePath, result.content)
     }
   } catch (error) {
     console.error('[openFile] Error opening file:', error)
@@ -429,6 +535,14 @@ async function saveFile(silent = false) {
     const result = await window.fileManager.writeFile(currentOpenFile, content)
     if (result.success) {
       hasUnsavedChanges = false
+
+      // Update preview viewers with the new content
+      if (currentViewerType === 'markdown') {
+        markdownViewer.setMarkdown(content)
+      } else if (currentViewerType === 'html') {
+        htmlViewer.setHtml(content)
+      }
+
       if (!silent) {
         showToast('File saved successfully!')
       }
@@ -449,24 +563,28 @@ saveFileBtn.addEventListener('click', async () => {
 })
 
 // Toggle between preview and edit mode
-toggleEditBtn.addEventListener('click', () => {
+toggleEditBtn.addEventListener('click', async () => {
   if (!currentOpenFile) return
+
+  // PDF files don't support editing
+  if (currentViewerType === 'pdf') return
 
   if (!codeMirrorEditor) return
 
-  isEditMode = !isEditMode
-
-  if (isEditMode) {
-    codeMirrorEditor.enableEditing()
-    toggleEditBtn.textContent = 'Preview'
-    extractBtn.classList.add('hidden')
-    saveFileBtn.classList.remove('hidden')
+  if (currentMode === 'preview') {
+    // Switch to editor mode
+    currentMode = 'editor'
+    isEditMode = true
+    showEditorMode()
   } else {
-    codeMirrorEditor.disableEditing()
-    toggleEditBtn.textContent = 'Edit'
-    extractBtn.classList.remove('hidden')
-    saveFileBtn.classList.add('hidden')
+    // Switch to preview mode
+    currentMode = 'preview'
+    isEditMode = false
+    const content = codeMirrorEditor.editorView.state.doc.toString()
+    await showPreviewMode(content)
   }
+
+  updateToolbarButtons()
 })
 
 // Listen for content changes in CodeMirror
@@ -494,7 +612,12 @@ extractBtn.addEventListener('click', async () => {
     return
   }
 
-  // 3) Default: CodeMirror (text files)
+  // 3) Default: CodeMirror (text files or edit mode)
+  await handleCodeMirrorExtraction()
+})
+
+// Helper for CodeMirror text extraction (text/markdown/html in editor mode)
+async function handleCodeMirrorExtraction() {
   if (!codeMirrorEditor) {
     showToast('CodeMirror editor not found', true)
     return
@@ -574,7 +697,7 @@ extractBtn.addEventListener('click', async () => {
     console.error('Error extracting note:', error)
     showToast(`Error extracting note: ${error.message}`, true)
   }
-})
+}
 
 // helper for HTML/Markdown semantic extraction
 async function handleSemanticExtraction(viewer) {
