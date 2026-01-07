@@ -231,9 +231,17 @@ export class FileTree extends LitElement {
 
   _renderExpandIcon(item, isExpanded, hasChildren) {
     if (item.type === 'directory' || item.type === 'pdf-parent' || item.type === 'note-parent') {
-      return html`<span class="tree-expand-icon ${isExpanded ? 'expanded' : ''}">▶</span>`
+      return html`<span
+        class="tree-expand-icon ${isExpanded ? 'expanded' : ''}"
+        @click=${(e) => this._handleExpandClick(e, item)}
+        >▶</span
+      >`
     } else if (item.type === 'note-child' && hasChildren) {
-      return html`<span class="tree-expand-icon ${isExpanded ? 'expanded' : ''}">▶</span>`
+      return html`<span
+        class="tree-expand-icon ${isExpanded ? 'expanded' : ''}"
+        @click=${(e) => this._handleExpandClick(e, item)}
+        >▶</span
+      >`
     }
     return html`<span class="tree-expand-icon"></span>`
   }
@@ -271,23 +279,14 @@ export class FileTree extends LitElement {
     `
   }
 
-  async _handleItemClick(e, item) {
+  async _handleExpandClick(e, item) {
     e.stopPropagation()
 
-    if (item.type === 'directory') {
-      await this._handleDirectoryClick(item)
-    } else {
-      // Open file
-      await this._handleFileClick(item)
-    }
-  }
-
-  async _handleDirectoryClick(item) {
     const isExpanded = this.expandedNodes.has(item.path)
 
     if (!isExpanded) {
-      // Load children if not loaded
-      if (!item.children || item.children.length === 0) {
+      // Load children if not loaded (for directories)
+      if (item.type === 'directory' && (!item.children || item.children.length === 0)) {
         try {
           const children = await window.fileManager.getDirectoryTree(item.path)
           item.children = children
@@ -304,27 +303,20 @@ export class FileTree extends LitElement {
     this.requestUpdate()
   }
 
-  async _handleFileClick(item) {
-    this.selectedPath = item.path
+  async _handleItemClick(e, item) {
+    e.stopPropagation()
 
-    const editorPanel = document.querySelector('editor-panel')
-    if (editorPanel) {
-      await editorPanel.openFile(item.path)
-    }
+    // Only open files, not directories
+    if (item.type !== 'directory') {
+      this.selectedPath = item.path
 
-    // Handle expansion for parent types
-    if (item.type === 'pdf-parent' || item.type === 'note-parent' || item.type === 'note-child') {
-      if (item.children && item.children.length > 0) {
-        const isExpanded = this.expandedNodes.has(item.path)
-        if (isExpanded) {
-          this.expandedNodes.delete(item.path)
-        } else {
-          this.expandedNodes.set(item.path, true)
-        }
+      const editorPanel = document.querySelector('editor-panel')
+      if (editorPanel) {
+        await editorPanel.openFile(item.path)
       }
-    }
 
-    this.requestUpdate()
+      this.requestUpdate()
+    }
   }
 
   async _handleAddClick(e, item) {
