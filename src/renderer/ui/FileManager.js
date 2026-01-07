@@ -304,7 +304,7 @@ export class FileManager extends LitElement {
 
       // Loop through each workspace and get its directory tree
       for (const ws of workspaces) {
-        const treeData = await window.fileManager.getDirectoryTree(ws.folder_path)
+        const treeData = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
         const nodes = Array.isArray(treeData)
           ? treeData
           : Array.isArray(treeData?.children)
@@ -345,7 +345,10 @@ export class FileManager extends LitElement {
     await window.fileManager.recordWorkspace(folderPath)
     console.log('Workspace recorded in central database')
 
-    const tree = await window.fileManager.getDirectoryTree(folderPath)
+    const tree = await window.fileManager.getDirectoryTree(
+      folderPath,
+      window.currentWorkspaceLibraryId
+    )
     console.log('Directory tree received:', tree)
     this.treeData = tree
 

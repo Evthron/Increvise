@@ -21,7 +21,7 @@ async function selectFolder() {
   }
 }
 
-async function getDirectoryTree(dirPath) {
+async function getDirectoryTree(dirPath, libraryId = null) {
   /**
    * Parse hierarchical note filename
    * Tenative Format: rangeStart-rangeEnd-name.rangeStart-rangeEnd-name.{ext}
@@ -107,6 +107,7 @@ async function getDirectoryTree(dirPath) {
           layers: note.layers,
           children: [],
           type: 'note-child',
+          library_id: libraryId,
         }
 
         // Store node by filename
@@ -180,6 +181,7 @@ async function getDirectoryTree(dirPath) {
               type: 'pdf-parent',
               path: filePath,
               children: hierarchy,
+              library_id: libraryId,
             })
           } else {
             tree.push({
@@ -187,6 +189,7 @@ async function getDirectoryTree(dirPath) {
               type: 'note-parent',
               path: filePath,
               children: hierarchy,
+              library_id: libraryId,
             })
           }
           fileMap.delete(item.name)
@@ -198,6 +201,7 @@ async function getDirectoryTree(dirPath) {
             type: 'directory',
             path: fullPath,
             children: null,
+            library_id: libraryId,
           })
         }
       }
@@ -210,6 +214,7 @@ async function getDirectoryTree(dirPath) {
         name: item.name,
         type: 'file',
         path: fullPath,
+        library_id: libraryId,
       })
     }
 
@@ -232,7 +237,9 @@ async function readPdfFile(filePath) {
 export function registerFileIpc(ipcMain) {
   ipcMain.handle('select-folder', async (event) => selectFolder())
 
-  ipcMain.handle('get-directory-tree', async (event, dirPath) => getDirectoryTree(dirPath))
+  ipcMain.handle('get-directory-tree', async (event, dirPath, libraryId) =>
+    getDirectoryTree(dirPath, libraryId)
+  )
 
   ipcMain.handle('read-pdf-file', async (event, filePath) => readPdfFile(filePath))
 }

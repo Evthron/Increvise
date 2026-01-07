@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('versions', {
 contextBridge.exposeInMainWorld('fileManager', {
   // 1. File System
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-  getDirectoryTree: (path) => ipcRenderer.invoke('get-directory-tree', path),
+  getDirectoryTree: (path, libraryId) => ipcRenderer.invoke('get-directory-tree', path, libraryId),
   readPdfFile: (filePath) => ipcRenderer.invoke('read-pdf-file', filePath),
 
   // 2. Spaced Repetition

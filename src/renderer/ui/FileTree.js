@@ -208,10 +208,10 @@ export class FileTree extends LitElement {
       <li>
         ${this._renderTreeNode(item, isExpanded, isSelected, hasChildren)}
         ${isExpanded && hasChildren
-    ? html`<ul>
+          ? html`<ul>
               ${item.children.map((child) => this._renderTreeItem(child))}
             </ul>`
-    : ''}
+          : ''}
       </li>
     `
   }
@@ -288,7 +288,7 @@ export class FileTree extends LitElement {
       // Load children if not loaded (for directories)
       if (item.type === 'directory' && (!item.children || item.children.length === 0)) {
         try {
-          const children = await window.fileManager.getDirectoryTree(item.path)
+          const children = await window.fileManager.getDirectoryTree(item.path, item.library_id)
           item.children = children
         } catch (error) {
           console.error('Error loading children:', error)
@@ -310,6 +310,12 @@ export class FileTree extends LitElement {
     if (item.type !== 'directory') {
       this.selectedPath = item.path
 
+      // Set the file's library ID before opening
+      if (item.library_id) {
+        window.currentFileLibraryId = item.library_id
+        console.log('Setting file library ID from tree item:', item.library_id)
+      }
+
       const editorPanel = document.querySelector('editor-panel')
       if (editorPanel) {
         await editorPanel.openFile(item.path)
@@ -323,10 +329,11 @@ export class FileTree extends LitElement {
     e.stopPropagation()
 
     try {
-      const result = await window.fileManager.addFileToQueue(
-        item.path,
-        window.currentWorkspaceLibraryId
-      )
+      // Use the file's own library_id instead of workspace library_id
+      const libraryId = item.library_id || window.currentWorkspaceLibraryId
+      console.log('Adding file to queue with library ID:', libraryId)
+
+      const result = await window.fileManager.addFileToQueue(item.path, libraryId)
 
       if (result.success || result.alreadyExists) {
         item._inQueue = true
