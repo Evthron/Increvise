@@ -4,9 +4,13 @@
 
 // File tree UI logic extracted from renderer.js
 // Handles rendering and interaction with the file/directory/note tree
-const { openFile } = await import('./editor.js')
 
 const treeContainer = document.getElementById('tree-container')
+
+// Get reference to editor panel component
+function getEditorPanel() {
+  return document.querySelector('editor-panel')
+}
 
 /**
  * Renders the file/directory/note tree in the UI.
@@ -262,7 +266,8 @@ export function renderTree(tree, container = treeContainer) {
         }
       } else if (item.type === 'pdf-parent') {
         // Open PDF file and toggle extract list
-        await openFile(item.path)
+        const editorPanel = getEditorPanel()
+        if (editorPanel) await editorPanel.openFile(item.path)
         document.querySelectorAll('.tree-item').forEach((el) => el.classList.remove('selected'))
         treeItem.classList.add('selected')
 
@@ -287,7 +292,8 @@ export function renderTree(tree, container = treeContainer) {
           }
         }
       } else if (item.type === 'note-parent') {
-        await openFile(item.path)
+        const editorPanel = getEditorPanel()
+        if (editorPanel) await editorPanel.openFile(item.path)
         document.querySelectorAll('.tree-item').forEach((el) => el.classList.remove('selected'))
         treeItem.classList.add('selected')
 
@@ -312,7 +318,8 @@ export function renderTree(tree, container = treeContainer) {
           }
         }
       } else if (item.type === 'note-child') {
-        await openFile(item.path)
+        const editorPanel = getEditorPanel()
+        if (editorPanel) await editorPanel.openFile(item.path)
         document.querySelectorAll('.tree-item').forEach((el) => el.classList.remove('selected'))
         treeItem.classList.add('selected')
 
@@ -339,7 +346,8 @@ export function renderTree(tree, container = treeContainer) {
           }
         }
       } else if (item.type === 'file') {
-        await openFile(item.path)
+        const editorPanel = getEditorPanel()
+        if (editorPanel) await editorPanel.openFile(item.path)
         document.querySelectorAll('.tree-item').forEach((el) => el.classList.remove('selected'))
         treeItem.classList.add('selected')
       }

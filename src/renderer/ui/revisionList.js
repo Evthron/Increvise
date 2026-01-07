@@ -232,9 +232,11 @@ export class RevisionList extends LitElement {
       })
     )
 
-    // Import and call openFile
-    const { openFile } = await import('./editor.js')
-    await openFile(file.file_path)
+    // Get editor panel and call openFile
+    const editorPanel = document.querySelector('editor-panel')
+    if (editorPanel) {
+      await editorPanel.openFile(file.file_path)
+    }
   }
 
   renderEmptyState() {

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import './ui/editor.js'
+import './ui/EditorPanel.js'
 import './ui/fileTree.js'
 import './ui/revisionList.js'
 import { initFeedbackButtons } from './ui/feedbackButtons.js'

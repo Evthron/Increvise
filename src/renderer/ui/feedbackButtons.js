@@ -44,8 +44,10 @@ export function initFeedbackButtons() {
         window.currentFileLibraryId = result.files[0].library_id
         console.log('Opening first revision file from library:', result.files[0].library_id)
 
-        const { openFile } = await import('./editor.js')
-        await openFile(result.files[0].file_path)
+        const editorPanel = document.querySelector('editor-panel')
+        if (editorPanel) {
+          await editorPanel.openFile(result.files[0].file_path)
+        }
 
         // Update workspace stats
         const workspaceCounts = {}
@@ -83,8 +85,10 @@ export function initFeedbackButtons() {
     showRevisionFile(index)
 
     // Open the selected file
-    const { openFile } = await import('./editor.js')
-    await openFile(revisionFiles[index].file_path)
+    const editorPanel = document.querySelector('editor-panel')
+    if (editorPanel) {
+      await editorPanel.openFile(revisionFiles[index].file_path)
+    }
   })
 
   // Handle feedback buttons
@@ -140,8 +144,10 @@ export function initFeedbackButtons() {
               revisionFiles[currentRevisionIndex].library_id
             )
 
-            const { openFile } = await import('./editor.js')
-            await openFile(revisionFiles[currentRevisionIndex].file_path)
+            const editorPanel = document.querySelector('editor-panel')
+            if (editorPanel) {
+              await editorPanel.openFile(revisionFiles[currentRevisionIndex].file_path)
+            }
           } else {
             // All files reviewed
             showToast('All files reviewed! Great job! 🎉')
