@@ -10,7 +10,11 @@ import { initializeResizeHandles } from './ui/resize.js'
 import { loadRecentWorkspaces } from './ui/workspace.js'
 import './ui/codemirror-viewer.js'
 import './ui/pdfViewer.js'
+import './ui/HTMLViewer.js'
+import './ui/MarkdownViewer.js'
+import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
 
 initializeResizeHandles()
 loadRecentWorkspaces()
 initFeedbackButtons()
+setupExternalLinkInterceptor()

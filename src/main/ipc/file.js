@@ -57,12 +57,19 @@ async function getDirectoryTree(dirPath) {
   //   children
   //   type
   // }
-  const buildNoteHierarchy = async (folderPath) => {
+  const buildNoteHierarchy = async (folderPath, parentBaseName) => {
     try {
       const items = await fs.readdir(folderPath, { withFileTypes: true })
-      // Get all markdown files with file name following hirarchical structure
-      const mdFiles = items
-        .filter((item) => item.isFile() && item.name.endsWith('.md'))
+
+      // Detect parent file extension from the folder name (which matches parent basename)
+      // The folder contains extracted notes with same extension as parent
+      const parentExt = items.find((item) => item.isFile())
+        ? path.extname(items.find((item) => item.isFile()).name)
+        : '.md' // Default to .md if no files found
+
+      // Get all files with hierarchical naming structure (regardless of extension)
+      const noteFiles = items
+        .filter((item) => item.isFile())
         .map((item) => {
           const layers = parseHierarchicalNote(item.name)
           return {
@@ -74,11 +81,11 @@ async function getDirectoryTree(dirPath) {
         })
         .filter((item) => item.layers !== null)
 
-      if (mdFiles.length === 0) return []
+      if (noteFiles.length === 0) return []
 
       // Sort by depth first, then by range
       // Ensure parent nodes get added to the tree eariler than their child
-      mdFiles.sort((a, b) => {
+      noteFiles.sort((a, b) => {
         if (a.depth !== b.depth) return a.depth - b.depth
         const aRange = a.layers[0].rangeStart
         const bRange = b.layers[0].rangeStart
@@ -89,7 +96,7 @@ async function getDirectoryTree(dirPath) {
       const nodesByName = new Map()
       const roots = []
 
-      for (const note of mdFiles) {
+      for (const note of noteFiles) {
         const noteNode = {
           name: [
             note.layers[note.layers.length - 1].rangeStart,
@@ -109,9 +116,9 @@ async function getDirectoryTree(dirPath) {
           roots.push(noteNode)
         } else {
           // Find parent by removing last layer from filename
-          // Example: 1-10-intro.3-5-key.md -> 1-10-intro.md
+          // Example: 1-10-intro.3-5-key.html -> 1-10-intro.html
           const nameParts = path.basename(note.name, path.extname(note.name)).split('.')
-          const parentName = nameParts.slice(0, -1).join('.') + '.md'
+          const parentName = nameParts.slice(0, -1).join('.') + parentExt
           const parent = nodesByName.get(parentName)
 
           // If parent exists, pdate the type of the parent node

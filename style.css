@@ -574,6 +574,61 @@ revision-list {
   gap: 4px;
 }
 
+.file-meta-item.rank-control {
+  gap: 6px;
+}
+
+.rank-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  color: var(--text-secondary);
+  padding: 0;
+}
+
+.rank-btn:hover {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.rank-btn:active {
+  transform: scale(0.95);
+}
+
+.rank-input {
+  width: 45px;
+  height: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-color);
+  background: var(--bg-primary);
+  padding: 2px;
+}
+
+.rank-input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.1);
+}
+
+.rank-input::-webkit-inner-spin-button,
+.rank-input::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
 .file-meta-separator {
   color: var(--border-color);
 }
