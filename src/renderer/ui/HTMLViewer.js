@@ -1,5 +1,5 @@
 // HTMLViewer.js
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css } from 'lit'
 
 export class HTMLViewer extends LitElement {
   static properties = {
@@ -8,7 +8,7 @@ export class HTMLViewer extends LitElement {
     content: { type: String },
     showLinkDialog: { type: Boolean },
     previewUrl: { type: String },
-  };
+  }
 
   static styles = css`
     :host {
@@ -31,7 +31,9 @@ export class HTMLViewer extends LitElement {
       flex: 0 0 auto;
     }
 
-    .error-message { color: var(--viewer-error, #b00020); }
+    .error-message {
+      color: var(--viewer-error, #b00020);
+    }
 
     .html-viewer {
       flex: 1 1 auto;
@@ -68,7 +70,9 @@ export class HTMLViewer extends LitElement {
     }
 
     /* Basic HTML element styles */
-    .html-viewer h1, .html-viewer h2, .html-viewer h3 {
+    .html-viewer h1,
+    .html-viewer h2,
+    .html-viewer h3 {
       margin-top: 1.25rem;
       margin-bottom: 0.5rem;
     }
@@ -85,7 +89,8 @@ export class HTMLViewer extends LitElement {
       background: #f3f4f6;
       padding: 0.1rem 0.25rem;
       border-radius: 4px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+      font-family:
+        ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
     }
     .html-viewer img {
       max-width: 100%;
@@ -120,7 +125,7 @@ export class HTMLViewer extends LitElement {
       width: min(800px, 90vw);
       max-height: 80vh;
       overflow: auto;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
     }
 
     .link-url {
@@ -157,16 +162,16 @@ export class HTMLViewer extends LitElement {
       background: #fff;
       cursor: pointer;
     }
-  `;
+  `
 
   constructor() {
-    super();
-    this.isLoading = false;
-    this.errorMessage = '';
-    this.content = '';
-    this.showLinkDialog = false;
-    this.previewUrl = '';
-    this.extractedTexts = [];
+    super()
+    this.isLoading = false
+    this.errorMessage = ''
+    this.content = ''
+    this.showLinkDialog = false
+    this.previewUrl = ''
+    this.extractedTexts = []
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -177,178 +182,186 @@ export class HTMLViewer extends LitElement {
       }
     }
   }
-  
+
   /**
    * Close any unclosed HTML tags using a stack-based approach
    * @param {string} html - HTML string that may have unclosed tags
    * @returns {string} HTML with all tags properly closed
    */
-closeMissingTags(html) {
+  closeMissingTags(html) {
+    // these have no closing tags so when meet them we don't push to stack and skip them directly
+    const voidElements = new Set([
+      'area',
+      'base',
+      'col',
+      'embed',
+      'hr',
+      'img',
+      'input',
+      'link',
+      'meta',
+      'param',
+      'source',
+      'track',
+      'wbr',
+    ])
+    // console.log('📌 Current HTML text:', html);
+    // Stack to keep track of open tags, like we see <body> first then we push this to stack; <div> then push to stack etc
+    const stack = []
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g
 
-  // these have no closing tags so when meet them we don't push to stack and skip them directly
-  const voidElements = new Set([
-    "area", "base", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr"
-  ]);
-  // console.log('📌 Current HTML text:', html);
-  // Stack to keep track of open tags, like we see <body> first then we push this to stack; <div> then push to stack etc
-  const stack = [];
-  const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+    // console.log('📌📌📌 Unclosed tags in stack:', stack)
+    let match
+    // loop through the html string to find open tags AND closing tags, then will result in an array of tags
+    while ((match = tagRegex.exec(html)) !== null) {
+      // console.log('📌 Unclosed tags in stack:', stack)
+      const [fullMatch, tagName] = match
+      const lowerTag = tagName.toLowerCase()
 
-
-  // console.log('📌📌📌 Unclosed tags in stack:', stack)
-  let match;
-  // loop through the html string to find open tags AND closing tags, then will result in an array of tags
-  while ((match = tagRegex.exec(html)) !== null) {
-    // console.log('📌 Unclosed tags in stack:', stack)
-    const [fullMatch, tagName] = match;
-    const lowerTag = tagName.toLowerCase();
-
-    if (voidElements.has(lowerTag)) {
-      // Skip void elements
-      continue;
-    }
-
-    if (fullMatch.startsWith("</")) {
-      // Closing tag: pop if matches top of stack
-      if (stack.length > 0 && stack[stack.length - 1] === lowerTag) {
-        stack.pop();
-      } else {
-        // If mismatched, ignore (browser would auto-close earlier)
+      if (voidElements.has(lowerTag)) {
+        // Skip void elements
+        continue
       }
-    } else {
-      // Opening tag: push to stack
-      stack.push(lowerTag);
+
+      if (fullMatch.startsWith('</')) {
+        // Closing tag: pop if matches top of stack
+        if (stack.length > 0 && stack[stack.length - 1] === lowerTag) {
+          stack.pop()
+        } else {
+          // If mismatched, ignore (browser would auto-close earlier)
+        }
+      } else {
+        // Opening tag: push to stack
+        stack.push(lowerTag)
+      }
     }
+
+    // compare the array and see if there are some neighboring tags that are closing tags for the previous one, e.g. <div></div>, then we pop both of them in the stack using while loop until no more closing tags found
+
+    // console.log('📌📌📌 Unclosed tags in stack:', stack)
+    // append the remaining unclosed tags in the stack to the end of the html string, like if stack has <div>, <body>, then we append </body></div> to the end of html string, which is the string variable result
+    let result = html
+    while (stack.length > 0) {
+      const openTag = stack.pop()
+      result += `</${openTag}>`
+    }
+
+    return result
   }
-
-
-  // compare the array and see if there are some neighboring tags that are closing tags for the previous one, e.g. <div></div>, then we pop both of them in the stack using while loop until no more closing tags found
-
-  // console.log('📌📌📌 Unclosed tags in stack:', stack)
-  ;
-  // append the remaining unclosed tags in the stack to the end of the html string, like if stack has <div>, <body>, then we append </body></div> to the end of html string, which is the string variable result
-  let result = html;
-  while (stack.length > 0) {
-    const openTag = stack.pop();
-    result += `</${openTag}>`;
-  }
-
-  return result;
-}
 
   /**
    * Get currently selected text and its position info
    * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
    * @returns {Object|null} { text: string, hasSelection: boolean } or null
    */
-getSemanticSelection() {
-  const selection = (this.shadowRoot && this.shadowRoot.getSelection && this.shadowRoot.getSelection()) || document.getSelection();
-  if (!selection || selection.rangeCount === 0) return null;
+  getSemanticSelection() {
+    const selection =
+      (this.shadowRoot && this.shadowRoot.getSelection && this.shadowRoot.getSelection()) ||
+      document.getSelection()
+    if (!selection || selection.rangeCount === 0) return null
 
-  const range = selection.getRangeAt(0);
-  const selectedText = selection.toString().trim();
-  if (!selectedText) return null;
+    const range = selection.getRangeAt(0)
+    const selectedText = selection.toString().trim()
+    if (!selectedText) return null
 
-  // Extract the exact HTML that was selected
-  const extractedFragment = range.cloneContents();
-  const tempContainer = document.createElement('div');
-  tempContainer.appendChild(extractedFragment);
-  
-  // specifically deal with table selections to preserve structure as much as possible 
-  let extractedHtml = tempContainer.innerHTML;
-  
-  // Check if selection is within a structural element that should be preserved
-  const commonAncestor = range.commonAncestorContainer;
-  const parentElement = commonAncestor.nodeType === Node.TEXT_NODE 
-    ? commonAncestor.parentElement 
-    : commonAncestor;
-  
-  // If extracted HTML is just text (no tags), check if parent structure should be preserved
-  if (extractedHtml && !/^<[a-z]/i.test(extractedHtml.trim())) {
-    const parentTag = parentElement?.tagName?.toLowerCase();
-    
-    // Always preserve structure for these elements
-    const structuralElements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code'];
-    
-    if (parentTag && structuralElements.includes(parentTag)) {
-      extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`;
+    // Extract the exact HTML that was selected
+    const extractedFragment = range.cloneContents()
+    const tempContainer = document.createElement('div')
+    tempContainer.appendChild(extractedFragment)
+
+    // specifically deal with table selections to preserve structure as much as possible
+    let extractedHtml = tempContainer.innerHTML
+
+    // Check if selection is within a structural element that should be preserved
+    const commonAncestor = range.commonAncestorContainer
+    const parentElement =
+      commonAncestor.nodeType === Node.TEXT_NODE ? commonAncestor.parentElement : commonAncestor
+
+    // If extracted HTML is just text (no tags), check if parent structure should be preserved
+    if (extractedHtml && !/^<[a-z]/i.test(extractedHtml.trim())) {
+      const parentTag = parentElement?.tagName?.toLowerCase()
+
+      // Always preserve structure for these elements
+      const structuralElements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code']
+
+      if (parentTag && structuralElements.includes(parentTag)) {
+        extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`
+      }
     }
-  }
-  
-  // Handle table selections - preserve table structure
-  if (parentElement) {
-    // Check if selection is within a table
-    const tableAncestor = parentElement.closest('table');
-    if (tableAncestor) {
-      // Check if incomplete table structure in extraction
-      const hasTableTags = /<(table|thead|tbody|tr|td|th)\b/i.test(extractedHtml);
-      
-      if (hasTableTags) {
-        // We have partial table tags, need to ensure proper structure
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = extractedHtml;
-        
-        // If we don't have a table wrapper, add it
-        if (!tempDiv.querySelector('table')) {
-          extractedHtml = `<table>${extractedHtml}</table>`;
-        }
-        
-        // If have rows but no tbody/thead, wrap in tbody
-        tempDiv.innerHTML = extractedHtml;
-        const table = tempDiv.querySelector('table');
-        if (table) {
-          const hasBody = table.querySelector('tbody, thead');
-          const rows = table.querySelectorAll('tr');
-          if (!hasBody && rows.length > 0) {
-            const tbody = document.createElement('tbody');
-            rows.forEach(row => tbody.appendChild(row.cloneNode(true)));
-            table.innerHTML = '';
-            table.appendChild(tbody);
-            extractedHtml = table.outerHTML;
+
+    // Handle table selections - preserve table structure
+    if (parentElement) {
+      // Check if selection is within a table
+      const tableAncestor = parentElement.closest('table')
+      if (tableAncestor) {
+        // Check if incomplete table structure in extraction
+        const hasTableTags = /<(table|thead|tbody|tr|td|th)\b/i.test(extractedHtml)
+
+        if (hasTableTags) {
+          // We have partial table tags, need to ensure proper structure
+          const tempDiv = document.createElement('div')
+          tempDiv.innerHTML = extractedHtml
+
+          // If we don't have a table wrapper, add it
+          if (!tempDiv.querySelector('table')) {
+            extractedHtml = `<table>${extractedHtml}</table>`
           }
-        }
-      } else if (selectedText) {
-        // Text only selection within table like checking if it's a cell
-        const cellAncestor = parentElement.closest('td, th');
-        if (cellAncestor) {
-          const cellTag = cellAncestor.tagName.toLowerCase();
-          const rowHtml = `<tr><${cellTag}>${extractedHtml}</${cellTag}></tr>`;
-          extractedHtml = `<table><tbody>${rowHtml}</tbody></table>`;
+
+          // If have rows but no tbody/thead, wrap in tbody
+          tempDiv.innerHTML = extractedHtml
+          const table = tempDiv.querySelector('table')
+          if (table) {
+            const hasBody = table.querySelector('tbody, thead')
+            const rows = table.querySelectorAll('tr')
+            if (!hasBody && rows.length > 0) {
+              const tbody = document.createElement('tbody')
+              rows.forEach((row) => tbody.appendChild(row.cloneNode(true)))
+              table.innerHTML = ''
+              table.appendChild(tbody)
+              extractedHtml = table.outerHTML
+            }
+          }
+        } else if (selectedText) {
+          // Text only selection within table like checking if it's a cell
+          const cellAncestor = parentElement.closest('td, th')
+          if (cellAncestor) {
+            const cellTag = cellAncestor.tagName.toLowerCase()
+            const rowHtml = `<tr><${cellTag}>${extractedHtml}</${cellTag}></tr>`
+            extractedHtml = `<table><tbody>${rowHtml}</tbody></table>`
+          }
         }
       }
     }
+
+    const appendedHtml = this.closeMissingTags(extractedHtml)
+
+    // console.log('📌 Extracted HTML texts:', selectedText);
+    // console.log('📌 Extracted HTML selection:', appendedHtml);
+
+    return {
+      text: selectedText,
+      html: appendedHtml,
+      hasSelection: true,
+    }
   }
-  
-  const appendedHtml = this.closeMissingTags(extractedHtml);
-  
-  // console.log('📌 Extracted HTML texts:', selectedText);
-  // console.log('📌 Extracted HTML selection:', appendedHtml);
-  
-  return {
-    text: selectedText,
-    html: appendedHtml,
-    hasSelection: true,
-  };
-}
 
   /**
    * Lock/highlight already extracted content
    * @param {Array<Object>} ranges, array of objects with extracted_text property
    */
   lockContent(ranges) {
-    this.extractedTexts = ranges.map(r => r.extracted_text || r.text).filter(Boolean);
-    this.requestUpdate(); // Re-render with locked styling
+    this.extractedTexts = ranges.map((r) => r.extracted_text || r.text).filter(Boolean)
+    this.requestUpdate() // Re-render with locked styling
   }
 
   /**
    * Clear all locked content
    */
   clearLockedContent() {
-    this.extractedTexts = [];
-    this.requestUpdate();
+    this.extractedTexts = []
+    this.requestUpdate()
   }
-  
+
   connectedCallback() {
     super.connectedCallback()
     this.addEventListener('click', this._linkHandler, true)
@@ -386,28 +399,31 @@ getSemanticSelection() {
   // similar comments can be viewed in markdown viewer.js
   render() {
     if (this.isLoading) {
-      return html`<div class="loading-message">Loading content...</div>`;
+      return html`<div class="loading-message">Loading content...</div>`
     }
 
     if (this.errorMessage) {
-      return html`<div class="error-message">${this.errorMessage}</div>`;
+      return html`<div class="error-message">${this.errorMessage}</div>`
     }
 
     if (!this.content) {
-      return html`<div class="empty-message">No content</div>`;
+      return html`<div class="empty-message">No content</div>`
     }
 
     // Apply locked styling to extracted content
-    let renderedContent = this.content;
+    let renderedContent = this.content
     if (this.extractedTexts.length > 0) {
-      this.extractedTexts.forEach(extractedText => {
+      this.extractedTexts.forEach((extractedText) => {
         if (extractedText) {
           // Escape special regex characters
-          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(${escapedText})`, 'gi');
-          renderedContent = renderedContent.replace(regex, '<span class="extracted-content">$1</span>');
+          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const regex = new RegExp(`(${escapedText})`, 'gi')
+          renderedContent = renderedContent.replace(
+            regex,
+            '<span class="extracted-content">$1</span>'
+          )
         }
-      });
+      })
     }
 
     return html`
@@ -426,9 +442,9 @@ getSemanticSelection() {
             </div>
           `
         : ''}
-    `;
+    `
   }
 }
 
-customElements.define('html-viewer', HTMLViewer);
-export default HTMLViewer;
+customElements.define('html-viewer', HTMLViewer)
+export default HTMLViewer

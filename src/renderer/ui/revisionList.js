@@ -224,11 +224,13 @@ export class RevisionList extends LitElement {
     this.requestUpdate()
 
     // Dispatch a custom event so feedback bar updates
-    this.dispatchEvent(new CustomEvent('file-selected', {
-      detail: { index: globalIndex },
-      bubbles: true,
-      composed: true
-    }))
+    this.dispatchEvent(
+      new CustomEvent('file-selected', {
+        detail: { index: globalIndex },
+        bubbles: true,
+        composed: true,
+      })
+    )
 
     // Import and call openFile
     const { openFile } = await import('./editor.js')
@@ -254,8 +256,9 @@ export class RevisionList extends LitElement {
     const handleForget = async (e) => {
       e.stopPropagation()
       // Confirm with user
-      if (!confirm('Forget this file? This will erase its revision data but keep the file entry.')) return
-      
+      if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
+        return
+
       const result = await window.fileManager.forgetFile(filePath, file.library_id)
       if (result && result.success) {
         // Apply reset values from backend response

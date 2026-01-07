@@ -168,17 +168,17 @@ export function initFeedbackButtons() {
     if (!file) return
 
     const clampedRank = Math.max(1, Math.min(100, Math.round(newRank)))
-    
+
     try {
       const result = await window.fileManager.updateFileRank(
         file.file_path,
         file.library_id,
         clampedRank
       )
-    
+
       if (result && result.success) {
         file.rank = clampedRank
-        
+
         // Re-sort files by rank within the same day
         revisionFiles.sort((a, b) => {
           const dateA = new Date(a.due_time)
@@ -188,16 +188,16 @@ export function initFeedbackButtons() {
           }
           return dateA - dateB
         })
-        
+
         // Update the revision list component
         if (revisionListElement) {
           revisionListElement.files = revisionFiles
           revisionListElement.currentIndex = revisionFiles.indexOf(file)
         }
-        
+
         // Update current index
         currentRevisionIndex = revisionFiles.indexOf(file)
-        
+
         showRevisionFile(currentRevisionIndex)
         showToast(`Rank updated to ${clampedRank}`)
       } else {
@@ -215,13 +215,15 @@ export function initFeedbackButtons() {
     const fileName = file.file_path.split('/').pop()
     const workspaceName = file.workspacePath ? file.workspacePath.split('/').pop() : 'Unknown'
     const rank = Math.round(file.rank || 70)
-    
+
     // Calculate order number within the same day
     const dueDate = new Date(file.due_time).toDateString()
-    const sameDayFiles = revisionFiles.filter(f => new Date(f.due_time).toDateString() === dueDate)
+    const sameDayFiles = revisionFiles.filter(
+      (f) => new Date(f.due_time).toDateString() === dueDate
+    )
     sameDayFiles.sort((a, b) => (a.rank || 70) - (b.rank || 70))
     const orderNumber = sameDayFiles.indexOf(file) + 1
-    
+
     currentFileName.innerHTML = `
       <div class="current-file-header">
         <div class="current-file-title">${fileName}</div>
@@ -250,33 +252,33 @@ export function initFeedbackButtons() {
         </div>
       </div>
     `
-    
+
     // Add event listeners for rank controls
     const rankInput = currentFileName.querySelector('.rank-input')
     const rankDecrease = currentFileName.querySelector('.rank-decrease')
     const rankIncrease = currentFileName.querySelector('.rank-increase')
-    
+
     if (rankInput) {
       rankInput.addEventListener('change', (e) => {
         updateFileRank(parseInt(e.target.value))
       })
       rankInput.addEventListener('click', (e) => e.stopPropagation())
     }
-    
+
     if (rankDecrease) {
       rankDecrease.addEventListener('click', (e) => {
         e.stopPropagation()
         updateFileRank(rank - 1)
       })
     }
-    
+
     if (rankIncrease) {
       rankIncrease.addEventListener('click', (e) => {
         e.stopPropagation()
         updateFileRank(rank + 1)
       })
     }
-    
+
     revisionControls.style.display = 'block'
   }
 }
