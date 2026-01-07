@@ -296,7 +296,7 @@ async function showPreviewMode(content) {
 /**
  * Show editor mode for the current file
  */
-function showEditorMode() {
+async function showEditorMode() {
   // Hide all preview viewers
   markdownViewer.classList.add('hidden')
   htmlViewer.classList.add('hidden')
@@ -318,6 +318,12 @@ function showEditorMode() {
 
   codeMirrorEditor.setContent(content)
   codeMirrorEditor.enableEditing()
+
+  // Load and lock extracted ranges for markdown/html files when switching to editor
+  if (currentViewerType === 'markdown' || currentViewerType === 'html') {
+    await loadAndLockExtractedRanges(currentOpenFile)
+    codeMirrorEditor.clearHistory()
+  }
 }
 
 /**
@@ -575,7 +581,7 @@ toggleEditBtn.addEventListener('click', async () => {
     // Switch to editor mode
     currentMode = 'editor'
     isEditMode = true
-    showEditorMode()
+    await showEditorMode()
   } else {
     // Switch to preview mode
     currentMode = 'preview'
