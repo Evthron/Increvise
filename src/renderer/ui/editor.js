@@ -52,6 +52,7 @@ function processExtractedRanges(ranges) {
 
 const currentFilePath = document.getElementById('current-file-path')
 const saveFileBtn = document.getElementById('save-file-btn')
+const editSourceBtn = document.getElementById('edit-source-btn')
 const toggleEditBtn = document.getElementById('toggle-edit-btn')
 const extractBtn = document.getElementById('extract-btn')
 const extractTextBtn = document.getElementById('extract-text-btn')
@@ -69,7 +70,8 @@ let hasUnsavedChanges = false
 
 // Viewer mode state
 let currentViewerType = null // 'pdf' | 'markdown' | 'html' | 'text'
-let currentMode = 'preview' // 'preview' | 'editor'
+let currentDisplayMode = 'preview' // 'preview' | 'source' (for markdown/html/text files)
+// isEditMode is used only in 'source' mode to toggle readonly/editable
 
 // Listen for jump to note events from PDF viewer
 pdfViewer.addEventListener('pdf-jump-to-note', async (e) => {
@@ -134,7 +136,7 @@ async function openPdfExtract(filePath, extractInfo) {
   // Update UI state
   currentOpenFile = filePath
   currentViewerType = 'pdf'
-  currentMode = 'preview'
+  currentDisplayMode = 'preview'
   currentFilePath.textContent = displayText
   editorToolbar.classList.remove('hidden')
 
@@ -183,7 +185,7 @@ async function openPdfExtract(filePath, extractInfo) {
 async function openRegularPdf(filePath) {
   currentOpenFile = filePath
   currentViewerType = 'pdf'
-  currentMode = 'preview'
+  currentDisplayMode = 'preview'
   currentFilePath.textContent = filePath
   editorToolbar.classList.remove('hidden')
 
@@ -244,18 +246,26 @@ async function openTextFile(filePath, content) {
     currentViewerType = 'text'
   }
 
-  // Default to preview mode
-  currentMode = 'preview'
-  await showPreviewMode(content)
+  // Default to preview mode (for markdown/html) or source readonly mode (for text)
+  if (currentViewerType === 'markdown' || currentViewerType === 'html') {
+    currentDisplayMode = 'preview'
+    await showPreviewMode(content)
+  } else {
+    // Plain text files start in source mode (readonly)
+    currentDisplayMode = 'source'
+    await showSourceMode(content, false) // false = readonly
+  }
 
   updateToolbarButtons()
 }
 
 /**
- * Show preview mode for the current file
+ * Show preview mode for markdown/html files (rendered view)
  * @param {string} content - file content (optional, uses current viewer content if not provided)
  */
 async function showPreviewMode(content) {
+  currentDisplayMode = 'preview'
+
   if (currentViewerType === 'markdown') {
     markdownViewer.classList.remove('hidden')
     htmlViewer.classList.add('hidden')
@@ -276,82 +286,102 @@ async function showPreviewMode(content) {
     if (content !== undefined) {
       htmlViewer.setHtml(content)
     }
-  } else if (currentViewerType === 'text') {
-    // Text files use CodeMirror in readonly mode as "preview"
-    codeMirrorEditor.classList.remove('hidden')
-    markdownViewer.classList.add('hidden')
-    htmlViewer.classList.add('hidden')
-    pdfViewer.classList.add('hidden')
 
-    if (content !== undefined) {
-      codeMirrorEditor.setContent(content)
-    }
-
-    codeMirrorEditor.disableEditing()
-    await loadAndLockExtractedRanges(currentOpenFile)
-    codeMirrorEditor.clearHistory()
+    await loadAndLockExtractedContent(currentOpenFile, htmlViewer)
   }
 }
 
 /**
- * Show editor mode for the current file
+ * Show source mode (CodeMirror with source code)
+ * @param {string} content - file content (optional)
+ * @param {boolean} editable - whether CodeMirror should be editable
  */
-async function showEditorMode() {
+async function showSourceMode(content, editable = false) {
+  currentDisplayMode = 'source'
+  isEditMode = editable
+
   // Hide all preview viewers
   markdownViewer.classList.add('hidden')
   htmlViewer.classList.add('hidden')
+  pdfViewer.classList.add('hidden')
 
   // Show CodeMirror editor
   codeMirrorEditor.classList.remove('hidden')
 
-  // Load content into CodeMirror
-  let content = ''
-  if (currentViewerType === 'markdown') {
-    content = markdownViewer.markdownSource || ''
-  } else if (currentViewerType === 'html') {
-    // Get original HTML from viewer (need to add this method to HTMLViewer if not exists)
-    content = htmlViewer.content || ''
+  // Load content into CodeMirror if provided
+  if (content !== undefined) {
+    codeMirrorEditor.setContent(content)
   } else {
-    // Text files are already in CodeMirror
-    content = codeMirrorEditor.editorView.state.doc.toString()
+    // Get content from current viewer or CodeMirror
+    let sourceContent = ''
+    if (currentViewerType === 'markdown') {
+      sourceContent = markdownViewer.markdownSource || ''
+    } else if (currentViewerType === 'html') {
+      sourceContent = htmlViewer.content || ''
+    } else {
+      sourceContent = codeMirrorEditor.editorView.state.doc.toString()
+    }
+    codeMirrorEditor.setContent(sourceContent)
   }
 
-  codeMirrorEditor.setContent(content)
-  codeMirrorEditor.enableEditing()
-
-  // Load and lock extracted ranges for markdown/html files when switching to editor
-  if (currentViewerType === 'markdown' || currentViewerType === 'html') {
-    await loadAndLockExtractedRanges(currentOpenFile)
-    codeMirrorEditor.clearHistory()
+  // Set editable state
+  if (editable) {
+    codeMirrorEditor.enableEditing()
+  } else {
+    codeMirrorEditor.disableEditing()
   }
+
+  // Load and lock extracted ranges
+  await loadAndLockExtractedRanges(currentOpenFile)
+  codeMirrorEditor.clearHistory()
 }
 
 /**
- * Update toolbar buttons based on current viewer type and mode
+ * Update toolbar buttons based on current viewer type and display mode
+ *
+ * Button visibility states:
+ * - PDF mode: [Extract Text] [Extract Page]
+ * - Preview mode (markdown/html rendered): [Extract] [View Source]
+ * - Source mode readonly (markdown/html/text source): [Extract] [Edit] [Preview]
+ * - Source mode editable: [Save] [Select] [Preview]
  */
 function updateToolbarButtons() {
   if (currentViewerType === 'pdf') {
-    // PDF mode
+    // PDF mode: [Extract Text] [Extract Page]
     extractBtn.classList.add('hidden')
     saveFileBtn.classList.add('hidden')
+    editSourceBtn.classList.add('hidden')
     toggleEditBtn.classList.add('hidden')
     extractTextBtn.classList.remove('hidden')
     extractPageBtn.classList.remove('hidden')
-  } else {
-    // Text file mode (markdown, html, text)
+  } else if (currentDisplayMode === 'preview') {
+    // Preview mode (markdown/html rendered): [Extract] [View Source]
+    extractTextBtn.classList.add('hidden')
+    extractPageBtn.classList.add('hidden')
+    extractBtn.classList.remove('hidden')
+    saveFileBtn.classList.add('hidden')
+    editSourceBtn.classList.add('hidden')
+    toggleEditBtn.classList.remove('hidden')
+    toggleEditBtn.textContent = 'View Source'
+  } else if (currentDisplayMode === 'source') {
+    // Source mode
     extractTextBtn.classList.add('hidden')
     extractPageBtn.classList.add('hidden')
     toggleEditBtn.classList.remove('hidden')
+    toggleEditBtn.textContent = 'Preview'
 
-    if (currentMode === 'preview') {
-      extractBtn.classList.remove('hidden')
-      saveFileBtn.classList.add('hidden')
-      toggleEditBtn.textContent = 'Edit'
-    } else {
-      // editor mode
+    if (isEditMode) {
+      // Source editable: [Save] [Select] [Preview]
       extractBtn.classList.add('hidden')
       saveFileBtn.classList.remove('hidden')
-      toggleEditBtn.textContent = 'Preview'
+      editSourceBtn.classList.remove('hidden')
+      editSourceBtn.textContent = 'Select'
+    } else {
+      // Source readonly: [Extract] [Edit] [Preview]
+      extractBtn.classList.remove('hidden')
+      saveFileBtn.classList.add('hidden')
+      editSourceBtn.classList.remove('hidden')
+      editSourceBtn.textContent = 'Edit'
     }
   }
 }
@@ -568,26 +598,63 @@ saveFileBtn.addEventListener('click', async () => {
   await saveFile()
 })
 
-// Toggle between preview and edit mode
+// Toggle between preview and source mode
+// - From preview: switch to source readonly
+// - From source: switch back to preview
 toggleEditBtn.addEventListener('click', async () => {
   if (!currentOpenFile) return
 
-  // PDF files don't support editing
+  // PDF files don't have preview/source toggle
   if (currentViewerType === 'pdf') return
 
   if (!codeMirrorEditor) return
 
-  if (currentMode === 'preview') {
-    // Switch to editor mode
-    currentMode = 'editor'
-    isEditMode = true
-    await showEditorMode()
-  } else {
-    // Switch to preview mode
-    currentMode = 'preview'
+  if (currentDisplayMode === 'preview') {
+    // Switch from preview to source (readonly)
+    await showSourceMode(undefined, false)
+  } else if (currentDisplayMode === 'source') {
+    // Switch from source back to preview (for markdown/html)
+    if (currentViewerType === 'markdown' || currentViewerType === 'html') {
+      // If in edit mode with unsaved changes, warn user
+      if (isEditMode && hasUnsavedChanges) {
+        const confirmed = confirm('You have unsaved changes. Continue without saving?')
+        if (!confirmed) return
+      }
+
+      isEditMode = false
+      const content = codeMirrorEditor.editorView.state.doc.toString()
+      await showPreviewMode(content)
+    }
+  }
+
+  updateToolbarButtons()
+})
+
+// Edit/Select button: toggle between readonly and editable in source mode
+editSourceBtn.addEventListener('click', async () => {
+  if (!currentOpenFile) return
+  if (currentDisplayMode !== 'source') return
+
+  if (isEditMode) {
+    // Switch from editable to readonly (Select mode)
+    if (hasUnsavedChanges) {
+      const confirmed = confirm('You have unsaved changes. Discard changes?')
+      if (!confirmed) return
+    }
     isEditMode = false
-    const content = codeMirrorEditor.editorView.state.doc.toString()
-    await showPreviewMode(content)
+    codeMirrorEditor.disableEditing()
+    // Reload content to discard unsaved changes
+    const result = await window.fileManager.readFile(currentOpenFile)
+    if (result.success) {
+      codeMirrorEditor.setContent(result.content)
+      await loadAndLockExtractedRanges(currentOpenFile)
+      codeMirrorEditor.clearHistory()
+      hasUnsavedChanges = false
+    }
+  } else {
+    // Switch from readonly to editable (Edit mode)
+    isEditMode = true
+    codeMirrorEditor.enableEditing()
   }
 
   updateToolbarButtons()
