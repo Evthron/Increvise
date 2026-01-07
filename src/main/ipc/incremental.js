@@ -702,7 +702,8 @@ async function extractNote(
       ).run(libraryId, relativePath)
 
       // Insert note_source record with parent_path
-      if (rangeStart && rangeEnd) {
+      // Note: For HTML/semantic extractions, rangeStart and rangeEnd are both 0
+      if (rangeStart !== undefined && rangeEnd !== undefined) {
         const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
         try {
           db.prepare(
