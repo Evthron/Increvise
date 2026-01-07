@@ -813,13 +813,19 @@ export class EditorPanel extends LitElement {
 
     // HTML viewer active
     if (this.htmlViewer && !this.htmlViewer.classList.contains('hidden')) {
-      await this._handleSemanticExtraction(this.htmlViewer)
+      const result = await this.htmlViewer.extractSelection()
+      if (!result.success) {
+        this._showToast(result.error || 'Extraction failed', true)
+      }
       return
     }
 
     // Markdown viewer active
     if (this.markdownViewer && !this.markdownViewer.classList.contains('hidden')) {
-      await this._handleSemanticExtraction(this.markdownViewer)
+      const result = await this.markdownViewer.extractSelection()
+      if (!result.success) {
+        this._showToast(result.error || 'Extraction failed', true)
+      }
       return
     }
 
@@ -894,55 +900,6 @@ export class EditorPanel extends LitElement {
       if (result.success) {
         await this._loadAndLockExtractedRanges(this.currentOpenFile)
         this.codeMirrorEditor.clearHistory()
-        this._showToast(`Note extracted to ${result.fileName}`)
-        // Refresh file manager to show the new extracted note
-        this._refreshFileManager()
-      } else {
-        this._showToast(`Error: ${result.error}`, true)
-      }
-    } catch (error) {
-      console.error('Error extracting note:', error)
-      this._showToast(`Error extracting note: ${error.message}`, true)
-    }
-  }
-
-  /**
-   * Helper for HTML/Markdown semantic extraction
-   * @param {Object} viewer
-   */
-  async _handleSemanticExtraction(viewer) {
-    const selection = viewer.getSemanticSelection?.()
-
-    if (!selection || !selection.text) {
-      this._showToast('Please select text or a block to extract', true)
-      return
-    }
-
-    const selectedText = selection.text
-    const extractedContent = selection.html || selection.markdown || selectedText
-
-    if (!selectedText.trim()) {
-      this._showToast('Please select text to extract', true)
-      return
-    }
-
-    if (!window.currentFileLibraryId) {
-      this._showToast('Error: Library ID not set. Please reopen the file.', true)
-      console.error('currentFileLibraryId is not set')
-      return
-    }
-
-    try {
-      const result = await window.fileManager.extractNote(
-        this.currentOpenFile,
-        extractedContent,
-        0,
-        0,
-        window.currentFileLibraryId
-      )
-
-      if (result.success) {
-        await this._loadAndLockExtractedContent(this.currentOpenFile, viewer)
         this._showToast(`Note extracted to ${result.fileName}`)
         // Refresh file manager to show the new extracted note
         this._refreshFileManager()

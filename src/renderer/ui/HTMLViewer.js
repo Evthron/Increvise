@@ -362,6 +362,31 @@ export class HTMLViewer extends LitElement {
     this.requestUpdate()
   }
 
+  /**
+   * Extract selected content and dispatch event
+   * @returns {Object} - {success: boolean, error?: string}
+   */
+  async extractSelection() {
+    const selection = this.getSemanticSelection()
+    if (!selection || !selection.text) {
+      return { success: false, error: 'No text selected' }
+    }
+
+    // Dispatch custom event for EditorPanel to handle
+    this.dispatchEvent(
+      new CustomEvent('extract-requested', {
+        detail: {
+          text: selection.html || selection.text,
+          viewerType: 'html',
+        },
+        bubbles: true,
+        composed: true,
+      })
+    )
+
+    return { success: true }
+  }
+
   connectedCallback() {
     super.connectedCallback()
     this.addEventListener('click', this._linkHandler, true)
