@@ -40,7 +40,7 @@ function insertTestData(dbPath, libraryId) {
   `)
 
   // File 1: Never reviewed (overdue)
-  insertFile.run(libraryId, 'new-file.md', 0, 1.3, 70, 1, -1)
+  insertFile.run(libraryId, 'new-file.md', 0, 2.5, 70, 1, -1)
 
   // File 2: Reviewed once (overdue)
   insertFile.run(libraryId, 'reviewed-once.md', 1, 1.35, 70, 1, -1)
@@ -138,11 +138,11 @@ async function test2_InspectDatabase() {
 // Test 3: updateRevisionFeedback - First review
 // ========================================
 async function test3_FirstReview() {
-  printSeparator('Test 3: First Review (medium)')
+  printSeparator('Test 3: First Review (good)')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
   const testFile = 'new-file.md'
-  const feedback = 'medium'
+  const feedback = 'good'
 
   // Read state before update
   const db = new Database(TEST_DB_PATH)
@@ -221,7 +221,7 @@ async function test5_DifferentFeedbacks() {
   printSeparator('Test 5: Different Feedbacks')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
-  const feedbacks = ['again', 'hard', 'medium', 'easy']
+  const feedbacks = ['again', 'hard', 'good', 'easy']
   const testFile = 'old-file.md'
 
   for (const feedback of feedbacks) {

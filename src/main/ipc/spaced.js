@@ -44,7 +44,7 @@ async function createDatabase(folderPath, getCentralDbPath) {
               added_time DATETIME DEFAULT CURRENT_TIMESTAMP,
               last_revised_time DATETIME,
               review_count INTEGER DEFAULT 0,
-              easiness REAL DEFAULT 0.0,
+              easiness REAL DEFAULT 2.5,
               rank REAL DEFAULT 70.0,
               interval INTEGER DEFAULT 1,
               due_time DATETIME,
@@ -176,7 +176,7 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
 
       db.prepare(
         `INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-          VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))`
+          VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
       ).run(libraryId, relativePath)
 
       db.close()
@@ -303,7 +303,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
 }
 
 async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback) {
-  const response_quality = { again: 0, hard: 1, medium: 3, easy: 5 }
+  const response_quality = { again: 0, hard: 1, good: 4, easy: 5 }
   const q = response_quality[feedback]
   const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
   try {
@@ -318,18 +318,30 @@ async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
     const interval = row ? row.interval : 1
     const easiness = row ? row.easiness : 2.5
     const rank = row ? row.rank : 70
-    const newEasiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
-    const newRank = rank + Math.floor(easiness_update * 5)
+
+    let newEasiness
+    let newRank
     let newInterval
-    if (q === 0) {
+
+    // If q < 2, reset interval but don't change EF
+    // Tweaked from standard q < 3, otherwise there will be too much revision
+    if (q < 2) {
       newInterval = 1
-    } else if (reviewCount === 0) {
-      newInterval = 1
-    } else if (reviewCount === 1) {
-      newInterval = 6
+      newEasiness = easiness // Keep EF unchanged
+      newRank = rank // Keep rank unchanged
     } else {
-      newInterval = Math.floor(interval * newEasiness)
+      newEasiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
+      newRank = rank + Math.floor(easiness_update * 5)
+
+      if (reviewCount === 0) {
+        newInterval = 1
+      } else if (reviewCount === 1) {
+        newInterval = 6
+      } else {
+        newInterval = Math.floor(interval * newEasiness)
+      }
     }
+
     const stmt = db.prepare(`
           UPDATE file
           SET last_revised_time = datetime('now'),
@@ -344,7 +356,7 @@ async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
     db.close()
     return {
       success: true,
-      message: `File updated. Next review in ${interval} day(s)`,
+      message: `File updated. Next review in ${newInterval} day(s)`,
       changes: info.changes,
     }
   } catch (err) {
@@ -385,7 +397,7 @@ async function forgetFile(filePath, libraryId, getCentralDbPath) {
         UPDATE file
         SET last_revised_time = NULL,
             review_count = 0,
-            easiness = 0.0,
+            easiness = 2.5,
             rank = 70.0,
             interval = 1,
             due_time = datetime('now')
@@ -402,11 +414,11 @@ async function forgetFile(filePath, libraryId, getCentralDbPath) {
         resetValues: {
           last_revised_time: null,
           review_count: 0,
-          easiness: 0.0,
+          easiness: 2.5,
           rank: 70.0,
           interval: 1,
-          due_time: new Date().toISOString()
-        }
+          due_time: new Date().toISOString(),
+        },
       }
     } catch (err) {
       return { success: false, error: err.message }
