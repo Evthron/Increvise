@@ -256,8 +256,10 @@ export class FileManager extends LitElement {
   async openWorkspace(folderPath) {
     try {
       // Stop current revision workflow before switching workspace
-      const { stopRevisionWorkflow } = await import('./feedbackButtons.js')
-      stopRevisionWorkflow()
+      const feedbackBar = document.querySelector('feedback-bar')
+      if (feedbackBar) {
+        feedbackBar.stopRevisionWorkflow()
+      }
 
       // Update state
       this.currentRootPath = folderPath
@@ -342,8 +344,10 @@ export class FileManager extends LitElement {
 
           // Auto-start revision workflow if files are available
           if (result.files.length > 0) {
-            const { startRevisionWorkflow } = await import('./feedbackButtons.js')
-            await startRevisionWorkflow(result.files)
+            const feedbackBar = document.querySelector('feedback-bar')
+            if (feedbackBar) {
+              await feedbackBar.startRevisionWorkflow(result.files)
+            }
           }
         }
       }
@@ -385,8 +389,10 @@ export class FileManager extends LitElement {
 
         // Auto-start revision workflow if files are available
         if (result.files.length > 0) {
-          const { startRevisionWorkflow } = await import('./feedbackButtons.js')
-          await startRevisionWorkflow(result.files)
+          const feedbackBar = document.querySelector('feedback-bar')
+          if (feedbackBar) {
+            await feedbackBar.startRevisionWorkflow(result.files)
+          }
         }
       }
     }

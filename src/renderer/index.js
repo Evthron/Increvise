@@ -6,7 +6,7 @@ import './ui/EditorPanel.js'
 import './ui/FileManager.js'
 import './ui/FileTree.js'
 import './ui/revisionList.js'
-import { initFeedbackButtons } from './ui/feedbackButtons.js'
+import './ui/FeedbackBar.js'
 import { initializeResizeHandles } from './ui/resize.js'
 import './ui/codemirror-viewer.js'
 import './ui/pdfViewer.js'
@@ -15,5 +15,4 @@ import './ui/MarkdownViewer.js'
 import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
 
 initializeResizeHandles()
-initFeedbackButtons()
 setupExternalLinkInterceptor()

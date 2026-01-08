@@ -362,8 +362,10 @@ export class EditorPanel extends LitElement {
 
       // Check if the opened file is in the revision queue
       // If so, show feedback buttons (implements requirement B)
-      const { checkAndShowFeedbackIfInQueue } = await import('./feedbackButtons.js')
-      checkAndShowFeedbackIfInQueue(filePath)
+      const feedbackBar = document.querySelector('feedback-bar')
+      if (feedbackBar) {
+        feedbackBar.checkAndShowFeedbackIfInQueue(filePath)
+      }
     } catch (error) {
       console.error('[openFile] Error opening file:', error)
       alert(`Error opening file: ${error.message}`)
