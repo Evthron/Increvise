@@ -180,7 +180,6 @@ export class FileManager extends LitElement {
       <div class="sidebar-content">
         <div class="controls">
           <button @click=${this._handleSelectFolder}>Open Folder</button>
-          <button @click=${this._handleReviseFiles}>Revise Files Today</button>
         </div>
         <file-tree .treeData=${this.treeData} .disabled=${this.isAllWorkspacesMode}></file-tree>
       </div>
@@ -250,21 +249,16 @@ export class FileManager extends LitElement {
     }
   }
 
-  async _handleReviseFiles() {
-    this.dispatchEvent(
-      new CustomEvent('revise-files-requested', {
-        bubbles: true,
-        composed: true,
-      })
-    )
-  }
-
   async _handleWorkspaceClick(folderPath) {
     await this.openWorkspace(folderPath)
   }
 
   async openWorkspace(folderPath) {
     try {
+      // Stop current revision workflow before switching workspace
+      const { stopRevisionWorkflow } = await import('./feedbackButtons.js')
+      stopRevisionWorkflow()
+
       // Update state
       this.currentRootPath = folderPath
       this.isAllWorkspacesMode = folderPath === 'ALL'
@@ -345,6 +339,12 @@ export class FileManager extends LitElement {
         const result = await window.fileManager.getAllFilesForRevision()
         if (result.success) {
           revisionList.files = result.files
+
+          // Auto-start revision workflow if files are available
+          if (result.files.length > 0) {
+            const { startRevisionWorkflow } = await import('./feedbackButtons.js')
+            await startRevisionWorkflow(result.files)
+          }
         }
       }
     } catch (error) {
@@ -382,6 +382,12 @@ export class FileManager extends LitElement {
       const result = await window.fileManager.getFilesForRevision(folderPath)
       if (result.success) {
         revisionList.files = result.files
+
+        // Auto-start revision workflow if files are available
+        if (result.files.length > 0) {
+          const { startRevisionWorkflow } = await import('./feedbackButtons.js')
+          await startRevisionWorkflow(result.files)
+        }
       }
     }
   }
