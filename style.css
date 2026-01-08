@@ -452,6 +452,14 @@ revision-list {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
+}
+
+/* Ensure editor-panel web component takes available space but leaves room for controls */
+.editor-panel > editor-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .editor-toolbar {
@@ -533,6 +541,9 @@ revision-list {
   border-top: 1px solid var(--border-color);
   background-color: var(--toolbar-bg);
   padding: 16px;
+  flex-shrink: 0;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 #current-file-name {
