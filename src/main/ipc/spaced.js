@@ -48,6 +48,12 @@ async function createDatabase(folderPath, getCentralDbPath) {
               rank REAL DEFAULT 70.0,
               interval INTEGER DEFAULT 1,
               due_time DATETIME,
+              
+              rotation_interval INTEGER DEFAULT 3,
+              intermediate_multiplier REAL DEFAULT 1.0,
+              intermediate_base INTEGER DEFAULT 7,
+              extraction_count INTEGER DEFAULT 0,
+              last_queue_change DATETIME,
 
               PRIMARY KEY (library_id, relative_path),
               FOREIGN KEY (library_id) REFERENCES library(library_id)
@@ -75,6 +81,16 @@ async function createDatabase(folderPath, getCentralDbPath) {
                 REFERENCES review_queue(library_id, queue_name)
           );
 
+          CREATE TABLE queue_config (
+              library_id TEXT NOT NULL,
+              queue_name TEXT NOT NULL,
+              config_key TEXT NOT NULL,
+              config_value TEXT NOT NULL,
+
+              PRIMARY KEY (library_id, queue_name, config_key),
+              FOREIGN KEY (library_id) REFERENCES library(library_id)
+          );
+
           CREATE TABLE note_source (
               library_id TEXT NOT NULL,
               relative_path TEXT NOT NULL,
@@ -99,6 +115,28 @@ async function createDatabase(folderPath, getCentralDbPath) {
         libraryId,
         libraryName
       )
+
+      // Initialize default queues
+      const insertQueue = db.prepare(
+        'INSERT INTO review_queue (library_id, queue_name, description) VALUES (?, ?, ?)'
+      )
+      insertQueue.run(libraryId, 'new', 'New queue, FIFO, waiting to be processed')
+      insertQueue.run(libraryId, 'processing', 'processing queue: rotation-based review')
+      insertQueue.run(libraryId, 'intermediate', 'intermediate queue: variable interval review')
+      insertQueue.run(libraryId, 'spaced', 'Spaced Repetition queue: standard spaced review')
+      insertQueue.run(libraryId, 'archived', 'Archived items, low chance of review')
+
+      // Initialize default queue configs
+      const insertConfig = db.prepare(
+        'INSERT INTO queue_config (library_id, queue_name, config_key, config_value) VALUES (?, ?, ?, ?)'
+      )
+      insertConfig.run(libraryId, 'new', 'max_per_day', '10')
+      insertConfig.run(libraryId, 'processing', 'default_rotation', '3')
+      insertConfig.run(libraryId, 'intermediate', 'default_base', '7')
+      insertConfig.run(libraryId, 'intermediate', 'min_interval', '3')
+
+      // Global configs (not a real queue, just a config namespace)
+      insertConfig.run(libraryId, 'global', 'rank_penalty', '5')
 
       db.close()
 
@@ -179,8 +217,14 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
           VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
       ).run(libraryId, relativePath)
 
+      // Add to new queue by default
+      db.prepare(
+        `INSERT INTO queue_membership (library_id, queue_name, relative_path)
+          VALUES (?, 'new', ?)`
+      ).run(libraryId, relativePath)
+
       db.close()
-      return { success: true, message: 'File added to revision queue' }
+      return { success: true, message: 'File added to new queue' }
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -266,19 +310,85 @@ async function getAllFilesForRevision(getCentralDbPath) {
       }
       try {
         const db = new Database(workspace.db_path, { readonly: true })
-        const rows = db
+        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get().library_id
+
+        // Get max_per_day config
+        const maxNewConfig = db
+          .prepare(
+            "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'new' AND config_key = 'max_per_day'"
+          )
+          .get(libraryId)
+        const maxNewPerDay = maxNewConfig ? parseInt(maxNewConfig.config_value) : 10
+
+        // Get new queue items (FIFO)
+        const newItems = db
           .prepare(
             `
-            SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, easiness, rank, due_time
-            FROM file
-            WHERE date(due_time) <= date('now')
-            ORDER BY due_time ASC
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE qm.queue_name = 'new' AND f.library_id = ?
+            ORDER BY f.added_time ASC
+            LIMIT ?
           `
           )
-          .all()
+          .all(libraryId, maxNewPerDay)
+
+        // Get processing queue items (due today)
+        const processingItems = db
+          .prepare(
+            `
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE qm.queue_name = 'processing' 
+              AND f.library_id = ?
+              AND date(f.due_time) <= date('now')
+            ORDER BY f.due_time ASC, f.rank ASC
+          `
+          )
+          .all(libraryId)
+
+        // Get intermediate queue items (due today)
+        const intermediateItems = db
+          .prepare(
+            `
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE qm.queue_name = 'intermediate'
+              AND f.library_id = ?
+              AND date(f.due_time) <= date('now')
+            ORDER BY f.due_time ASC, f.rank ASC
+          `
+          )
+          .all(libraryId)
+
+        // Get spaced queue items (due today)
+        const spacedItems = db
+          .prepare(
+            `
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE qm.queue_name = 'spaced'
+              AND f.library_id = ?
+              AND date(f.due_time) <= date('now')
+            ORDER BY f.due_time ASC, f.rank ASC
+          `
+          )
+          .all(libraryId)
+
+        // Combine all items
+        const workspaceFiles = [
+          ...newItems,
+          ...processingItems,
+          ...intermediateItems,
+          ...spacedItems,
+        ]
+
         allFiles.push(
-          ...rows.map((row) => ({
+          ...workspaceFiles.map((row) => ({
             ...row,
             file_path: path.join(workspace.folder_path, row.relative_path),
             dbPath: workspace.db_path,
@@ -286,8 +396,12 @@ async function getAllFilesForRevision(getCentralDbPath) {
           }))
         )
         db.close()
-      } catch (err) {}
+      } catch (err) {
+        console.error('Error processing workspace:', err)
+      }
     }
+
+    // Sort by due_time and rank
     allFiles.sort((a, b) => {
       const dateA = new Date(a.due_time)
       const dateB = new Date(b.due_time)
@@ -296,6 +410,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
       }
       return dateA - dateB
     })
+
     return { success: true, files: allFiles }
   } catch (error) {
     return { success: false, error: error.message, files: [] }
@@ -470,6 +585,312 @@ async function updateFileRank(filePath, libraryId, newRank, getCentralDbPath) {
   }
 }
 
+// ========================================
+// Queue Management Functions
+// ========================================
+
+async function getQueueConfig(libraryId, queueName, configKey, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const config = db
+        .prepare(
+          'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = ? AND config_key = ?'
+        )
+        .get(libraryId, queueName, configKey)
+      db.close()
+
+      if (config) {
+        return { success: true, value: config.config_value }
+      } else {
+        return { success: false, error: 'Config not found' }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function setQueueConfig(libraryId, queueName, configKey, configValue, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      db.prepare(
+        `INSERT OR REPLACE INTO queue_config (library_id, queue_name, config_key, config_value)
+         VALUES (?, ?, ?, ?)`
+      ).run(libraryId, queueName, configKey, configValue)
+      db.close()
+      return { success: true, message: 'Config updated' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function getFileQueue(filePath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
+      const membership = db
+        .prepare(
+          'SELECT queue_name FROM queue_membership WHERE library_id = ? AND relative_path = ?'
+        )
+        .get(libraryId, relativePath)
+      db.close()
+
+      if (membership) {
+        return { success: true, queueName: membership.queue_name }
+      } else {
+        return { success: false, error: 'File not in any queue' }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const relativePath = path.relative(dbInfo.folderPath, filePath)
+
+      // Update queue membership
+      db.prepare(
+        `INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
+         VALUES (?, ?, ?)`
+      ).run(libraryId, targetQueue, relativePath)
+
+      // Update last_queue_change timestamp
+      db.prepare(
+        `UPDATE file SET last_queue_change = datetime('now') WHERE library_id = ? AND relative_path = ?`
+      ).run(libraryId, relativePath)
+
+      // Set appropriate parameters based on target queue
+      if (targetQueue === 'intermediate') {
+        db.prepare(
+          `UPDATE file SET intermediate_multiplier = 1.0, due_time = datetime('now')
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(libraryId, relativePath)
+      } else if (targetQueue === 'spaced') {
+        db.prepare(
+          `UPDATE file SET easiness = 2.5, review_count = 0, interval = 1, due_time = datetime('now')
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(libraryId, relativePath)
+      } else if (targetQueue === 'archived') {
+        db.prepare(
+          `UPDATE file SET due_time = datetime('now', '+9999 days')
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(libraryId, relativePath)
+      } else if (targetQueue === 'processing') {
+        const rotationInterval = db
+          .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
+          .get(libraryId, relativePath).rotation_interval
+        db.prepare(
+          `UPDATE file SET due_time = datetime('now', '+' || ? || ' days')
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(rotationInterval, libraryId, relativePath)
+      }
+
+      db.close()
+      return { success: true, message: `File moved to ${targetQueue} queue` }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+      const parentRelPath = path.relative(dbInfo.folderPath, parentPath)
+      const childRelPath = path.relative(dbInfo.folderPath, childPath)
+
+      // Get parent file info
+      const parent = db
+        .prepare('SELECT rank FROM file WHERE library_id = ? AND relative_path = ?')
+        .get(libraryId, parentRelPath)
+
+      if (!parent) {
+        db.close()
+        return { success: false, error: 'Parent file not found' }
+      }
+
+      // Get rank penalty from config
+      const config = db
+        .prepare(
+          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'global' AND config_key = 'rank_penalty'"
+        )
+        .get(libraryId)
+      const rankPenalty = config ? parseInt(config.config_value) : 5
+
+      // Update parent: increase rank (lower priority) and increment extraction count
+      db.prepare(
+        `UPDATE file 
+         SET rank = rank + ?, extraction_count = extraction_count + 1
+         WHERE library_id = ? AND relative_path = ?`
+      ).run(rankPenalty, libraryId, parentRelPath)
+
+      // Create child file entry (inherit parent rank)
+      db.prepare(
+        `INSERT INTO file (library_id, relative_path, added_time, rank, due_time)
+         VALUES (?, ?, datetime('now'), ?, datetime('now'))`
+      ).run(libraryId, childRelPath, parent.rank)
+
+      // Add child to intermediate queue
+      db.prepare(
+        `INSERT INTO queue_membership (library_id, queue_name, relative_path)
+         VALUES (?, 'intermediate', ?)`
+      ).run(libraryId, childRelPath)
+
+      db.close()
+      return {
+        success: true,
+        message: 'Extraction recorded',
+        childQueue: 'intermediate',
+        parentRankPenalty: rankPenalty,
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+// ========================================
+// Queue-Specific Feedback Handlers
+// ========================================
+
+async function handleNewQueueFeedback(dbPath, libraryId, relativePath) {
+  // New queue items automatically move to processing queue when first viewed
+  try {
+    const db = new Database(dbPath)
+
+    // Move to processing queue
+    db.prepare(
+      `UPDATE queue_membership SET queue_name = 'processing'
+       WHERE library_id = ? AND relative_path = ?`
+    ).run(libraryId, relativePath)
+
+    // Set due time based on rotation interval
+    const file = db
+      .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
+      .get(libraryId, relativePath)
+
+    db.prepare(
+      `UPDATE file 
+       SET due_time = datetime('now', '+' || ? || ' days'),
+           last_queue_change = datetime('now')
+       WHERE library_id = ? AND relative_path = ?`
+    ).run(file.rotation_interval, libraryId, relativePath)
+
+    db.close()
+    return { success: true, message: 'Moved to processing queue' }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
+async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedback) {
+  // feedback: 'again' (immediate), 'continue' (rotate)
+  try {
+    const db = new Database(dbPath)
+    const file = db
+      .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
+      .get(libraryId, relativePath)
+
+    let newDueTime
+    if (feedback === 'again') {
+      newDueTime = "datetime('now')"
+    } else {
+      newDueTime = `datetime('now', '+' || ${file.rotation_interval} || ' days')`
+    }
+
+    db.prepare(
+      `UPDATE file SET due_time = ${newDueTime}, last_revised_time = datetime('now')
+       WHERE library_id = ? AND relative_path = ?`
+    ).run(libraryId, relativePath)
+
+    db.close()
+    return { success: true, message: 'Processing feedback recorded' }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
+async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback) {
+  // feedback: 'decrease' (÷1.5), 'maintain' (same), 'increase' (×1.5)
+  try {
+    const db = new Database(dbPath)
+    const file = db
+      .prepare(
+        'SELECT intermediate_base, intermediate_multiplier FROM file WHERE library_id = ? AND relative_path = ?'
+      )
+      .get(libraryId, relativePath)
+
+    const multiplierChanges = {
+      decrease: 1 / 1.5,
+      maintain: 1.0,
+      increase: 1.5,
+    }
+
+    let newMultiplier = file.intermediate_multiplier * multiplierChanges[feedback]
+    let newInterval = file.intermediate_base * newMultiplier
+
+    // Ensure not below base interval
+    newInterval = Math.max(newInterval, file.intermediate_base)
+    newMultiplier = newInterval / file.intermediate_base
+
+    db.prepare(
+      `UPDATE file 
+       SET intermediate_multiplier = ?,
+           due_time = datetime('now', '+' || ? || ' days'),
+           last_revised_time = datetime('now')
+       WHERE library_id = ? AND relative_path = ?`
+    ).run(newMultiplier, Math.floor(newInterval), libraryId, relativePath)
+
+    db.close()
+    return {
+      success: true,
+      message: 'Intermediate feedback recorded',
+      newInterval: Math.floor(newInterval),
+    }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
 export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('create-database', (event, folderPath) =>
     createDatabase(folderPath, getCentralDbPath)
@@ -491,6 +912,36 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('update-file-rank', (event, filePath, libraryId, newRank) =>
     updateFileRank(filePath, libraryId, newRank, getCentralDbPath)
   )
+
+  // Queue management
+  ipcMain.handle('get-queue-config', (event, libraryId, queueName, configKey) =>
+    getQueueConfig(libraryId, queueName, configKey, getCentralDbPath)
+  )
+  ipcMain.handle('set-queue-config', (event, libraryId, queueName, configKey, configValue) =>
+    setQueueConfig(libraryId, queueName, configKey, configValue, getCentralDbPath)
+  )
+  ipcMain.handle('get-file-queue', (event, filePath, libraryId) =>
+    getFileQueue(filePath, libraryId, getCentralDbPath)
+  )
+  ipcMain.handle('move-file-to-queue', (event, filePath, libraryId, targetQueue) =>
+    moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPath)
+  )
+  ipcMain.handle('handle-extraction', (event, parentPath, childPath, libraryId) =>
+    handleExtraction(parentPath, childPath, libraryId, getCentralDbPath)
+  )
+
+  // Queue-specific feedback
+  ipcMain.handle('handle-new-queue-feedback', (event, dbPath, libraryId, relativePath) =>
+    handleNewQueueFeedback(dbPath, libraryId, relativePath)
+  )
+  ipcMain.handle('handle-processing-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
+    handleProcessingFeedback(dbPath, libraryId, relativePath, feedback)
+  )
+  ipcMain.handle(
+    'handle-intermediate-feedback',
+    (event, dbPath, libraryId, relativePath, feedback) =>
+      handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback)
+  )
 }
 
 // Export functions for testing
@@ -503,4 +954,12 @@ export {
   updateRevisionFeedback,
   forgetFile,
   updateFileRank,
+  getQueueConfig,
+  setQueueConfig,
+  getFileQueue,
+  moveFileToQueue,
+  handleExtraction,
+  handleNewQueueFeedback,
+  handleProcessingFeedback,
+  handleIntermediateFeedback,
 }
