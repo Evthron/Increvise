@@ -26,7 +26,9 @@ async function createDatabase(folderPath, getCentralDbPath) {
       if (library) {
         return { success: true, path: dbFilePath, libraryId: library.library_id }
       }
-    } catch {}
+    } catch {
+      // Database file exists but couldn't read library_id, will create new
+    }
 
     try {
       // Create and initialize the database
@@ -123,7 +125,9 @@ async function createDatabase(folderPath, getCentralDbPath) {
       insertQueue.run(libraryId, 'new', 'New queue, FIFO, waiting to be processed')
       insertQueue.run(libraryId, 'processing', 'processing queue: rotation-based review')
       insertQueue.run(libraryId, 'intermediate', 'intermediate queue: variable interval review')
-      insertQueue.run(libraryId, 'spaced', 'Spaced Repetition queue: standard spaced review')
+      insertQueue.run(libraryId, 'spaced-casual', 'Spaced Repetition (Casual): ~80% retention')
+      insertQueue.run(libraryId, 'spaced-standard', 'Spaced Repetition (Standard): ~90% retention')
+      insertQueue.run(libraryId, 'spaced-strict', 'Spaced Repetition (Strict): ~95% retention')
       insertQueue.run(libraryId, 'archived', 'Archived items, low chance of review')
 
       // Initialize default queue configs
@@ -134,6 +138,30 @@ async function createDatabase(folderPath, getCentralDbPath) {
       insertConfig.run(libraryId, 'processing', 'default_rotation', '3')
       insertConfig.run(libraryId, 'intermediate', 'default_base', '7')
       insertConfig.run(libraryId, 'intermediate', 'min_interval', '3')
+
+      // Spaced-Casual queue configs (~80% retention)
+      insertConfig.run(libraryId, 'spaced-casual', 'initial_ef', '2.0')
+      insertConfig.run(libraryId, 'spaced-casual', 'min_ef', '1.2')
+      insertConfig.run(libraryId, 'spaced-casual', 'max_ef', '2.5')
+      insertConfig.run(libraryId, 'spaced-casual', 'first_interval', '1')
+      insertConfig.run(libraryId, 'spaced-casual', 'second_interval', '4')
+      insertConfig.run(libraryId, 'spaced-casual', 'fail_threshold', '2')
+
+      // Spaced-Standard queue configs (~90% retention)
+      insertConfig.run(libraryId, 'spaced-standard', 'initial_ef', '2.5')
+      insertConfig.run(libraryId, 'spaced-standard', 'min_ef', '1.3')
+      insertConfig.run(libraryId, 'spaced-standard', 'max_ef', '2.5')
+      insertConfig.run(libraryId, 'spaced-standard', 'first_interval', '1')
+      insertConfig.run(libraryId, 'spaced-standard', 'second_interval', '6')
+      insertConfig.run(libraryId, 'spaced-standard', 'fail_threshold', '2')
+
+      // Spaced-Strict queue configs (~95% retention)
+      insertConfig.run(libraryId, 'spaced-strict', 'initial_ef', '2.8')
+      insertConfig.run(libraryId, 'spaced-strict', 'min_ef', '1.5')
+      insertConfig.run(libraryId, 'spaced-strict', 'max_ef', '3.0')
+      insertConfig.run(libraryId, 'spaced-strict', 'first_interval', '1')
+      insertConfig.run(libraryId, 'spaced-strict', 'second_interval', '8')
+      insertConfig.run(libraryId, 'spaced-strict', 'fail_threshold', '3')
 
       // Global configs (not a real queue, just a config namespace)
       insertConfig.run(libraryId, 'global', 'rank_penalty', '5')
@@ -247,7 +275,9 @@ async function getFilesForRevision(rootPath) {
             try {
               await fs.access(dbFile)
               databases.push(dbFile)
-            } catch {}
+            } catch {
+              // db.sqlite file doesn't exist in this .increvise folder
+            }
           } else {
             databases.push(...(await findDatabases(fullPath)))
           }
@@ -280,7 +310,9 @@ async function getFilesForRevision(rootPath) {
           }))
         )
         db.close()
-      } catch (err) {}
+      } catch {
+        // Failed to read from this database, skip it
+      }
     }
     return { success: true, files: allFiles }
   } catch (error) {
@@ -315,7 +347,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
         // Get max_per_day config
         const maxNewConfig = db
           .prepare(
-            "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'new' AND config_key = 'max_per_day'"
+            'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = \'new\' AND config_key = \'max_per_day\''
           )
           .get(libraryId)
         const maxNewPerDay = maxNewConfig ? parseInt(maxNewConfig.config_value) : 10
@@ -364,14 +396,14 @@ async function getAllFilesForRevision(getCentralDbPath) {
           )
           .all(libraryId)
 
-        // Get spaced queue items (due today)
+        // Get spaced queue items (due today) - all three sub-queues
         const spacedItems = db
           .prepare(
             `
             SELECT f.*, qm.queue_name
             FROM file f
             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-            WHERE qm.queue_name = 'spaced'
+            WHERE qm.queue_name IN ('spaced-casual', 'spaced-standard', 'spaced-strict')
               AND f.library_id = ?
               AND date(f.due_time) <= date('now')
             ORDER BY f.due_time ASC, f.rank ASC
@@ -418,61 +450,131 @@ async function getAllFilesForRevision(getCentralDbPath) {
 }
 
 async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback) {
-  const response_quality = { again: 0, hard: 1, good: 4, easy: 5 }
-  const q = response_quality[feedback]
-  const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
   try {
     const db = new Database(dbPath)
-    // Get parameters needed for SM-2 (review_count, interval, easiness)
-    const row = db
+
+    // 1. Get file's current queue
+    const queueInfo = db
+      .prepare('SELECT queue_name FROM queue_membership WHERE library_id = ? AND relative_path = ?')
+      .get(libraryId, relativePath)
+
+    db.close()
+
+    if (!queueInfo) {
+      return { success: false, error: 'File not in any queue' }
+    }
+
+    // 2. Route to appropriate queue handler
+    const queueName = queueInfo.queue_name
+
+    if (queueName === 'new') {
+      return await handleNewQueueFeedback(dbPath, libraryId, relativePath)
+    } else if (queueName === 'processing') {
+      return await handleProcessingFeedback(dbPath, libraryId, relativePath, feedback)
+    } else if (queueName === 'intermediate') {
+      return await handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback)
+    } else if (queueName.startsWith('spaced-')) {
+      return await handleSpacedFeedback(dbPath, libraryId, relativePath, feedback, queueName)
+    } else if (queueName === 'archived') {
+      return { success: false, error: 'Cannot review archived files' }
+    } else {
+      return { success: false, error: `Unknown queue: ${queueName}` }
+    }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
+// ========================================
+// Spaced Queue Feedback Handler (SM-2)
+// ========================================
+async function handleSpacedFeedback(dbPath, libraryId, relativePath, feedback, queueName) {
+  try {
+    const db = new Database(dbPath)
+
+    // 1. Load queue configuration
+    const configs = db
+      .prepare(
+        'SELECT config_key, config_value FROM queue_config WHERE library_id = ? AND queue_name = ?'
+      )
+      .all(libraryId, queueName)
+
+    const params = {}
+    configs.forEach((c) => (params[c.config_key] = parseFloat(c.config_value)))
+
+    // 2. Get file's current state
+    const file = db
       .prepare(
         'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
       )
       .get(libraryId, relativePath)
-    const reviewCount = row ? row.review_count : 0
-    const interval = row ? row.interval : 1
-    const easiness = row ? row.easiness : 2.5
-    const rank = row ? row.rank : 70
 
-    let newEasiness
-    let newRank
-    let newInterval
+    if (!file) {
+      db.close()
+      return { success: false, error: 'File not found' }
+    }
 
-    // If q < 2, reset interval but don't change EF
-    // Tweaked from standard q < 3, otherwise there will be too much revision
-    if (q < 2) {
+    // 3. Apply SM-2 algorithm with queue-specific parameters
+    const response_quality = { again: 0, hard: 1, good: 4, easy: 5 }
+    const q = response_quality[feedback]
+
+    if (q === undefined) {
+      db.close()
+      return { success: false, error: 'Invalid feedback value' }
+    }
+
+    const easiness_update = 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)
+
+    let newEasiness, newRank, newInterval
+
+    // Check if failed (below threshold)
+    if (q < params.fail_threshold) {
+      // Failed: reset interval but keep EF
       newInterval = 1
-      newEasiness = easiness // Keep EF unchanged
-      newRank = rank // Keep rank unchanged
+      newEasiness = file.easiness
+      newRank = file.rank
     } else {
-      newEasiness = Math.max(1.3, Math.min(2.5, easiness + easiness_update))
-      newRank = rank + Math.floor(easiness_update * 5)
+      // Passed: update EF and calculate new interval
+      newEasiness = Math.max(
+        params.min_ef,
+        Math.min(params.max_ef, file.easiness + easiness_update)
+      )
+      newRank = file.rank + Math.floor(easiness_update * 5)
 
-      if (reviewCount === 0) {
-        newInterval = 1
-      } else if (reviewCount === 1) {
-        newInterval = 6
+      if (file.review_count === 0) {
+        newInterval = params.first_interval
+      } else if (file.review_count === 1) {
+        newInterval = params.second_interval
       } else {
-        newInterval = Math.floor(interval * newEasiness)
+        newInterval = Math.floor(file.interval * newEasiness)
       }
     }
 
+    // 4. Update database
     const stmt = db.prepare(`
-          UPDATE file
-          SET last_revised_time = datetime('now'),
-              review_count = review_count + 1,
-              easiness = ?,
-              interval = ?,
-              due_time = datetime('now', '+' || ? || ' days'),
-              rank = ?
-          WHERE library_id = ? AND relative_path = ?
-        `)
+      UPDATE file
+      SET last_revised_time = datetime('now'),
+          review_count = review_count + 1,
+          easiness = ?,
+          interval = ?,
+          due_time = datetime('now', '+' || ? || ' days'),
+          rank = ?
+      WHERE library_id = ? AND relative_path = ?
+    `)
     const info = stmt.run(newEasiness, newInterval, newInterval, newRank, libraryId, relativePath)
     db.close()
+
     return {
       success: true,
-      message: `File updated. Next review in ${newInterval} day(s)`,
+      message: `Next review in ${newInterval} day(s)`,
       changes: info.changes,
+      queueName: queueName,
+      appliedParams: {
+        initial_ef: params.initial_ef,
+        min_ef: params.min_ef,
+        max_ef: params.max_ef,
+        fail_threshold: params.fail_threshold,
+      },
     }
   } catch (err) {
     return { success: false, error: err.message }
@@ -586,6 +688,105 @@ async function updateFileRank(filePath, libraryId, newRank, getCentralDbPath) {
 }
 
 // ========================================
+// Migration Functions
+// ========================================
+
+async function migrateSpacedQueue(libraryId, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+    try {
+      const db = new Database(dbInfo.dbPath)
+
+      // Check if old 'spaced' queue exists
+      const oldQueue = db
+        .prepare(
+          'SELECT COUNT(*) as count FROM review_queue WHERE library_id = ? AND queue_name = \'spaced\''
+        )
+        .get(libraryId)
+
+      if (oldQueue && oldQueue.count > 0) {
+        // 1. Create new sub-queues (if not exist)
+        const insertQueue = db.prepare(
+          'INSERT OR IGNORE INTO review_queue (library_id, queue_name, description) VALUES (?, ?, ?)'
+        )
+        insertQueue.run(libraryId, 'spaced-casual', 'Spaced Repetition (Casual): ~80% retention')
+        insertQueue.run(
+          libraryId,
+          'spaced-standard',
+          'Spaced Repetition (Standard): ~90% retention'
+        )
+        insertQueue.run(libraryId, 'spaced-strict', 'Spaced Repetition (Strict): ~95% retention')
+
+        // 2. Add configurations for new queues
+        const insertConfig = db.prepare(
+          'INSERT OR IGNORE INTO queue_config (library_id, queue_name, config_key, config_value) VALUES (?, ?, ?, ?)'
+        )
+
+        // Spaced-Casual configs
+        insertConfig.run(libraryId, 'spaced-casual', 'initial_ef', '2.0')
+        insertConfig.run(libraryId, 'spaced-casual', 'min_ef', '1.2')
+        insertConfig.run(libraryId, 'spaced-casual', 'max_ef', '2.5')
+        insertConfig.run(libraryId, 'spaced-casual', 'first_interval', '1')
+        insertConfig.run(libraryId, 'spaced-casual', 'second_interval', '4')
+        insertConfig.run(libraryId, 'spaced-casual', 'fail_threshold', '2')
+
+        // Spaced-Standard configs
+        insertConfig.run(libraryId, 'spaced-standard', 'initial_ef', '2.5')
+        insertConfig.run(libraryId, 'spaced-standard', 'min_ef', '1.3')
+        insertConfig.run(libraryId, 'spaced-standard', 'max_ef', '2.5')
+        insertConfig.run(libraryId, 'spaced-standard', 'first_interval', '1')
+        insertConfig.run(libraryId, 'spaced-standard', 'second_interval', '6')
+        insertConfig.run(libraryId, 'spaced-standard', 'fail_threshold', '2')
+
+        // Spaced-Strict configs
+        insertConfig.run(libraryId, 'spaced-strict', 'initial_ef', '2.8')
+        insertConfig.run(libraryId, 'spaced-strict', 'min_ef', '1.5')
+        insertConfig.run(libraryId, 'spaced-strict', 'max_ef', '3.0')
+        insertConfig.run(libraryId, 'spaced-strict', 'first_interval', '1')
+        insertConfig.run(libraryId, 'spaced-strict', 'second_interval', '8')
+        insertConfig.run(libraryId, 'spaced-strict', 'fail_threshold', '3')
+
+        // 3. Migrate files from old 'spaced' queue to 'spaced-standard' (default)
+        const migrateResult = db
+          .prepare(
+            `UPDATE queue_membership 
+           SET queue_name = 'spaced-standard' 
+           WHERE library_id = ? AND queue_name = 'spaced'`
+          )
+          .run(libraryId)
+
+        // 4. Delete old 'spaced' queue
+        db.prepare('DELETE FROM review_queue WHERE library_id = ? AND queue_name = \'spaced\'').run(
+          libraryId
+        )
+
+        // 5. Delete old 'spaced' queue configs (if any)
+        db.prepare('DELETE FROM queue_config WHERE library_id = ? AND queue_name = \'spaced\'').run(
+          libraryId
+        )
+
+        db.close()
+        return {
+          success: true,
+          message: 'Migration completed successfully',
+          filesMigrated: migrateResult.changes,
+        }
+      }
+
+      db.close()
+      return { success: true, message: 'No migration needed - already using new queue structure' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
+// ========================================
 // Queue Management Functions
 // ========================================
 
@@ -686,7 +887,7 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
 
       // Update last_queue_change timestamp
       db.prepare(
-        `UPDATE file SET last_queue_change = datetime('now') WHERE library_id = ? AND relative_path = ?`
+        'UPDATE file SET last_queue_change = datetime(\'now\') WHERE library_id = ? AND relative_path = ?'
       ).run(libraryId, relativePath)
 
       // Set appropriate parameters based on target queue
@@ -695,11 +896,20 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
           `UPDATE file SET intermediate_multiplier = 1.0, due_time = datetime('now')
            WHERE library_id = ? AND relative_path = ?`
         ).run(libraryId, relativePath)
-      } else if (targetQueue === 'spaced') {
+      } else if (targetQueue.startsWith('spaced-')) {
+        // Get initial EF from queue config
+        const queueConfig = db
+          .prepare(
+            'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = ? AND config_key = \'initial_ef\''
+          )
+          .get(libraryId, targetQueue)
+
+        const initialEF = queueConfig ? parseFloat(queueConfig.config_value) : 2.5
+
         db.prepare(
-          `UPDATE file SET easiness = 2.5, review_count = 0, interval = 1, due_time = datetime('now')
+          `UPDATE file SET easiness = ?, review_count = 0, interval = 1, due_time = datetime('now')
            WHERE library_id = ? AND relative_path = ?`
-        ).run(libraryId, relativePath)
+        ).run(initialEF, libraryId, relativePath)
       } else if (targetQueue === 'archived') {
         db.prepare(
           `UPDATE file SET due_time = datetime('now', '+9999 days')
@@ -749,7 +959,7 @@ async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPa
       // Get rank penalty from config
       const config = db
         .prepare(
-          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'global' AND config_key = 'rank_penalty'"
+          'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = \'global\' AND config_key = \'rank_penalty\''
         )
         .get(libraryId)
       const rankPenalty = config ? parseInt(config.config_value) : 5
@@ -832,7 +1042,7 @@ async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedbac
 
     let newDueTime
     if (feedback === 'again') {
-      newDueTime = "datetime('now')"
+      newDueTime = 'datetime(\'now\')'
     } else {
       newDueTime = `datetime('now', '+' || ${file.rotation_interval} || ' days')`
     }
@@ -892,54 +1102,61 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
 }
 
 export function registerSpacedIpc(ipcMain, getCentralDbPath) {
-  ipcMain.handle('create-database', (event, folderPath) =>
+  ipcMain.handle('create-database', (_event, folderPath) =>
     createDatabase(folderPath, getCentralDbPath)
   )
-  ipcMain.handle('check-file-in-queue', (event, filePath, libraryId) =>
+  ipcMain.handle('check-file-in-queue', (_event, filePath, libraryId) =>
     checkFileInQueue(filePath, libraryId, getCentralDbPath)
   )
-  ipcMain.handle('add-file-to-queue', (event, filePath, libraryId) =>
+  ipcMain.handle('add-file-to-queue', (_event, filePath, libraryId) =>
     addFileToQueue(filePath, libraryId, getCentralDbPath)
   )
-  ipcMain.handle('get-files-for-revision', (event, rootPath) => getFilesForRevision(rootPath))
-  ipcMain.handle('get-all-files-for-revision', (event) => getAllFilesForRevision(getCentralDbPath))
-  ipcMain.handle('update-revision-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
+  ipcMain.handle('get-files-for-revision', (_event, rootPath) => getFilesForRevision(rootPath))
+  ipcMain.handle('get-all-files-for-revision', (_event) => getAllFilesForRevision(getCentralDbPath))
+  ipcMain.handle('update-revision-feedback', (_event, dbPath, libraryId, relativePath, feedback) =>
     updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   )
-  ipcMain.handle('forget-file', (event, filePath, libraryId) =>
+  ipcMain.handle('forget-file', (_event, filePath, libraryId) =>
     forgetFile(filePath, libraryId, getCentralDbPath)
   )
-  ipcMain.handle('update-file-rank', (event, filePath, libraryId, newRank) =>
+  ipcMain.handle('update-file-rank', (_event, filePath, libraryId, newRank) =>
     updateFileRank(filePath, libraryId, newRank, getCentralDbPath)
   )
 
+  // Migration
+  ipcMain.handle('migrate-spaced-queue', (_event, libraryId) =>
+    migrateSpacedQueue(libraryId, getCentralDbPath)
+  )
+
   // Queue management
-  ipcMain.handle('get-queue-config', (event, libraryId, queueName, configKey) =>
+  ipcMain.handle('get-queue-config', (_event, libraryId, queueName, configKey) =>
     getQueueConfig(libraryId, queueName, configKey, getCentralDbPath)
   )
-  ipcMain.handle('set-queue-config', (event, libraryId, queueName, configKey, configValue) =>
+  ipcMain.handle('set-queue-config', (_event, libraryId, queueName, configKey, configValue) =>
     setQueueConfig(libraryId, queueName, configKey, configValue, getCentralDbPath)
   )
-  ipcMain.handle('get-file-queue', (event, filePath, libraryId) =>
+  ipcMain.handle('get-file-queue', (_event, filePath, libraryId) =>
     getFileQueue(filePath, libraryId, getCentralDbPath)
   )
-  ipcMain.handle('move-file-to-queue', (event, filePath, libraryId, targetQueue) =>
+  ipcMain.handle('move-file-to-queue', (_event, filePath, libraryId, targetQueue) =>
     moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPath)
   )
-  ipcMain.handle('handle-extraction', (event, parentPath, childPath, libraryId) =>
+  ipcMain.handle('handle-extraction', (_event, parentPath, childPath, libraryId) =>
     handleExtraction(parentPath, childPath, libraryId, getCentralDbPath)
   )
 
   // Queue-specific feedback
-  ipcMain.handle('handle-new-queue-feedback', (event, dbPath, libraryId, relativePath) =>
+  ipcMain.handle('handle-new-queue-feedback', (_event, dbPath, libraryId, relativePath) =>
     handleNewQueueFeedback(dbPath, libraryId, relativePath)
   )
-  ipcMain.handle('handle-processing-feedback', (event, dbPath, libraryId, relativePath, feedback) =>
-    handleProcessingFeedback(dbPath, libraryId, relativePath, feedback)
+  ipcMain.handle(
+    'handle-processing-feedback',
+    (_event, dbPath, libraryId, relativePath, feedback) =>
+      handleProcessingFeedback(dbPath, libraryId, relativePath, feedback)
   )
   ipcMain.handle(
     'handle-intermediate-feedback',
-    (event, dbPath, libraryId, relativePath, feedback) =>
+    (_event, dbPath, libraryId, relativePath, feedback) =>
       handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback)
   )
 }
@@ -952,8 +1169,10 @@ export {
   getFilesForRevision,
   getAllFilesForRevision,
   updateRevisionFeedback,
+  handleSpacedFeedback,
   forgetFile,
   updateFileRank,
+  migrateSpacedQueue,
   getQueueConfig,
   setQueueConfig,
   getFileQueue,
