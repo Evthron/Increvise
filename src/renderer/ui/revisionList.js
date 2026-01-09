@@ -282,6 +282,58 @@ export class RevisionList extends LitElement {
     this.selectedQueueFilter = 'all'
   }
 
+  connectedCallback() {
+    super.connectedCallback()
+
+    // Listen for file-added-to-queue event
+    window.addEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
+
+    // Listen for queue-changed event
+    window.addEventListener('queue-changed', this._handleQueueChanged.bind(this))
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+
+    // Clean up event listeners
+    window.removeEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
+    window.removeEventListener('queue-changed', this._handleQueueChanged.bind(this))
+  }
+
+  async _handleFileAddedToQueue(event) {
+    console.log('RevisionList: File added to queue, refreshing...', event.detail)
+    await this.refreshFileList()
+  }
+
+  async _handleQueueChanged(event) {
+    console.log('RevisionList: Queue changed, refreshing...', event.detail)
+    await this.refreshFileList()
+  }
+
+  async refreshFileList() {
+    try {
+      // Check if we're in All Workspaces mode or single workspace mode
+      const fileManager = document.querySelector('file-manager')
+      if (!fileManager) return
+
+      let result
+      if (fileManager.isAllWorkspacesMode) {
+        result = await window.fileManager.getAllFilesForRevision()
+      } else if (fileManager.currentRootPath) {
+        result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
+      } else {
+        return
+      }
+
+      if (result && result.success) {
+        this.files = result.files
+        this.requestUpdate()
+      }
+    } catch (error) {
+      console.error('Error refreshing file list:', error)
+    }
+  }
+
   getDifficultyColor(difficulty) {
     if (difficulty > 0.6) return '#ff3b30'
     if (difficulty > 0.3) return '#ff9500'

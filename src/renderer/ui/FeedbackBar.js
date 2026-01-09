@@ -640,6 +640,18 @@ export class FeedbackBar extends LitElement {
         this.currentQueue = newQueue
         this.showQueueMenu = false
         this._showToast(`Moved to ${this._getQueueDisplayName(newQueue)} queue`)
+
+        // Dispatch event to notify other components that queue was changed
+        window.dispatchEvent(
+          new CustomEvent('queue-changed', {
+            detail: {
+              filePath: file.file_path,
+              libraryId: file.library_id,
+              oldQueue: this.currentQueue,
+              newQueue: newQueue,
+            },
+          })
+        )
       } else {
         this._showToast(`Failed to move to ${newQueue} queue`, true)
       }

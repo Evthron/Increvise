@@ -338,6 +338,13 @@ export class FileTree extends LitElement {
       if (result.success || result.alreadyExists) {
         item._inQueue = true
         this.requestUpdate()
+
+        // Dispatch event to notify other components that a file was added to queue
+        window.dispatchEvent(
+          new CustomEvent('file-added-to-queue', {
+            detail: { filePath: item.path, libraryId: libraryId },
+          })
+        )
       } else {
         alert(`Error: ${result.error}`)
       }
