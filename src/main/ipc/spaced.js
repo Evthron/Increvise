@@ -294,11 +294,11 @@ async function getFilesForRevision(rootPath) {
         const rows = db
           .prepare(
             `
-            SELECT library_id, relative_path, added_time, last_revised_time, 
-                   review_count, easiness, rank, due_time
-            FROM file
-            WHERE date(due_time) <= date('now')
-            ORDER BY date(due_time) ASC, rank ASC
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE date(f.due_time) <= date('now')
+            ORDER BY date(f.due_time) ASC, f.rank ASC
           `
           )
           .all()
@@ -348,7 +348,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
         // Get max_per_day config
         const maxNewConfig = db
           .prepare(
-            'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = \'new\' AND config_key = \'max_per_day\''
+            "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'new' AND config_key = 'max_per_day'"
           )
           .get(libraryId)
         const maxNewPerDay = maxNewConfig ? parseInt(maxNewConfig.config_value) : 10
@@ -704,7 +704,7 @@ async function migrateSpacedQueue(libraryId, getCentralDbPath) {
       // Check if old 'spaced' queue exists
       const oldQueue = db
         .prepare(
-          'SELECT COUNT(*) as count FROM review_queue WHERE library_id = ? AND queue_name = \'spaced\''
+          "SELECT COUNT(*) as count FROM review_queue WHERE library_id = ? AND queue_name = 'spaced'"
         )
         .get(libraryId)
 
@@ -760,12 +760,12 @@ async function migrateSpacedQueue(libraryId, getCentralDbPath) {
           .run(libraryId)
 
         // 4. Delete old 'spaced' queue
-        db.prepare('DELETE FROM review_queue WHERE library_id = ? AND queue_name = \'spaced\'').run(
+        db.prepare("DELETE FROM review_queue WHERE library_id = ? AND queue_name = 'spaced'").run(
           libraryId
         )
 
         // 5. Delete old 'spaced' queue configs (if any)
-        db.prepare('DELETE FROM queue_config WHERE library_id = ? AND queue_name = \'spaced\'').run(
+        db.prepare("DELETE FROM queue_config WHERE library_id = ? AND queue_name = 'spaced'").run(
           libraryId
         )
 
@@ -888,7 +888,7 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
 
       // Update last_queue_change timestamp
       db.prepare(
-        'UPDATE file SET last_queue_change = datetime(\'now\') WHERE library_id = ? AND relative_path = ?'
+        "UPDATE file SET last_queue_change = datetime('now') WHERE library_id = ? AND relative_path = ?"
       ).run(libraryId, relativePath)
 
       // Set appropriate parameters based on target queue
@@ -901,7 +901,7 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
         // Get initial EF from queue config
         const queueConfig = db
           .prepare(
-            'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = ? AND config_key = \'initial_ef\''
+            "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = ? AND config_key = 'initial_ef'"
           )
           .get(libraryId, targetQueue)
 
@@ -960,7 +960,7 @@ async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPa
       // Get rank penalty from config
       const config = db
         .prepare(
-          'SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = \'global\' AND config_key = \'rank_penalty\''
+          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'global' AND config_key = 'rank_penalty'"
         )
         .get(libraryId)
       const rankPenalty = config ? parseInt(config.config_value) : 5
@@ -1043,7 +1043,7 @@ async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedbac
 
     let newDueTime
     if (feedback === 'again') {
-      newDueTime = 'datetime(\'now\')'
+      newDueTime = "datetime('now')"
     } else {
       newDueTime = `datetime('now', '+' || ${file.rotation_interval} || ' days')`
     }

@@ -11,6 +11,7 @@ export class RevisionList extends LitElement {
   static properties = {
     files: { type: Array },
     currentIndex: { type: Number },
+    selectedQueueFilter: { type: String, state: true },
   }
 
   static styles = css`
@@ -189,12 +190,96 @@ export class RevisionList extends LitElement {
       border-radius: 50%;
       display: inline-block;
     }
+
+    .queue-filter-bar {
+      display: flex;
+      gap: 6px;
+      padding: 12px 16px;
+      background-color: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+
+    .queue-filter-btn {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      background-color: var(--bg-primary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .queue-filter-btn:hover {
+      background-color: var(--bg-secondary);
+      border-color: var(--accent-color);
+    }
+
+    .queue-filter-btn.active {
+      background-color: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+
+    .queue-badge-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .queue-badge-inline.new {
+      background-color: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .queue-badge-inline.processing {
+      background-color: #fff3e0;
+      color: #f57c00;
+    }
+
+    .queue-badge-inline.intermediate {
+      background-color: #f3e5f5;
+      color: #7b1fa2;
+    }
+
+    .queue-badge-inline.spaced-casual {
+      background-color: #e8f5e9;
+      color: #388e3c;
+    }
+
+    .queue-badge-inline.spaced-standard {
+      background-color: #e1f5fe;
+      color: #0277bd;
+    }
+
+    .queue-badge-inline.spaced-strict {
+      background-color: #fce4ec;
+      color: #c2185b;
+    }
+
+    .queue-badge-inline.archived {
+      background-color: #f5f5f5;
+      color: #757575;
+    }
   `
 
   constructor() {
     super()
     this.files = []
     this.currentIndex = 0
+    this.selectedQueueFilter = 'all'
   }
 
   getDifficultyColor(difficulty) {
@@ -211,12 +296,84 @@ export class RevisionList extends LitElement {
 
   groupFilesByWorkspace() {
     const grouped = {}
-    this.files.forEach((file) => {
+    const filteredFiles = this.getFilteredFiles()
+    filteredFiles.forEach((file) => {
       const workspace = file.workspacePath || 'Unknown'
       if (!grouped[workspace]) grouped[workspace] = []
       grouped[workspace].push(file)
     })
     return grouped
+  }
+
+  getFilteredFiles() {
+    if (this.selectedQueueFilter === 'all') {
+      return this.files
+    }
+    return this.files.filter((file) => {
+      if (this.selectedQueueFilter === 'spaced') {
+        return (
+          file.queue_name === 'spaced-casual' ||
+          file.queue_name === 'spaced-standard' ||
+          file.queue_name === 'spaced-strict'
+        )
+      }
+      return file.queue_name === this.selectedQueueFilter
+    })
+  }
+
+  getQueueDisplayName(queueName) {
+    const names = {
+      new: 'New',
+      processing: 'Processing',
+      intermediate: 'Intermediate',
+      'spaced-casual': 'Casual',
+      'spaced-standard': 'Standard',
+      'spaced-strict': 'Strict',
+      archived: 'Archived',
+    }
+    return names[queueName] || queueName
+  }
+
+  handleQueueFilterChange(filter) {
+    this.selectedQueueFilter = filter
+
+    // Reset to first file after filtering
+    const filteredFiles = this.getFilteredFiles()
+    if (filteredFiles.length > 0) {
+      this.currentIndex = this.files.indexOf(filteredFiles[0])
+    }
+
+    this.requestUpdate()
+  }
+
+  _renderQueueFilterBar() {
+    const filters = [
+      { id: 'all', label: 'All', icon: '📋' },
+      { id: 'new', label: 'New', icon: '📥' },
+      { id: 'processing', label: 'Processing', icon: '🔄' },
+      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
+      { id: 'spaced', label: 'Spaced', icon: '🧠' },
+      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
+      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
+      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
+      { id: 'archived', label: 'Archived', icon: '📦' },
+    ]
+
+    return html`
+      <div class="queue-filter-bar">
+        ${filters.map(
+          (filter) => html`
+            <button
+              class="queue-filter-btn ${this.selectedQueueFilter === filter.id ? 'active' : ''}"
+              @click=${() => this.handleQueueFilterChange(filter.id)}
+            >
+              <span>${filter.icon}</span>
+              <span>${filter.label}</span>
+            </button>
+          `
+        )}
+      </div>
+    `
   }
 
   async handleFileClick(file, globalIndex) {
@@ -290,6 +447,13 @@ export class RevisionList extends LitElement {
                 <span class="meta-dot" style="background-color: ${difficultyColor}"></span>
                 <span>${difficultyLabel}</span>
               </span>
+              ${file.queue_name
+                ? html`
+                    <span class="queue-badge-inline ${file.queue_name}">
+                      ${this.getQueueDisplayName(file.queue_name)}
+                    </span>
+                  `
+                : ''}
             </div>
           </div>
           <button
@@ -327,16 +491,16 @@ export class RevisionList extends LitElement {
 
   render() {
     const groupedFiles = this.groupFilesByWorkspace()
+    const filteredCount = this.getFilteredFiles().length
 
     return html`
       <div class="revision-list-header">
-        <div class="revision-count">
-          ${this.files.length} file${this.files.length !== 1 ? 's' : ''}
-        </div>
+        <div class="revision-count">${filteredCount} file${filteredCount !== 1 ? 's' : ''}</div>
         <div class="revision-subtitle">Due for review</div>
       </div>
 
-      ${this.files.length === 0
+      ${this._renderQueueFilterBar()}
+      ${filteredCount === 0
         ? this.renderEmptyState()
         : html`
             <div class="revision-list-container">
