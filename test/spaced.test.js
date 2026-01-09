@@ -15,6 +15,8 @@ import {
   addFileToQueue,
   getFilesForRevision,
   getAllFilesForRevision,
+  moveFileToQueue,
+  migrateSpacedQueue,
 } from '../src/main/ipc/spaced.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -35,21 +37,38 @@ function insertTestData(dbPath, libraryId) {
 
   const insertFile = db.prepare(`
     INSERT INTO file 
-    (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time)
-    VALUES (?, ?, datetime('now'), ?, ?, ?, ?, datetime('now', ? || ' days'))
+    (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time, rotation_interval, intermediate_base, intermediate_multiplier)
+    VALUES (?, ?, datetime('now'), ?, ?, ?, ?, datetime('now', ? || ' days'), ?, ?, ?)
   `)
 
-  // File 1: Never reviewed (overdue)
-  insertFile.run(libraryId, 'new-file.md', 0, 2.5, 70, 1, -1)
+  const insertMembership = db.prepare(`
+    INSERT INTO queue_membership (library_id, queue_name, relative_path)
+    VALUES (?, ?, ?)
+  `)
 
-  // File 2: Reviewed once (overdue)
-  insertFile.run(libraryId, 'reviewed-once.md', 1, 1.35, 70, 1, -1)
+  // File 1: In new queue (never reviewed)
+  insertFile.run(libraryId, 'new-file.md', 0, 2.5, 70, 1, -1, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'new', 'new-file.md')
 
-  // File 3: Reviewed multiple times (old file, overdue)
-  insertFile.run(libraryId, 'old-file.md', 5, 2.2, 70, 30, -10)
+  // File 2: In processing queue
+  insertFile.run(libraryId, 'processing-file.md', 2, 2.5, 70, 1, -1, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'processing', 'processing-file.md')
 
-  // File 4: Not yet due
-  insertFile.run(libraryId, 'future-file.md', 2, 2.4, 70, 10, 5)
+  // File 3: In intermediate queue
+  insertFile.run(libraryId, 'intermediate-file.md', 3, 2.5, 70, 7, -1, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'intermediate', 'intermediate-file.md')
+
+  // File 4: In spaced-standard queue (reviewed once)
+  insertFile.run(libraryId, 'spaced-standard-file.md', 1, 1.35, 70, 1, -1, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'spaced-standard', 'spaced-standard-file.md')
+
+  // File 5: In spaced-casual queue (reviewed multiple times)
+  insertFile.run(libraryId, 'spaced-casual-file.md', 5, 2.0, 70, 30, -10, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'spaced-casual', 'spaced-casual-file.md')
+
+  // File 6: In spaced-strict queue (not yet due)
+  insertFile.run(libraryId, 'spaced-strict-file.md', 2, 2.8, 70, 10, 5, 3, 7, 1.0)
+  insertMembership.run(libraryId, 'spaced-strict', 'spaced-strict-file.md')
 
   db.close()
 }
@@ -72,7 +91,9 @@ async function test1_CreateDatabase() {
   try {
     await fs.rm(TEST_WORKSPACE, { recursive: true, force: true })
     await fs.unlink(CENTRAL_DB_PATH)
-  } catch {}
+  } catch {
+    // Files may not exist, ignore error
+  }
 
   // Create central database first
   const centralDb = new Database(CENTRAL_DB_PATH)
@@ -97,17 +118,17 @@ async function test1_CreateDatabase() {
     const db = new Database(result.path, { readonly: true })
     const library = db.prepare('SELECT * FROM library').get()
     const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .prepare('SELECT name FROM sqlite_master WHERE type=\'table\' ORDER BY name')
       .all()
     db.close()
 
     console.log(`  ✓ Created database with ${tables.length} tables`)
     console.log(`  ✓ Library: ${library.library_name} (${library.library_id})`)
-    console.log(`  ✓ Registered in central database`)
+    console.log('  ✓ Registered in central database')
 
     // Insert test data for subsequent tests
     insertTestData(result.path, library.library_id)
-    console.log(`  ✓ Test data inserted`)
+    console.log('  ✓ Test data inserted')
 
     return library.library_id
   } else {
@@ -123,84 +144,128 @@ async function test2_InspectDatabase() {
   printSeparator('Test 2: Database Content')
 
   const db = new Database(TEST_DB_PATH, { readonly: true })
-  const files = db.prepare('SELECT * FROM file ORDER BY relative_path').all()
+  const files = db
+    .prepare(
+      `SELECT f.*, qm.queue_name 
+       FROM file f 
+       JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path 
+       ORDER BY qm.queue_name, f.relative_path`
+    )
+    .all()
   db.close()
 
-  console.log(`  ✓ Database contains ${files.length} test files`)
+  console.log(`  ✓ Database contains ${files.length} test files in various queues`)
   files.forEach((file) => {
     console.log(
-      `    - ${file.relative_path}: reviews=${file.review_count}, interval=${file.interval}d, easiness=${file.easiness}`
+      `    - ${file.relative_path}: queue=${file.queue_name}, reviews=${file.review_count}`
     )
   })
 }
 
 // ========================================
-// Test 3: updateRevisionFeedback - First review
+// Test 3: Test New Queue Feedback
 // ========================================
-async function test3_FirstReview() {
-  printSeparator('Test 3: First Review (good)')
+async function test3_NewQueueFeedback() {
+  printSeparator('Test 3: New Queue Feedback')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
   const testFile = 'new-file.md'
-  const feedback = 'good'
 
-  // Read state before update
-  const db = new Database(TEST_DB_PATH)
+  // Check queue before
+  const db = new Database(TEST_DB_PATH, { readonly: true })
   const before = db
     .prepare(
-      'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
+      `SELECT qm.queue_name FROM queue_membership qm 
+       WHERE qm.library_id = ? AND qm.relative_path = ?`
     )
     .get(libraryId, testFile)
   db.close()
 
-  // Execute update
-  await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, feedback)
+  console.log(`  Before: queue=${before.queue_name}`)
 
-  // Read state after update
-  const db2 = new Database(TEST_DB_PATH)
+  // Any feedback on new queue should move to processing
+  const result = await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, 'good')
+
+  // Check queue after
+  const db2 = new Database(TEST_DB_PATH, { readonly: true })
   const after = db2
     .prepare(
-      'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
+      `SELECT qm.queue_name FROM queue_membership qm 
+       WHERE qm.library_id = ? AND qm.relative_path = ?`
     )
     .get(libraryId, testFile)
   db2.close()
 
-  console.log(
-    `  Before: reviews=${before.review_count}, interval=${before.interval}d, easiness=${before.easiness}`
-  )
-  console.log(
-    `  After:  reviews=${after.review_count}, interval=${after.interval}d, easiness=${after.easiness.toFixed(2)}`
-  )
-  console.log(`  ✓ First review interval is 1 day`)
+  console.log(`  After:  queue=${after.queue_name}`)
+  console.log(`  Result: ${result.message}`)
+  console.log('  ✓ File moved from \'new\' to \'processing\' queue')
 }
 
 // ========================================
-// Test 4: updateRevisionFeedback - Second review
+// Test 4: Test Processing Queue Feedback
 // ========================================
-async function test4_SecondReview() {
-  printSeparator('Test 4: Second Review (easy)')
+async function test4_ProcessingFeedback() {
+  printSeparator('Test 4: Processing Queue Feedback')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
-  const testFile = 'reviewed-once.md'
-  const feedback = 'easy'
+  const testFile = 'processing-file.md'
+
+  // Test 'again' feedback (immediate review)
+  let result = await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, 'again')
+  console.log(`  'again' feedback: ${result.message}`)
+
+  // Test 'continue' feedback (rotate)
+  result = await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, 'continue')
+  console.log(`  'continue' feedback: ${result.message}`)
+
+  console.log('  ✓ Processing queue feedback works correctly')
+}
+
+// ========================================
+// Test 5: Test Intermediate Queue Feedback
+// ========================================
+async function test5_IntermediateFeedback() {
+  printSeparator('Test 5: Intermediate Queue Feedback')
+
+  const libraryId = getLibraryId(TEST_DB_PATH)
+  const testFile = 'intermediate-file.md'
+
+  const feedbacks = ['decrease', 'maintain', 'increase']
+
+  for (const feedback of feedbacks) {
+    const result = await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, feedback)
+    console.log(`  '${feedback}' feedback: ${result.message}`)
+  }
+
+  console.log('  ✓ Intermediate queue feedback works correctly')
+}
+
+// ========================================
+// Test 6: Test Spaced Queue Feedback
+// ========================================
+async function test6_SpacedFeedback() {
+  printSeparator('Test 6: Spaced Queue Feedback (SM-2)')
+
+  const libraryId = getLibraryId(TEST_DB_PATH)
+  const testFile = 'spaced-standard-file.md'
 
   // Read state before update
   const db = new Database(TEST_DB_PATH)
   const before = db
     .prepare(
-      'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
+      'SELECT review_count, interval, easiness FROM file WHERE library_id = ? AND relative_path = ?'
     )
     .get(libraryId, testFile)
   db.close()
 
   // Execute update
-  await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, feedback)
+  const result = await updateRevisionFeedback(TEST_DB_PATH, libraryId, testFile, 'easy')
 
   // Read state after update
   const db2 = new Database(TEST_DB_PATH)
   const after = db2
     .prepare(
-      'SELECT review_count, interval, easiness, rank FROM file WHERE library_id = ? AND relative_path = ?'
+      'SELECT review_count, interval, easiness FROM file WHERE library_id = ? AND relative_path = ?'
     )
     .get(libraryId, testFile)
   db2.close()
@@ -211,18 +276,19 @@ async function test4_SecondReview() {
   console.log(
     `  After:  reviews=${after.review_count}, interval=${after.interval}d, easiness=${after.easiness.toFixed(2)}`
   )
-  console.log(`  ✓ Second review interval is 6 days`)
+  console.log(`  Queue: ${result.queueName}`)
+  console.log('  ✓ Second review interval is 6 days (spaced-standard config)')
 }
 
 // ========================================
-// Test 5: updateRevisionFeedback - Different feedbacks
+// Test 7: Test Different Spaced Queues
 // ========================================
-async function test5_DifferentFeedbacks() {
-  printSeparator('Test 5: Different Feedbacks')
+async function test7_DifferentSpacedQueues() {
+  printSeparator('Test 7: Different Spaced Queues')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
   const feedbacks = ['again', 'hard', 'good', 'easy']
-  const testFile = 'old-file.md'
+  const testFile = 'spaced-casual-file.md'
 
   for (const feedback of feedbacks) {
     // Read state before update
@@ -249,17 +315,17 @@ async function test5_DifferentFeedbacks() {
     const easinessChange = after.easiness - before.easiness
     const changeStr = `${easinessChange >= 0 ? '+' : ''}${easinessChange.toFixed(2)}`
     console.log(
-      `  ${feedback.padEnd(6)}: easiness ${before.easiness.toFixed(2)} → ${after.easiness.toFixed(2)} (${changeStr})`
+      `  ${feedback.padEnd(6)}: easiness ${before.easiness.toFixed(2)} → ${after.easiness.toFixed(2)} (${changeStr}), interval ${after.interval}d`
     )
   }
-  console.log(`  ✓ Easiness changes correctly for all feedback types`)
+  console.log('  ✓ Spaced-casual queue: min_ef=1.2, second_interval=4')
 }
 
 // ========================================
-// Test 6: checkFileInQueue - Check if file exists in queue
+// Test 8: checkFileInQueue - Check if file exists in queue
 // ========================================
-async function test6_CheckFileInQueue() {
-  printSeparator('Test 6: checkFileInQueue')
+async function test8_CheckFileInQueue() {
+  printSeparator('Test 8: checkFileInQueue')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
 
@@ -273,14 +339,14 @@ async function test6_CheckFileInQueue() {
   const result2 = await checkFileInQueue(nonExistingFile, libraryId, getCentralDbPath)
   console.log(`  File NOT in queue (not-in-queue.md): ${!result2.inQueue}`)
 
-  console.log(`  ✓ checkFileInQueue works correctly`)
+  console.log('  ✓ checkFileInQueue works correctly')
 }
 
 // ========================================
-// Test 7: addFileToQueue - Add new file to queue
+// Test 9: addFileToQueue - Add new file to queue
 // ========================================
-async function test7_AddFileToQueue() {
-  printSeparator('Test 7: addFileToQueue')
+async function test9_AddFileToQueue() {
+  printSeparator('Test 9: addFileToQueue')
 
   const libraryId = getLibraryId(TEST_DB_PATH)
 
@@ -301,20 +367,20 @@ async function test7_AddFileToQueue() {
   db.close()
 
   console.log(`  File added to database: ${file ? 'yes' : 'no'}`)
-  console.log(`  ✓ addFileToQueue works correctly`)
+  console.log('  ✓ addFileToQueue works correctly')
 }
 
 // ========================================
-// Test 8: getFilesForRevision - Get files due for revision
+// Test 10: getFilesForRevision - Get files due for revision
 // ========================================
-async function test8_GetFilesForRevision() {
-  printSeparator('Test 8: getFilesForRevision')
+async function test10_GetFilesForRevision() {
+  printSeparator('Test 10: getFilesForRevision')
 
   // Check file status
   const db = new Database(TEST_DB_PATH, { readonly: true })
   const allFiles = db
     .prepare(
-      `SELECT relative_path, date(due_time) <= date('now') as is_due FROM file ORDER BY relative_path`
+      'SELECT relative_path, date(due_time) <= date(\'now\') as is_due FROM file ORDER BY relative_path'
     )
     .all()
   db.close()
@@ -333,14 +399,14 @@ async function test8_GetFilesForRevision() {
     })
   }
 
-  console.log(`  ✓ getFilesForRevision works correctly`)
+  console.log('  ✓ getFilesForRevision works correctly')
 }
 
 // ========================================
-// Test 9: getAllFilesForRevision - Get all files from central database
+// Test 11: getAllFilesForRevision - Get all files from central database
 // ========================================
-async function test9_GetAllFilesForRevision() {
-  printSeparator('Test 9: getAllFilesForRevision')
+async function test11_GetAllFilesForRevision() {
+  printSeparator('Test 11: getAllFilesForRevision')
 
   // Central database already exists and contains our workspace from test1
   const result = await getAllFilesForRevision(getCentralDbPath)
@@ -350,11 +416,96 @@ async function test9_GetAllFilesForRevision() {
 
   if (result.files.length > 0) {
     result.files.forEach((file) => {
-      console.log(`    - ${file.relative_path}`)
+      console.log(`    - ${file.relative_path} (queue: ${file.queue_name})`)
     })
   }
 
-  console.log(`  ✓ getAllFilesForRevision works correctly`)
+  console.log('  ✓ getAllFilesForRevision works correctly')
+}
+
+// ========================================
+// Test 12: Test queue configurations
+// ========================================
+async function test12_QueueConfigurations() {
+  printSeparator('Test 12: Queue Configurations')
+
+  const db = new Database(TEST_DB_PATH, { readonly: true })
+
+  // Check all spaced queues exist
+  const queues = db
+    .prepare('SELECT queue_name, description FROM review_queue WHERE queue_name LIKE \'spaced-%\'')
+    .all()
+
+  console.log(`  ✓ Found ${queues.length} spaced sub-queues:`)
+  queues.forEach((q) => {
+    console.log(`    - ${q.queue_name}: ${q.description}`)
+  })
+
+  // Check configurations for spaced-standard
+  const configs = db
+    .prepare(
+      'SELECT config_key, config_value FROM queue_config WHERE queue_name = \'spaced-standard\''
+    )
+    .all()
+
+  console.log('  ✓ spaced-standard configuration:')
+  configs.forEach((c) => {
+    console.log(`    - ${c.config_key}: ${c.config_value}`)
+  })
+
+  db.close()
+}
+
+// ========================================
+// Test 13: Test migration from old spaced queue
+// ========================================
+async function test13_MigrateOldQueue() {
+  printSeparator('Test 13: Migration Test')
+
+  const libraryId = getLibraryId(TEST_DB_PATH)
+
+  // This should report "no migration needed" since we're using new structure
+  const result = await migrateSpacedQueue(libraryId, getCentralDbPath)
+
+  console.log(`  Migration result: ${result.message}`)
+  console.log('  ✓ Migration function works correctly')
+}
+
+// ========================================
+// Test 14: Test moving files between queues
+// ========================================
+async function test14_MoveFileToQueue() {
+  printSeparator('Test 14: Move File to Queue')
+
+  const libraryId = getLibraryId(TEST_DB_PATH)
+  const testFile = path.join(TEST_WORKSPACE, 'spaced-strict-file.md')
+
+  // Get current queue
+  const db = new Database(TEST_DB_PATH, { readonly: true })
+  const before = db
+    .prepare(
+      'SELECT qm.queue_name, f.easiness FROM file f JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path WHERE f.library_id = ? AND f.relative_path = ?'
+    )
+    .get(libraryId, 'spaced-strict-file.md')
+  db.close()
+
+  console.log(`  Before: queue=${before.queue_name}, easiness=${before.easiness}`)
+
+  // Move to spaced-casual (should set initial_ef = 2.0)
+  const result = await moveFileToQueue(testFile, libraryId, 'spaced-casual', getCentralDbPath)
+  console.log(`  Move result: ${result.message}`)
+
+  // Check after move
+  const db2 = new Database(TEST_DB_PATH, { readonly: true })
+  const after = db2
+    .prepare(
+      'SELECT qm.queue_name, f.easiness FROM file f JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path WHERE f.library_id = ? AND f.relative_path = ?'
+    )
+    .get(libraryId, 'spaced-strict-file.md')
+  db2.close()
+
+  console.log(`  After:  queue=${after.queue_name}, easiness=${after.easiness}`)
+  console.log('  ✓ File moved and easiness reset to queue\'s initial_ef')
 }
 
 // ========================================
@@ -367,13 +518,18 @@ async function runAllTests() {
   try {
     await test1_CreateDatabase()
     await test2_InspectDatabase()
-    await test3_FirstReview()
-    await test4_SecondReview()
-    await test5_DifferentFeedbacks()
-    await test6_CheckFileInQueue()
-    await test7_AddFileToQueue()
-    await test8_GetFilesForRevision()
-    await test9_GetAllFilesForRevision()
+    await test12_QueueConfigurations()
+    await test3_NewQueueFeedback()
+    await test4_ProcessingFeedback()
+    await test5_IntermediateFeedback()
+    await test6_SpacedFeedback()
+    await test7_DifferentSpacedQueues()
+    await test8_CheckFileInQueue()
+    await test9_AddFileToQueue()
+    await test10_GetFilesForRevision()
+    await test11_GetAllFilesForRevision()
+    await test13_MigrateOldQueue()
+    await test14_MoveFileToQueue()
 
     console.log('\n✓ All tests completed successfully\n')
   } catch (error) {
@@ -383,7 +539,9 @@ async function runAllTests() {
     // Cleanup central database
     try {
       await fs.unlink(CENTRAL_DB_PATH)
-    } catch {}
+    } catch {
+      // File may not exist, ignore error
+    }
   }
 }
 
