@@ -229,7 +229,7 @@ class VideoToolbar extends LitElement {
             .value=${this.startTime}
             @input=${this.handleStartTimeChange}
           />
-          <button @click=${this.handleRecordStart}>記錄開始</button>
+          <button @click=${this.handleRecordStart}>Start</button>
         </div>
         <div class="time-input-group">
           <label>End:</label>
@@ -240,7 +240,7 @@ class VideoToolbar extends LitElement {
             .value=${this.endTime}
             @input=${this.handleEndTimeChange}
           />
-          <button @click=${this.handleRecordEnd}>記錄結束</button>
+          <button @click=${this.handleRecordEnd}>End</button>
         </div>
       </div>
     `
