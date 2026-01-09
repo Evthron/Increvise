@@ -233,6 +233,7 @@ async function getFilesForRevision(rootPath) {
             ...row,
             file_path: path.join(dbRootPath, row.relative_path),
             dbPath,
+            workspacePath: dbRootPath,
           }))
         )
         db.close()
@@ -286,8 +287,12 @@ async function getAllFilesForRevision(getCentralDbPath) {
           }))
         )
         db.close()
-      } catch (err) {}
+      } catch (err) {
+        console.error('Error processing workspace:', err)
+      }
     }
+
+    // Sort by due_time and rank
     allFiles.sort((a, b) => {
       const dateA = new Date(a.due_time)
       const dateB = new Date(b.due_time)
