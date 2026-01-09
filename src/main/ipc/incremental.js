@@ -987,6 +987,111 @@ async function extractPdfText(
 }
 
 /**
+ * Extract video clip (time range)
+ * @param {string} videoPath - Path to video file
+ * @param {number} startTime - Start time in seconds
+ * @param {number} endTime - End time in seconds
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Result object
+ */
+async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCentralDbPath) {
+  try {
+    console.log('[extractVideoClip] Starting extraction:', {
+      videoPath,
+      startTime,
+      endTime,
+      libraryId,
+    })
+
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const rootPath = dbInfo.folderPath
+
+    try {
+      // Get video file name without extension
+      const videoExt = path.extname(videoPath)
+      const videoBaseName = path.basename(videoPath, videoExt)
+
+      // Create video container folder
+      const containerFolder = path.join(path.dirname(videoPath), videoBaseName)
+      console.log('[extractVideoClip] Creating container folder:', containerFolder)
+
+      try {
+        await fs.mkdir(containerFolder, { recursive: true })
+      } catch (mkdirError) {
+        console.error('[extractVideoClip] mkdir error:', mkdirError)
+        return {
+          success: false,
+          error: `Failed to create container folder: ${mkdirError.message}`,
+        }
+      }
+
+      // Generate filename: {startTime}-{endTime}-clip.md
+      const fileName = `${startTime}-${endTime}-clip.md`
+      const metadataFilePath = path.join(containerFolder, fileName)
+      console.log('[extractVideoClip] Will create metadata file:', metadataFilePath)
+      const relativePath = path.relative(rootPath, metadataFilePath)
+      const parentRelativePath = path.relative(rootPath, videoPath)
+
+      // Check if file already exists
+      try {
+        await fs.access(metadataFilePath)
+        return {
+          success: false,
+          error: 'A note with this time range already exists. Please select a different range.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
+      }
+
+      // Create metadata file
+      const metadataContent = '## Video Notes'
+      await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
+
+      // Insert into database
+      db.prepare(
+        `
+        INSERT INTO file (library_id, relative_path, added_time, due_time)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `
+      ).run(libraryId, relativePath)
+
+      db.prepare(
+        `
+        INSERT INTO note_source 
+        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        'video-clip',
+        String(startTime),
+        String(endTime),
+        null // No source hash for video clip extraction
+      )
+
+      return {
+        success: true,
+        filePath: metadataFilePath,
+        fileName: fileName,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('Error extracting video clip:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
  * Get extract information for a note file from database
  * Simple query to check if file is an extract and get its source info
  *
@@ -1079,6 +1184,11 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
       extractPdfText(pdfPath, text, pageNum, lineStart, lineEnd, libraryId, getCentralDbPath)
   )
 
+  // Video extraction handlers
+  ipcMain.handle('extract-video-clip', async (event, videoPath, startTime, endTime, libraryId) =>
+    extractVideoClip(videoPath, startTime, endTime, libraryId, getCentralDbPath)
+  )
+
   ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
     getNoteExtractInfo(notePath, libraryId, getCentralDbPath)
   )
@@ -1101,5 +1211,6 @@ export {
   updateLockedRanges,
   extractPdfPages,
   extractPdfText,
+  extractVideoClip,
   getNoteExtractInfo,
 }

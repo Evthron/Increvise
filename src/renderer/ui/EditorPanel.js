@@ -9,6 +9,7 @@
 
 import { LitElement, html, css } from 'lit'
 import { pdfOptions } from './pdfViewer.js'
+import { videoOptions } from './VideoViewer.js'
 
 /**
  * Convert database extractedRanges to pdfViewer-ready format
@@ -53,13 +54,34 @@ function processExtractedRanges(ranges) {
   return { extractedPageRanges, extractedLineRanges }
 }
 
+/**
+ * Convert database extractedRanges to videoViewer-ready format
+ * @param {Array} ranges - Raw ranges from database (getChildRanges result)
+ * @returns {Array<{start: number, end: number, notePath: string}>}
+ */
+function processVideoExtractedRanges(ranges) {
+  const extractedRanges = []
+
+  for (const range of ranges) {
+    if (range.extract_type === 'video-clip') {
+      extractedRanges.push({
+        start: parseInt(range.start),
+        end: parseInt(range.end),
+        notePath: range.path,
+      })
+    }
+  }
+
+  return extractedRanges
+}
+
 export class EditorPanel extends LitElement {
   static properties = {
     currentOpenFile: { type: String, state: true },
     currentFilePath: { type: String, state: true },
     isEditMode: { type: Boolean, state: true },
     hasUnsavedChanges: { type: Boolean, state: true },
-    currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text'
+    currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
   }
 
@@ -158,6 +180,7 @@ export class EditorPanel extends LitElement {
     this.markdownViewer = this.shadowRoot
       .querySelector('slot[name="markdown"]')
       .assignedElements()[0]
+    this.videoViewer = this.shadowRoot.querySelector('slot[name="video"]').assignedElements()[0]
 
     // Set up event listeners
     this._setupEventListeners()
@@ -265,6 +288,7 @@ export class EditorPanel extends LitElement {
         <slot name="pdf"></slot>
         <slot name="html"></slot>
         <slot name="markdown"></slot>
+        <slot name="video"></slot>
       </div>
     `
   }
@@ -276,6 +300,9 @@ export class EditorPanel extends LitElement {
         <button @click=${this._handleExtractText}>Extract Text</button>
         <button @click=${this._handleExtractPage}>Extract Page</button>
       `
+    } else if (this.currentViewerType === 'video') {
+      // Video mode: [Extract Clip]
+      return html`<button @click=${this._handleExtractVideoClip}>Extract Clip</button>`
     } else if (this.currentDisplayMode === 'preview') {
       // Preview mode (markdown/html rendered): [Extract] [View Source]
       return html`
@@ -342,13 +369,36 @@ export class EditorPanel extends LitElement {
       // Determine file type and dispatch to appropriate handler
       const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
       const isPdf = ext === '.pdf'
+      const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].includes(ext)
+
+      // Check if file is a video extract by querying database
+      let videoExtractInfo = null
+      if (window.currentFileLibraryId && ext === '.md') {
+        const extractInfo = await window.fileManager.getNoteExtractInfo(
+          filePath,
+          window.currentFileLibraryId
+        )
+
+        if (extractInfo && extractInfo.success && extractInfo.found) {
+          if (extractInfo.extractType === 'video-clip') {
+            videoExtractInfo = extractInfo
+            console.log('extracted video info get')
+          }
+        }
+      }
 
       if (pdfExtractInfo) {
         // PDF extract file
         await this._openPdfExtract(filePath, pdfExtractInfo)
+      } else if (videoExtractInfo) {
+        // Video extract file
+        await this._openVideoClip(filePath, videoExtractInfo)
       } else if (isPdf) {
         // Regular PDF file
         await this._openRegularPdf(filePath)
+      } else if (isVideo) {
+        // Regular video file
+        await this._openRegularVideo(filePath)
       } else {
         // Text file (markdown, html, or other)
         this.pdfViewer?.resetView?.()
@@ -493,6 +543,100 @@ export class EditorPanel extends LitElement {
   }
 
   /**
+   * Open a video clip extract file
+   * @param {string} filePath
+   * @param {Object} extractInfo
+   */
+  async _openVideoClip(filePath, extractInfo) {
+    console.log('Opening video clip extract file:', filePath)
+    console.log('Extract info:', extractInfo)
+
+    const { parentPath, rangeStart, rangeEnd } = extractInfo
+    const sourceVideoPath = parentPath
+
+    const startTime = parseInt(rangeStart)
+    const endTime = parseInt(rangeEnd)
+    const displayText = `Video Clip (${this._formatTime(startTime)} - ${this._formatTime(endTime)})`
+
+    // Update state
+    this.currentOpenFile = filePath
+    this.currentViewerType = 'video'
+    this.currentDisplayMode = 'preview'
+    this.currentFilePath = displayText
+
+    // Show video viewer, hide others
+    this._showViewer('video')
+
+    // Get extracted ranges for the video
+    const rangesResult = await window.fileManager.getChildRanges(
+      sourceVideoPath,
+      window.currentFileLibraryId
+    )
+
+    // Convert database ranges to videoViewer format
+    const extractedRanges = processVideoExtractedRanges(
+      rangesResult?.success ? rangesResult.ranges : []
+    )
+
+    // Load video with time restriction
+    const options = new videoOptions({
+      timeStart: startTime,
+      timeEnd: endTime,
+      extractedRanges: extractedRanges,
+    })
+
+    console.log('Final videoOptions:', options)
+    await this.videoViewer.loadVideo(sourceVideoPath, options)
+
+    console.log('Video clip loaded with configuration:', {
+      startTime,
+      endTime,
+      extractedRanges: extractedRanges.length,
+    })
+
+    this.requestUpdate()
+  }
+
+  /**
+   * Open a regular video file
+   * @param {string} filePath
+   */
+  async _openRegularVideo(filePath) {
+    this.currentOpenFile = filePath
+    this.currentViewerType = 'video'
+    this.currentDisplayMode = 'preview'
+    this.currentFilePath = filePath
+
+    // Show video viewer, hide others
+    this._showViewer('video')
+
+    // Get extracted ranges for the video
+    const rangesResult = await window.fileManager.getChildRanges(
+      filePath,
+      window.currentFileLibraryId
+    )
+
+    // Convert database ranges to videoViewer format
+    const extractedRanges = processVideoExtractedRanges(
+      rangesResult?.success ? rangesResult.ranges : []
+    )
+
+    // Load video with extracted ranges
+    await this.videoViewer.loadVideo(
+      filePath,
+      new videoOptions({
+        extractedRanges: extractedRanges,
+      })
+    )
+
+    console.log('Regular video loaded with extracted ranges:', {
+      extractedRanges: extractedRanges.length,
+    })
+
+    this.requestUpdate()
+  }
+
+  /**
    * Open a text file (markdown, html, or other text formats)
    * @param {string} filePath
    * @param {string} content
@@ -595,10 +739,10 @@ export class EditorPanel extends LitElement {
 
   /**
    * Show specific viewer and hide others
-   * @param {string} viewer - 'pdf' | 'markdown' | 'html' | 'codemirror'
+   * @param {string} viewer - 'pdf' | 'markdown' | 'html' | 'codemirror' | 'video'
    */
   _showViewer(viewer) {
-    const viewers = ['pdf', 'markdown', 'html', 'codemirror']
+    const viewers = ['pdf', 'markdown', 'html', 'codemirror', 'video']
     viewers.forEach((v) => {
       const el = this[`${v}Viewer`] || this[`${v}Editor`]
       if (el) {
@@ -1040,6 +1184,93 @@ export class EditorPanel extends LitElement {
     } catch (error) {
       console.error('Error reloading PDF extracted ranges:', error)
     }
+  }
+
+  /**
+   * Video Extract Clip button handler
+   */
+  async _handleExtractVideoClip() {
+    const videoPath = this.videoViewer.getCurrentVideoPath()
+
+    if (!videoPath) {
+      this._showToast('Please open a video file first', true)
+      return
+    }
+
+    const timeRange = this.videoViewer.getSelectedTimeRange()
+
+    if (!timeRange || timeRange.start === null || timeRange.end === null) {
+      this._showToast('Please set start and end times', true)
+      return
+    }
+
+    if (timeRange.start >= timeRange.end) {
+      this._showToast('Start time must be before end time', true)
+      return
+    }
+
+    if (!window.currentFileLibraryId) {
+      this._showToast('Error: Library ID not set. Please reopen the file.', true)
+      console.error('currentFileLibraryId is not set')
+      return
+    }
+
+    try {
+      const result = await window.fileManager.extractVideoClip(
+        videoPath,
+        timeRange.start,
+        timeRange.end,
+        window.currentFileLibraryId
+      )
+
+      if (result.success) {
+        this._showToast(
+          `Clip ${this._formatTime(timeRange.start)}-${this._formatTime(timeRange.end)} extracted to ${result.fileName}`
+        )
+        await this._reloadVideoExtractedRanges()
+        // Refresh file manager to show the new extracted note
+        this._refreshFileManager()
+      } else {
+        this._showToast(`Error: ${result.error}`, true)
+      }
+    } catch (error) {
+      console.error('Error extracting video clip:', error)
+      this._showToast(`Error extracting video clip: ${error.message}`, true)
+    }
+  }
+
+  /**
+   * Reload video extracted ranges
+   */
+  async _reloadVideoExtractedRanges() {
+    const videoPath = this.videoViewer.getCurrentVideoPath()
+
+    if (!videoPath) return
+
+    try {
+      const rangesResult = await window.fileManager.getChildRanges(
+        videoPath,
+        window.currentFileLibraryId
+      )
+      if (rangesResult && rangesResult.success) {
+        const extractedRanges = processVideoExtractedRanges(rangesResult.ranges)
+        this.videoViewer.extractedRanges = extractedRanges
+      }
+    } catch (error) {
+      console.error('Error reloading video extracted ranges:', error)
+    }
+  }
+
+  /**
+   * Format time in seconds to HH:MM:SS
+   * @param {number} seconds
+   * @returns {string}
+   */
+  _formatTime(seconds) {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    const s = seconds % 60
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
 
   /**

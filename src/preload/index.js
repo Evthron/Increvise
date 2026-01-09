@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   extractPdfAnnotation: (pdfPath, annotation, libraryId) =>
     ipcRenderer.invoke('extract-pdf-annotation', pdfPath, annotation, libraryId),
 
+  // 3c. Video Extraction
+  extractVideoClip: (videoPath, startTime, endTime, libraryId) =>
+    ipcRenderer.invoke('extract-video-clip', videoPath, startTime, endTime, libraryId),
+
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
   getRecentWorkspaces: (limit) => ipcRenderer.invoke('get-recent-workspaces', limit),
