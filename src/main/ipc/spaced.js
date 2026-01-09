@@ -307,6 +307,7 @@ async function getFilesForRevision(rootPath) {
             ...row,
             file_path: path.join(dbRootPath, row.relative_path),
             dbPath,
+            workspacePath: dbRootPath,
           }))
         )
         db.close()

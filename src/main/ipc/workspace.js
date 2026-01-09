@@ -32,6 +32,9 @@ async function recordWorkspace(folderPath, getCentralDbPath) {
         (library_id, folder_path, folder_name, db_path, last_opened, open_count)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
         ON CONFLICT(library_id) DO UPDATE SET
+          folder_path = excluded.folder_path,
+          folder_name = excluded.folder_name,
+          db_path = excluded.db_path,
           last_opened = CURRENT_TIMESTAMP,
           open_count = open_count + 1
       `)
