@@ -8,12 +8,15 @@
 // Manages revision workflow state and feedback controls
 
 import { LitElement, html, css } from 'lit'
+import './QueueMenu.js'
 
 export class FeedbackBar extends LitElement {
   static properties = {
     revisionFiles: { type: Array, state: true },
     currentIndex: { type: Number, state: true },
     isRevisionMode: { type: Boolean, state: true },
+    currentQueue: { type: String, state: true },
+    showQueueMenu: { type: Boolean, state: true },
   }
 
   static styles = css`
@@ -123,6 +126,87 @@ export class FeedbackBar extends LitElement {
       opacity: 1;
     }
 
+    .queue-control {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+
+    .queue-control:hover {
+      background-color: #e8e8e8;
+    }
+
+    .queue-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .queue-value {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      padding: 2px 6px;
+      border-radius: 3px;
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .queue-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .queue-badge.new {
+      background-color: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .queue-badge.processing {
+      background-color: #fff3e0;
+      color: #f57c00;
+    }
+
+    .queue-badge.intermediate {
+      background-color: #f3e5f5;
+      color: #7b1fa2;
+    }
+
+    .queue-badge.spaced-casual {
+      background-color: #e8f5e9;
+      color: #388e3c;
+    }
+
+    .queue-badge.spaced-standard {
+      background-color: #e1f5fe;
+      color: #0277bd;
+    }
+
+    .queue-badge.spaced-strict {
+      background-color: #fce4ec;
+      color: #c2185b;
+    }
+
+    .queue-badge.archived {
+      background-color: #f5f5f5;
+      color: #757575;
+    }
+
     .feedback-buttons {
       display: flex;
       gap: 8px;
@@ -215,17 +299,38 @@ export class FeedbackBar extends LitElement {
     this.revisionFiles = []
     this.currentIndex = 0
     this.isRevisionMode = false
+    this.currentQueue = null
+    this.showQueueMenu = false
+    this.queueMenuPosition = { top: 0, left: 0 }
   }
 
   connectedCallback() {
     super.connectedCallback()
     // Listen for file selection from revision list
     document.addEventListener('file-selected', this._handleFileSelected.bind(this))
+    // Listen for queue selection from menu
+    document.addEventListener('queue-selected', this._handleQueueSelected.bind(this))
+    // Close queue menu when clicking outside
+    this._clickOutsideHandler = (e) => {
+      if (
+        this.showQueueMenu &&
+        !e.target.closest('.queue-control') &&
+        !e.target.closest('queue-menu')
+      ) {
+        this.showQueueMenu = false
+        this.requestUpdate()
+      }
+    }
+    document.addEventListener('click', this._clickOutsideHandler)
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     document.removeEventListener('file-selected', this._handleFileSelected.bind(this))
+    document.removeEventListener('queue-selected', this._handleQueueSelected.bind(this))
+    if (this._clickOutsideHandler) {
+      document.removeEventListener('click', this._clickOutsideHandler)
+    }
   }
 
   async _handleFileSelected(e) {
@@ -314,6 +419,9 @@ export class FeedbackBar extends LitElement {
     // Set the current file's library ID before opening
     window.currentFileLibraryId = file.library_id
     console.log('Opening revision file from library:', file.library_id)
+
+    // Load the current file's queue
+    await this._loadCurrentQueue()
 
     // Update revision list component
     const revisionListElement = document.querySelector('revision-list')
@@ -444,6 +552,105 @@ export class FeedbackBar extends LitElement {
     }
   }
 
+  async _loadCurrentQueue() {
+    const file = this.revisionFiles[this.currentIndex]
+    if (!file) return
+
+    try {
+      const result = await window.fileManager.getFileQueue(file.file_path, file.library_id)
+      if (result && result.queueName) {
+        this.currentQueue = result.queueName
+      }
+    } catch (error) {
+      console.error('Error loading current queue:', error)
+    }
+  }
+
+  _toggleQueueMenu(e) {
+    e.stopPropagation()
+
+    if (this.showQueueMenu) {
+      // Close menu
+      this.showQueueMenu = false
+    } else {
+      // Open menu and calculate position
+      this.showQueueMenu = true
+
+      // Get the position of the queue control button
+      const target = e.currentTarget
+      const rect = target.getBoundingClientRect()
+
+      // Menu dimensions (approximate)
+      const menuWidth = 240
+      const menuHeight = 350 // Approximate height with 7 items
+
+      // Calculate position (menu appears above the button)
+      let left = rect.left
+      let top = rect.top - menuHeight - 70 // 16px gap above button (increased from 8px)
+
+      // Adjust if menu would go off screen
+      if (left + menuWidth > window.innerWidth) {
+        left = window.innerWidth - menuWidth - 16
+      }
+      if (left < 16) {
+        left = 16
+      }
+      if (top < 70) {
+        // If not enough space above, show below instead
+        top = rect.bottom + 70
+      }
+
+      this.queueMenuPosition = { top, left }
+    }
+
+    this.requestUpdate()
+  }
+
+  _getQueueDisplayName(queueName) {
+    const names = {
+      new: 'New',
+      processing: 'Processing',
+      intermediate: 'Intermediate',
+      'spaced-casual': 'Casual',
+      'spaced-standard': 'Standard',
+      'spaced-strict': 'Strict',
+      archived: 'Archived',
+    }
+    return names[queueName] || queueName
+  }
+
+  async _handleQueueSelected(e) {
+    const newQueue = e.detail.queueName
+    const file = this.revisionFiles[this.currentIndex]
+
+    if (!file || newQueue === this.currentQueue) {
+      this.showQueueMenu = false
+      this.requestUpdate()
+      return
+    }
+
+    try {
+      const result = await window.fileManager.moveFileToQueue(
+        file.file_path,
+        file.library_id,
+        newQueue
+      )
+
+      if (result && result.success) {
+        this.currentQueue = newQueue
+        this.showQueueMenu = false
+        this._showToast(`Moved to ${this._getQueueDisplayName(newQueue)} queue`)
+      } else {
+        this._showToast(`Failed to move to ${newQueue} queue`, true)
+      }
+    } catch (error) {
+      console.error('Error changing queue:', error)
+      this._showToast('Error changing queue', true)
+    }
+
+    this.requestUpdate()
+  }
+
   _showToast(message, isError = false) {
     const toast = document.getElementById('toast')
     if (!toast) return
@@ -525,6 +732,17 @@ export class FeedbackBar extends LitElement {
                 +
               </button>
             </span>
+            ${this.currentQueue
+              ? html`
+                  <span class="file-meta-separator">•</span>
+                  <div class="queue-control" @click=${this._toggleQueueMenu}>
+                    <span class="meta-icon">📂</span>
+                    <span class="queue-badge ${this.currentQueue}"
+                      >${this._getQueueDisplayName(this.currentQueue)}</span
+                    >
+                  </div>
+                `
+              : ''}
           </div>
         </div>
       </div>
@@ -538,6 +756,11 @@ export class FeedbackBar extends LitElement {
         </button>
         <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>Easy</button>
       </div>
+      <queue-menu
+        .currentQueue=${this.currentQueue}
+        .position=${this.queueMenuPosition}
+        .visible=${this.showQueueMenu}
+      ></queue-menu>
     `
   }
 }

@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('fileManager', {
   forgetFile: (filePath, libraryId) => ipcRenderer.invoke('forget-file', filePath, libraryId),
   updateFileRank: (filePath, libraryId, newRank) =>
     ipcRenderer.invoke('update-file-rank', filePath, libraryId, newRank),
+  getFileQueue: (filePath, libraryId) => ipcRenderer.invoke('get-file-queue', filePath, libraryId),
+  moveFileToQueue: (filePath, libraryId, targetQueue) =>
+    ipcRenderer.invoke('move-file-to-queue', filePath, libraryId, targetQueue),
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
