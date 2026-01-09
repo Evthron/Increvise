@@ -452,16 +452,15 @@ export class FeedbackBar extends LitElement {
       )
 
       if (result.success) {
-        // Remove the reviewed file
-        this.revisionFiles = [
-          ...this.revisionFiles.slice(0, this.currentIndex),
-          ...this.revisionFiles.slice(this.currentIndex + 1),
-        ]
-
-        // Update the revision list component
+        // Notify revision list to refresh its data
         const revisionListElement = document.querySelector('revision-list')
         if (revisionListElement) {
-          revisionListElement.files = this.revisionFiles
+          await revisionListElement.refreshFileList()
+        }
+
+        // Update local revisionFiles from the refreshed list
+        if (revisionListElement) {
+          this.revisionFiles = revisionListElement.getFilteredFiles()
         }
 
         // Update workspace stats

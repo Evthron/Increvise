@@ -197,8 +197,8 @@ export class FileManager extends LitElement {
       <div id="workspace-history-list">
         <div
           class="workspace-item all-workspaces-item ${this.currentRootPath === 'ALL'
-    ? 'selected'
-    : ''}"
+            ? 'selected'
+            : ''}"
           @click=${() => this._handleWorkspaceClick('ALL')}
         >
           All Workspaces
@@ -222,8 +222,8 @@ export class FileManager extends LitElement {
         <div class="workspace-name">${workspace.folder_name}</div>
         <div class="workspace-meta">${timeAgo}</div>
         ${workspace.files_due_today > 0
-    ? html`<div class="workspace-stats">${workspace.files_due_today} due</div>`
-    : ''}
+          ? html`<div class="workspace-stats">${workspace.files_due_today} due</div>`
+          : ''}
       </div>
     `
   }
@@ -309,6 +309,12 @@ export class FileManager extends LitElement {
           window.currentWorkspaceLibraryId
         )
         this.treeData = tree
+
+        // Also refresh the revision list
+        const revisionList = document.querySelector('revision-list')
+        if (revisionList) {
+          await revisionList.refreshFileList()
+        }
       }
     } catch (error) {
       console.error('Error refreshing workspace:', error)
@@ -338,16 +344,15 @@ export class FileManager extends LitElement {
       const revisionList = document.querySelector('revision-list')
 
       if (revisionList) {
-        const result = await window.fileManager.getAllFilesForRevision()
-        if (result.success) {
-          revisionList.files = result.files
+        // Use refreshFileList to respect the current view mode
+        await revisionList.refreshFileList()
 
-          // Auto-start revision workflow if files are available
-          if (result.files.length > 0) {
-            const feedbackBar = document.querySelector('feedback-bar')
-            if (feedbackBar) {
-              await feedbackBar.startRevisionWorkflow(result.files)
-            }
+        // Auto-start revision workflow if files are available
+        const filteredFiles = revisionList.getFilteredFiles()
+        if (filteredFiles.length > 0) {
+          const feedbackBar = document.querySelector('feedback-bar')
+          if (feedbackBar) {
+            await feedbackBar.startRevisionWorkflow(filteredFiles)
           }
         }
       }
@@ -383,16 +388,15 @@ export class FileManager extends LitElement {
     const revisionList = document.querySelector('revision-list')
 
     if (revisionList) {
-      const result = await window.fileManager.getFilesForRevision(folderPath)
-      if (result.success) {
-        revisionList.files = result.files
+      // Use refreshFileList to respect the current view mode
+      await revisionList.refreshFileList()
 
-        // Auto-start revision workflow if files are available
-        if (result.files.length > 0) {
-          const feedbackBar = document.querySelector('feedback-bar')
-          if (feedbackBar) {
-            await feedbackBar.startRevisionWorkflow(result.files)
-          }
+      // Auto-start revision workflow if files are available
+      const filteredFiles = revisionList.getFilteredFiles()
+      if (filteredFiles.length > 0) {
+        const feedbackBar = document.querySelector('feedback-bar')
+        if (feedbackBar) {
+          await feedbackBar.startRevisionWorkflow(filteredFiles)
         }
       }
     }

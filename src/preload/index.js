@@ -25,7 +25,9 @@ contextBridge.exposeInMainWorld('fileManager', {
   addFileToQueue: (filePath, libraryId) =>
     ipcRenderer.invoke('add-file-to-queue', filePath, libraryId),
   getFilesForRevision: (rootPath) => ipcRenderer.invoke('get-files-for-revision', rootPath),
+  getFilesIncludingFuture: (rootPath) => ipcRenderer.invoke('get-files-including-future', rootPath),
   getAllFilesForRevision: () => ipcRenderer.invoke('get-all-files-for-revision'),
+  getAllFilesIncludingFuture: () => ipcRenderer.invoke('get-all-files-including-future'),
   updateRevisionFeedback: (dbPath, libraryId, relativePath, feedback) =>
     ipcRenderer.invoke('update-revision-feedback', dbPath, libraryId, relativePath, feedback),
   forgetFile: (filePath, libraryId) => ipcRenderer.invoke('forget-file', filePath, libraryId),

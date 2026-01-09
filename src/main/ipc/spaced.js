@@ -321,6 +321,66 @@ async function getFilesForRevision(rootPath) {
   }
 }
 
+async function getFilesIncludingFuture(rootPath) {
+  // Get all files from databases under the specified rootPath (including future due dates)
+  try {
+    const findDatabases = async (dir) => {
+      const databases = []
+      const items = await fs.readdir(dir, { withFileTypes: true })
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name)
+        if (item.isDirectory()) {
+          if (item.name === '.increvise') {
+            const dbFile = path.join(fullPath, 'db.sqlite')
+            try {
+              await fs.access(dbFile)
+              databases.push(dbFile)
+            } catch {
+              // db.sqlite file doesn't exist in this .increvise folder
+            }
+          } else {
+            databases.push(...(await findDatabases(fullPath)))
+          }
+        }
+      }
+      return databases
+    }
+    const dbPaths = await findDatabases(rootPath)
+    const allFiles = []
+    for (const dbPath of dbPaths) {
+      try {
+        const db = new Database(dbPath, { readonly: true })
+        const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
+        const rows = db
+          .prepare(
+            `
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE qm.queue_name != 'archived'
+            ORDER BY f.due_time ASC, f.rank ASC
+          `
+          )
+          .all()
+        allFiles.push(
+          ...rows.map((row) => ({
+            ...row,
+            file_path: path.join(dbRootPath, row.relative_path),
+            dbPath,
+            workspacePath: dbRootPath,
+          }))
+        )
+        db.close()
+      } catch {
+        // Failed to read from this database, skip it
+      }
+    }
+    return { success: true, files: allFiles }
+  } catch (error) {
+    return { success: false, error: error.message, files: [] }
+  }
+}
+
 async function getAllFilesForRevision(getCentralDbPath) {
   try {
     const centralDbPath = getCentralDbPath()
@@ -422,6 +482,73 @@ async function getAllFilesForRevision(getCentralDbPath) {
 
         allFiles.push(
           ...workspaceFiles.map((row) => ({
+            ...row,
+            file_path: path.join(workspace.folder_path, row.relative_path),
+            dbPath: workspace.db_path,
+            workspacePath: workspace.folder_path,
+          }))
+        )
+        db.close()
+      } catch (err) {
+        console.error('Error processing workspace:', err)
+      }
+    }
+
+    // Sort by due_time and rank
+    allFiles.sort((a, b) => {
+      const dateA = new Date(a.due_time)
+      const dateB = new Date(b.due_time)
+      if (dateA.toDateString() === dateB.toDateString()) {
+        return (a.rank || 70) - (b.rank || 70)
+      }
+      return dateA - dateB
+    })
+
+    return { success: true, files: allFiles }
+  } catch (error) {
+    return { success: false, error: error.message, files: [] }
+  }
+}
+
+async function getAllFilesIncludingFuture(getCentralDbPath) {
+  try {
+    const centralDbPath = getCentralDbPath()
+    let workspaces = []
+    try {
+      const db = new Database(centralDbPath, { readonly: true })
+      workspaces = db
+        .prepare('SELECT folder_path, db_path FROM workspace_history ORDER BY last_opened DESC')
+        .all()
+      db.close()
+    } catch (err) {
+      return { success: false, error: err.message, files: [] }
+    }
+    const allFiles = []
+    for (const workspace of workspaces) {
+      try {
+        await fs.access(workspace.db_path)
+      } catch {
+        continue
+      }
+      try {
+        const db = new Database(workspace.db_path, { readonly: true })
+        const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get().library_id
+
+        // Get ALL files from all queues (no date filtering except archived)
+        const allItems = db
+          .prepare(
+            `
+            SELECT f.*, qm.queue_name
+            FROM file f
+            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
+            WHERE f.library_id = ? AND qm.queue_name != 'archived'
+            ORDER BY f.due_time ASC, f.rank ASC
+          `
+          )
+          .all(libraryId)
+
+        allFiles.push(
+          ...allItems.map((row) => ({
             ...row,
             file_path: path.join(workspace.folder_path, row.relative_path),
             dbPath: workspace.db_path,
@@ -1113,7 +1240,13 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
     addFileToQueue(filePath, libraryId, getCentralDbPath)
   )
   ipcMain.handle('get-files-for-revision', (_event, rootPath) => getFilesForRevision(rootPath))
+  ipcMain.handle('get-files-including-future', (_event, rootPath) =>
+    getFilesIncludingFuture(rootPath)
+  )
   ipcMain.handle('get-all-files-for-revision', (_event) => getAllFilesForRevision(getCentralDbPath))
+  ipcMain.handle('get-all-files-including-future', (_event) =>
+    getAllFilesIncludingFuture(getCentralDbPath)
+  )
   ipcMain.handle('update-revision-feedback', (_event, dbPath, libraryId, relativePath, feedback) =>
     updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
   )
@@ -1168,7 +1301,9 @@ export {
   checkFileInQueue,
   addFileToQueue,
   getFilesForRevision,
+  getFilesIncludingFuture,
   getAllFilesForRevision,
+  getAllFilesIncludingFuture,
   updateRevisionFeedback,
   handleSpacedFeedback,
   forgetFile,

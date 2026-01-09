@@ -12,6 +12,7 @@ export class RevisionList extends LitElement {
     files: { type: Array },
     currentIndex: { type: Number },
     selectedQueueFilter: { type: String, state: true },
+    showAllFiles: { type: Boolean, state: true },
   }
 
   static styles = css`
@@ -273,6 +274,49 @@ export class RevisionList extends LitElement {
       background-color: #f5f5f5;
       color: #757575;
     }
+
+    .view-toggle-bar {
+      display: flex;
+      gap: 6px;
+      padding: 8px 16px;
+      background-color: var(--bg-primary);
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+      align-items: center;
+    }
+
+    .view-toggle-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-right: 8px;
+    }
+
+    .view-toggle-btn {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      background-color: var(--bg-primary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .view-toggle-btn:hover {
+      background-color: var(--bg-secondary);
+      border-color: var(--accent-color);
+    }
+
+    .view-toggle-btn.active {
+      background-color: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
   `
 
   constructor() {
@@ -280,6 +324,7 @@ export class RevisionList extends LitElement {
     this.files = []
     this.currentIndex = 0
     this.selectedQueueFilter = 'all'
+    this.showAllFiles = false
   }
 
   connectedCallback() {
@@ -312,20 +357,38 @@ export class RevisionList extends LitElement {
 
   async refreshFileList() {
     try {
+      console.log('Refreshing file list, showAllFiles:', this.showAllFiles)
       // Check if we're in All Workspaces mode or single workspace mode
       const fileManager = document.querySelector('file-manager')
       if (!fileManager) return
 
       let result
       if (fileManager.isAllWorkspacesMode) {
-        result = await window.fileManager.getAllFilesForRevision()
+        console.log('Using All Workspaces mode')
+        // Use showAllFiles to determine which API to call
+        if (this.showAllFiles) {
+          console.log('Calling getAllFilesIncludingFuture()')
+          result = await window.fileManager.getAllFilesIncludingFuture()
+        } else {
+          console.log('Calling getAllFilesForRevision()')
+          result = await window.fileManager.getAllFilesForRevision()
+        }
       } else if (fileManager.currentRootPath) {
-        result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
+        console.log('Using single workspace mode:', fileManager.currentRootPath)
+        // Single workspace mode - also check showAllFiles
+        if (this.showAllFiles) {
+          console.log('Calling getFilesIncludingFuture()')
+          result = await window.fileManager.getFilesIncludingFuture(fileManager.currentRootPath)
+        } else {
+          console.log('Calling getFilesForRevision()')
+          result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
+        }
       } else {
         return
       }
 
       if (result && result.success) {
+        console.log('Files received:', result.files.length)
         this.files = result.files
         this.requestUpdate()
       }
@@ -358,10 +421,25 @@ export class RevisionList extends LitElement {
   }
 
   getFilteredFiles() {
-    if (this.selectedQueueFilter === 'all') {
-      return this.files
+    let filtered = this.files
+
+    // First filter by due date if in "Due Today" mode
+    if (!this.showAllFiles) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      filtered = this.files.filter((file) => {
+        const dueDate = new Date(file.due_time)
+        dueDate.setHours(0, 0, 0, 0)
+        return dueDate <= today
+      })
     }
-    return this.files.filter((file) => {
+
+    // Then filter by queue if not "all"
+    if (this.selectedQueueFilter === 'all') {
+      return filtered
+    }
+
+    return filtered.filter((file) => {
       if (this.selectedQueueFilter === 'spaced') {
         return (
           file.queue_name === 'spaced-casual' ||
@@ -398,6 +476,33 @@ export class RevisionList extends LitElement {
     this.requestUpdate()
   }
 
+  async handleViewToggle(showAll) {
+    console.log('View toggle:', showAll ? 'All Files' : 'Due Today')
+    this.showAllFiles = showAll
+    await this.refreshFileList()
+    console.log('Files loaded:', this.files.length)
+  }
+
+  _renderViewToggleBar() {
+    return html`
+      <div class="view-toggle-bar">
+        <span class="view-toggle-label">Show:</span>
+        <button
+          class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
+          @click=${() => this.handleViewToggle(false)}
+        >
+          📅 Due Today
+        </button>
+        <button
+          class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
+          @click=${() => this.handleViewToggle(true)}
+        >
+          📋 All Files
+        </button>
+      </div>
+    `
+  }
+
   _renderQueueFilterBar() {
     const filters = [
       { id: 'all', label: 'All', icon: '📋' },
@@ -432,6 +537,18 @@ export class RevisionList extends LitElement {
     this.currentIndex = globalIndex
     this.requestUpdate()
 
+    // Get feedback bar and check if revision mode is active
+    const feedbackBar = document.querySelector('feedback-bar')
+
+    // If feedback bar exists and revision mode is NOT active, start it
+    if (feedbackBar && !feedbackBar.isInRevisionMode()) {
+      const filteredFiles = this.getFilteredFiles()
+      if (filteredFiles.length > 0) {
+        console.log('Auto-starting revision workflow from file click')
+        await feedbackBar.startRevisionWorkflow(filteredFiles)
+      }
+    }
+
     // Dispatch a custom event so feedback bar updates
     this.dispatchEvent(
       new CustomEvent('file-selected', {
@@ -462,6 +579,14 @@ export class RevisionList extends LitElement {
     const difficultyColor = this.getDifficultyColor(file.difficulty)
     const difficultyLabel = this.getDifficultyLabel(file.difficulty)
     const isActive = globalIndex === this.currentIndex
+
+    // Calculate if file is due in the future
+    const dueDate = new Date(file.due_time)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    dueDate.setHours(0, 0, 0, 0)
+    const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))
+    const isDueFuture = daysDiff > 0
 
     // Handler for forget button
     const handleForget = async (e) => {
@@ -499,6 +624,14 @@ export class RevisionList extends LitElement {
                 <span class="meta-dot" style="background-color: ${difficultyColor}"></span>
                 <span>${difficultyLabel}</span>
               </span>
+              ${isDueFuture
+                ? html`
+                    <span class="revision-meta-item" style="color: #ff9500;">
+                      <span class="meta-icon">📅</span>
+                      <span>in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
+                    </span>
+                  `
+                : ''}
               ${file.queue_name
                 ? html`
                     <span class="queue-badge-inline ${file.queue_name}">
@@ -548,10 +681,12 @@ export class RevisionList extends LitElement {
     return html`
       <div class="revision-list-header">
         <div class="revision-count">${filteredCount} file${filteredCount !== 1 ? 's' : ''}</div>
-        <div class="revision-subtitle">Due for review</div>
+        <div class="revision-subtitle">
+          ${this.showAllFiles ? 'All files in queues' : 'Due for review'}
+        </div>
       </div>
 
-      ${this._renderQueueFilterBar()}
+      ${this._renderViewToggleBar()} ${this._renderQueueFilterBar()}
       ${filteredCount === 0
         ? this.renderEmptyState()
         : html`
