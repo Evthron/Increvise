@@ -10,6 +10,14 @@ import Database from 'better-sqlite3'
 import { getWorkspaceDbPath } from '../db/index.js'
 
 /**
+ * Generate random days for initial review of extracted content
+ * @returns {number} Random number of days
+ */
+function getRandomInitialDays() {
+  return Math.floor(Math.random() * 6) + 3 // 3 to 8 days
+}
+
+/**
  * Parse a hierarchical note filename
  * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
  * Example: "10-20-introduction-to.15-18-core-concepts.md"
@@ -694,10 +702,20 @@ async function extractNote(
       const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
       // Insert file record
+      // Set due_time to random days later (3-10 days)
+      const initialDays = getRandomInitialDays()
       db.prepare(
         `
-            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
+            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+          `
+      ).run(libraryId, relativePath, initialDays)
+
+      // Add to intermediate queue (for extracted notes)
+      db.prepare(
+        `
+            INSERT INTO queue_membership (library_id, queue_name, relative_path)
+            VALUES (?, 'intermediate', ?)
           `
       ).run(libraryId, relativePath)
 
@@ -801,10 +819,20 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
       await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
 
       // Insert into database
+      // Set due_time to random days later (3-10 days)
+      const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, due_time)
-        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+      `
+      ).run(libraryId, relativePath, initialDays)
+
+      // Add to intermediate queue (for extracted notes)
+      db.prepare(
+        `
+        INSERT INTO queue_membership (library_id, queue_name, relative_path)
+        VALUES (?, 'intermediate', ?)
       `
       ).run(libraryId, relativePath)
 
@@ -939,10 +967,20 @@ async function extractPdfText(
       await fs.writeFile(textFilePath, text, 'utf-8')
 
       // Insert into database
+      // Set due_time to random days later (3-10 days)
+      const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, due_time)
-        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+      `
+      ).run(libraryId, relativePath, initialDays)
+
+      // Add to intermediate queue (for extracted notes)
+      db.prepare(
+        `
+        INSERT INTO queue_membership (library_id, queue_name, relative_path)
+        VALUES (?, 'intermediate', ?)
       `
       ).run(libraryId, relativePath)
 
@@ -1054,10 +1092,20 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
 
       // Insert into database
+      // Set due_time to random days later (3-10 days)
+      const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, due_time)
-        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+      `
+      ).run(libraryId, relativePath, initialDays)
+
+      // Add to intermediate queue (for extracted notes)
+      db.prepare(
+        `
+        INSERT INTO queue_membership (library_id, queue_name, relative_path)
+        VALUES (?, 'intermediate', ?)
       `
       ).run(libraryId, relativePath)
 
