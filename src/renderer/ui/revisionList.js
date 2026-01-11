@@ -397,18 +397,6 @@ export class RevisionList extends LitElement {
     }
   }
 
-  getDifficultyColor(difficulty) {
-    if (difficulty > 0.6) return '#ff3b30'
-    if (difficulty > 0.3) return '#ff9500'
-    return '#34c759'
-  }
-
-  getDifficultyLabel(difficulty) {
-    if (difficulty > 0.6) return 'Hard'
-    if (difficulty > 0.3) return 'Medium'
-    return 'Easy'
-  }
-
   groupFilesByWorkspace() {
     const grouped = {}
     const filteredFiles = this.getFilteredFiles()
@@ -576,8 +564,6 @@ export class RevisionList extends LitElement {
   renderFileItem(file, globalIndex) {
     const fileName = file.file_path.split('/').pop()
     const filePath = file.file_path
-    const difficultyColor = this.getDifficultyColor(file.difficulty)
-    const difficultyLabel = this.getDifficultyLabel(file.difficulty)
     const isActive = globalIndex === this.currentIndex
 
     // Calculate if file is due in the future
@@ -630,10 +616,7 @@ export class RevisionList extends LitElement {
                 <span class="meta-icon">🔄</span>
                 <span>${file.review_count} review${file.review_count !== 1 ? 's' : ''}</span>
               </span>
-              <span class="revision-meta-item">
-                <span class="meta-dot" style="background-color: ${difficultyColor}"></span>
-                <span>${difficultyLabel}</span>
-              </span>
+              <span class="revision-meta-item"> </span>
               ${isDueFuture
                 ? html`
                     <span class="revision-meta-item" style="color: #ff9500;">
