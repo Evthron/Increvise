@@ -600,6 +600,13 @@ export class RevisionList extends LitElement {
         // Apply reset values from backend response
         Object.assign(file, result.resetValues)
         this.requestUpdate()
+        
+        // Dispatch event so FeedbackBar can update its copy
+        this.dispatchEvent(new CustomEvent('file-forgotten', {
+          detail: { file, resetValues: result.resetValues },
+          bubbles: true,
+          composed: true
+        }))
       } else {
         alert('Failed to forget file: ' + (result?.error || 'Unknown error'))
       }

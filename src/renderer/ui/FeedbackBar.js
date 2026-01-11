@@ -310,6 +310,8 @@ export class FeedbackBar extends LitElement {
     document.addEventListener('file-selected', this._handleFileSelected.bind(this))
     // Listen for queue selection from menu
     document.addEventListener('queue-selected', this._handleQueueSelected.bind(this))
+    // Listen for file forgotten event
+    document.addEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     // Close queue menu when clicking outside
     this._clickOutsideHandler = (e) => {
       if (
@@ -328,6 +330,7 @@ export class FeedbackBar extends LitElement {
     super.disconnectedCallback()
     document.removeEventListener('file-selected', this._handleFileSelected.bind(this))
     document.removeEventListener('queue-selected', this._handleQueueSelected.bind(this))
+    document.removeEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     if (this._clickOutsideHandler) {
       document.removeEventListener('click', this._clickOutsideHandler)
     }
@@ -336,6 +339,20 @@ export class FeedbackBar extends LitElement {
   async _handleFileSelected(e) {
     const { index } = e.detail
     await this.openRevisionFile(index)
+  }
+
+  _handleFileForgotten(e) {
+    const { file, resetValues } = e.detail
+    // Find the file in our array and update it
+    const fileInArray = this.revisionFiles.find(f => 
+      f.file_path === file.file_path && f.library_id === file.library_id
+    )
+    if (fileInArray) {
+      Object.assign(fileInArray, resetValues)
+      // Re-render the current file display
+      this.showRevisionFile(this.currentIndex)
+      this.requestUpdate()
+    }
   }
 
   // Public API: Start revision workflow
