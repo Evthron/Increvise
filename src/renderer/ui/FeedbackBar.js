@@ -273,11 +273,11 @@ export class FeedbackBar extends LitElement {
       transform: translateY(-1px);
     }
 
-    .feedback-btn.medium {
+    .feedback-btn.good {
       background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
     }
 
-    .feedback-btn.medium:hover {
+    .feedback-btn.good:hover {
       background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
       box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
       transform: translateY(-1px);
@@ -344,8 +344,8 @@ export class FeedbackBar extends LitElement {
   _handleFileForgotten(e) {
     const { file, resetValues } = e.detail
     // Find the file in our array and update it
-    const fileInArray = this.revisionFiles.find(f => 
-      f.file_path === file.file_path && f.library_id === file.library_id
+    const fileInArray = this.revisionFiles.find(
+      (f) => f.file_path === file.file_path && f.library_id === file.library_id
     )
     if (fileInArray) {
       Object.assign(fileInArray, resetValues)
@@ -779,9 +779,7 @@ export class FeedbackBar extends LitElement {
           Again
         </button>
         <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>Hard</button>
-        <button class="feedback-btn medium" @click=${() => this._handleFeedback('medium')}>
-          Medium
-        </button>
+        <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>Good</button>
         <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>Easy</button>
       </div>
       <queue-menu
