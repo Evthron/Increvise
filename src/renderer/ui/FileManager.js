@@ -246,6 +246,7 @@ export class FileManager extends LitElement {
     } catch (error) {
       console.error('Error selecting folder:', error)
       alert(`Error selecting folder: ${error.message}`)
+      console.error('Error selecting folder:', error)
     }
   }
 
@@ -287,6 +288,7 @@ export class FileManager extends LitElement {
     } catch (error) {
       console.error('Error opening workspace:', error)
       alert(`Error opening workspace: ${error.message}`)
+      console.error('Error opening workspace:', error)
     }
 
     // Register add button guard for ALL workspaces mode
@@ -359,6 +361,7 @@ export class FileManager extends LitElement {
     } catch (error) {
       console.error('Error loading combined workspace view:', error)
       alert(`Error loading combined view: ${error.message}`)
+      console.error('Error loading combined workspace view:', error)
     }
   }
 

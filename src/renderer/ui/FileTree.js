@@ -347,11 +347,13 @@ export class FileTree extends LitElement {
         )
       } else {
         alert(`Error: ${result.error}`)
+        console.error('Error adding file to queue:', result.error)
       }
     } catch (error) {
       console.error('Error adding file to queue:', error)
 
       alert(`Error: ${error.message}`)
+      console.error('Error adding file to queue:', error)
     }
   }
 

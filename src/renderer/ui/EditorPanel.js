@@ -405,6 +405,7 @@ export class EditorPanel extends LitElement {
         const result = await window.fileManager.readFile(filePath)
         if (!result.success) {
           alert(`Error reading file: ${result.error}`)
+          console.error('Error reading file:', result.error)
           return
         }
         await this._openTextFile(filePath, result.content)
@@ -419,6 +420,7 @@ export class EditorPanel extends LitElement {
     } catch (error) {
       console.error('[openFile] Error opening file:', error)
       alert(`Error opening file: ${error.message}`)
+      console.error('Error opening file:', error)
     }
   }
 
