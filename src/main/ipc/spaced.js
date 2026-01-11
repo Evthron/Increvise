@@ -617,7 +617,7 @@ async function updateRevisionFeedback(dbPath, libraryId, relativePath, feedback)
     const queueName = queueInfo.queue_name
 
     if (queueName === 'new') {
-      return await handleNewQueueFeedback(dbPath, libraryId, relativePath)
+      return await handleNewQueueFeedback(dbPath, libraryId, relativePath, feedback)
     } else if (queueName === 'processing') {
       return await handleProcessingFeedback(dbPath, libraryId, relativePath, feedback)
     } else if (queueName === 'intermediate') {
@@ -1151,58 +1151,100 @@ async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPa
 // Queue-Specific Feedback Handlers
 // ========================================
 
-async function handleNewQueueFeedback(dbPath, libraryId, relativePath) {
-  // New queue items automatically move to processing queue when first viewed
+async function handleNewQueueFeedback(dbPath, libraryId, relativePath, feedback) {
+  // New queue: 'skip' stays in new queue (tomorrow), 'viewed' moves to processing queue
   try {
     const db = new Database(dbPath)
 
-    // Move to processing queue
-    db.prepare(
-      `UPDATE queue_membership SET queue_name = 'processing'
-       WHERE library_id = ? AND relative_path = ?`
-    ).run(libraryId, relativePath)
+    if (feedback === 'skip') {
+      // Skip: stay in new queue, appear tomorrow
+      db.prepare(
+        `UPDATE file 
+         SET due_time = datetime('now', '+1 day'),
+             last_revised_time = datetime('now')
+         WHERE library_id = ? AND relative_path = ?`
+      ).run(libraryId, relativePath)
 
-    // Set due time based on rotation interval
-    const file = db
-      .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
-      .get(libraryId, relativePath)
+      db.close()
+      return {
+        success: true,
+        message: 'File skipped, will appear tomorrow in new queue',
+        queueName: 'new',
+      }
+    } else {
+      // Viewed (or any other feedback): move to processing queue
+      db.prepare(
+        `UPDATE queue_membership SET queue_name = 'processing'
+         WHERE library_id = ? AND relative_path = ?`
+      ).run(libraryId, relativePath)
 
-    db.prepare(
-      `UPDATE file 
-       SET due_time = datetime('now', '+' || ? || ' days'),
-           last_queue_change = datetime('now')
-       WHERE library_id = ? AND relative_path = ?`
-    ).run(file.rotation_interval, libraryId, relativePath)
+      // Set due time based on rotation interval
+      const file = db
+        .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
+        .get(libraryId, relativePath)
 
-    db.close()
-    return { success: true, message: 'Moved to processing queue' }
+      db.prepare(
+        `UPDATE file 
+         SET due_time = datetime('now', '+' || ? || ' days'),
+             last_queue_change = datetime('now')
+         WHERE library_id = ? AND relative_path = ?`
+      ).run(file.rotation_interval, libraryId, relativePath)
+
+      db.close()
+      return { success: true, message: 'Moved to processing queue', queueName: 'processing' }
+    }
   } catch (err) {
     return { success: false, error: err.message }
   }
 }
 
 async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedback) {
-  // feedback: 'again' (immediate), 'continue' (rotate)
+  // feedback: 'skip' (tomorrow), 'viewed' (rotate), 'again' (immediate - legacy)
   try {
     const db = new Database(dbPath)
     const file = db
       .prepare('SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?')
       .get(libraryId, relativePath)
 
-    let newDueTime
-    if (feedback === 'again') {
-      newDueTime = "datetime('now')"
+    let updateQuery, updateParams, message
+    if (feedback === 'skip') {
+      // Skip: appear tomorrow (exactly 1 day later)
+      updateQuery = `UPDATE file 
+                     SET due_time = datetime('now', '+1 day'), 
+                         last_revised_time = datetime('now')
+                     WHERE library_id = ? AND relative_path = ?`
+      updateParams = [libraryId, relativePath]
+      message = 'File skipped, will appear tomorrow'
+    } else if (feedback === 'viewed') {
+      // Viewed: follow normal rotation cycle
+      updateQuery = `UPDATE file 
+                     SET due_time = datetime('now', '+' || ? || ' days'), 
+                         last_revised_time = datetime('now')
+                     WHERE library_id = ? AND relative_path = ?`
+      updateParams = [file.rotation_interval, libraryId, relativePath]
+      message = `File marked as viewed, next review in ${file.rotation_interval} day(s)`
+    } else if (feedback === 'again') {
+      // Legacy: immediate re-review
+      updateQuery = `UPDATE file 
+                     SET due_time = datetime('now'), 
+                         last_revised_time = datetime('now')
+                     WHERE library_id = ? AND relative_path = ?`
+      updateParams = [libraryId, relativePath]
+      message = 'File scheduled for immediate review'
     } else {
-      newDueTime = `datetime('now', '+' || ${file.rotation_interval} || ' days')`
+      // Default to rotation (for backwards compatibility)
+      updateQuery = `UPDATE file 
+                     SET due_time = datetime('now', '+' || ? || ' days'), 
+                         last_revised_time = datetime('now')
+                     WHERE library_id = ? AND relative_path = ?`
+      updateParams = [file.rotation_interval, libraryId, relativePath]
+      message = 'Processing feedback recorded'
     }
 
-    db.prepare(
-      `UPDATE file SET due_time = ${newDueTime}, last_revised_time = datetime('now')
-       WHERE library_id = ? AND relative_path = ?`
-    ).run(libraryId, relativePath)
+    db.prepare(updateQuery).run(...updateParams)
 
     db.close()
-    return { success: true, message: 'Processing feedback recorded' }
+    return { success: true, message, queueName: 'processing' }
   } catch (err) {
     return { success: false, error: err.message }
   }
@@ -1243,6 +1285,7 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
     return {
       success: true,
       message: 'Intermediate feedback recorded',
+      queueName: 'intermediate',
       newInterval: Math.floor(newInterval),
     }
   } catch (err) {
@@ -1301,8 +1344,8 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   )
 
   // Queue-specific feedback
-  ipcMain.handle('handle-new-queue-feedback', (_event, dbPath, libraryId, relativePath) =>
-    handleNewQueueFeedback(dbPath, libraryId, relativePath)
+  ipcMain.handle('handle-new-queue-feedback', (_event, dbPath, libraryId, relativePath, feedback) =>
+    handleNewQueueFeedback(dbPath, libraryId, relativePath, feedback)
   )
   ipcMain.handle(
     'handle-processing-feedback',

@@ -2,13 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global setTimeout, customElements */
+/* global setTimeout, customElements, CustomEvent */
 
 // Feedback Bar Lit component
 // Manages revision workflow state and feedback controls
 
 import { LitElement, html, css } from 'lit'
 import './QueueMenu.js'
+import './ProcessingFeedbackBar.js'
 
 export class FeedbackBar extends LitElement {
   static properties = {
@@ -312,6 +313,8 @@ export class FeedbackBar extends LitElement {
     document.addEventListener('queue-selected', this._handleQueueSelected.bind(this))
     // Listen for file forgotten event
     document.addEventListener('file-forgotten', this._handleFileForgotten.bind(this))
+    // Listen for processing queue feedback
+    document.addEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
     // Close queue menu when clicking outside
     this._clickOutsideHandler = (e) => {
       if (
@@ -331,6 +334,7 @@ export class FeedbackBar extends LitElement {
     document.removeEventListener('file-selected', this._handleFileSelected.bind(this))
     document.removeEventListener('queue-selected', this._handleQueueSelected.bind(this))
     document.removeEventListener('file-forgotten', this._handleFileForgotten.bind(this))
+    document.removeEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
     if (this._clickOutsideHandler) {
       document.removeEventListener('click', this._clickOutsideHandler)
     }
@@ -353,6 +357,11 @@ export class FeedbackBar extends LitElement {
       this.showRevisionFile(this.currentIndex)
       this.requestUpdate()
     }
+  }
+
+  async _handleProcessingFeedback(e) {
+    const { feedback } = e.detail
+    await this._handleFeedback(feedback)
   }
 
   // Public API: Start revision workflow
@@ -469,6 +478,26 @@ export class FeedbackBar extends LitElement {
       )
 
       if (result.success) {
+        // Update current queue if returned from backend (handles automatic queue transitions)
+        const oldQueue = this.currentQueue
+        if (result.queueName) {
+          this.currentQueue = result.queueName
+
+          // Dispatch queue-changed event if queue was changed automatically
+          if (oldQueue && oldQueue !== result.queueName) {
+            window.dispatchEvent(
+              new CustomEvent('queue-changed', {
+                detail: {
+                  filePath: currentFile.file_path,
+                  libraryId: currentFile.library_id,
+                  oldQueue: oldQueue,
+                  newQueue: result.queueName,
+                },
+              })
+            )
+          }
+        }
+
         // Notify revision list to refresh its data
         const revisionListElement = document.querySelector('revision-list')
         if (revisionListElement) {
@@ -774,14 +803,24 @@ export class FeedbackBar extends LitElement {
           </div>
         </div>
       </div>
-      <div class="feedback-buttons">
-        <button class="feedback-btn again" @click=${() => this._handleFeedback('again')}>
-          Again
-        </button>
-        <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>Hard</button>
-        <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>Good</button>
-        <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>Easy</button>
-      </div>
+      ${this.currentQueue === 'processing' || this.currentQueue === 'new'
+        ? html`<processing-feedback-bar></processing-feedback-bar>`
+        : html`
+            <div class="feedback-buttons">
+              <button class="feedback-btn again" @click=${() => this._handleFeedback('again')}>
+                Again
+              </button>
+              <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>
+                Hard
+              </button>
+              <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>
+                Good
+              </button>
+              <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>
+                Easy
+              </button>
+            </div>
+          `}
       <queue-menu
         .currentQueue=${this.currentQueue}
         .position=${this.queueMenuPosition}
