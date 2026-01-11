@@ -294,12 +294,14 @@ async function getFilesForRevision(rootPath) {
       }
       return databases
     }
+    console.log('Finding databases under:', rootPath)
     const dbPaths = await findDatabases(rootPath)
     const allFiles = []
     for (const dbPath of dbPaths) {
       try {
         const db = new Database(dbPath, { readonly: true })
         const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
+        console.log('Reading database at:', dbPath)
         const rows = db
           .prepare(
             `
@@ -320,12 +322,13 @@ async function getFilesForRevision(rootPath) {
           }))
         )
         db.close()
-      } catch {
-        // Failed to read from this database, skip it
+      } catch (err) {
+        console.warn('Failed to read from this database, skip it')
       }
     }
     return { success: true, files: allFiles }
   } catch (error) {
+    console.warn('Failed to read from this database, skip it')
     return { success: false, error: error.message, files: [] }
   }
 }
