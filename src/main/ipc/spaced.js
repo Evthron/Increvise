@@ -266,21 +266,30 @@ async function getFilesForRevision(rootPath) {
   try {
     const findDatabases = async (dir) => {
       const databases = []
-      const items = await fs.readdir(dir, { withFileTypes: true })
-      for (const item of items) {
-        const fullPath = path.join(dir, item.name)
-        if (item.isDirectory()) {
-          if (item.name === '.increvise') {
-            const dbFile = path.join(fullPath, 'db.sqlite')
-            try {
-              await fs.access(dbFile)
-              databases.push(dbFile)
-            } catch {
-              // db.sqlite file doesn't exist in this .increvise folder
+      try {
+        const items = await fs.readdir(dir, { withFileTypes: true })
+        for (const item of items) {
+          const fullPath = path.join(dir, item.name)
+          if (item.isDirectory()) {
+            if (item.name === '.increvise') {
+              const dbFile = path.join(fullPath, 'db.sqlite')
+              try {
+                await fs.access(dbFile)
+                databases.push(dbFile)
+              } catch {
+                console.warn("db.sqlite file doesn't exist in this .increvise folder")
+              }
+            } else {
+              databases.push(...(await findDatabases(fullPath)))
             }
-          } else {
-            databases.push(...(await findDatabases(fullPath)))
           }
+        }
+      } catch (err) {
+        // Skip directories with permission errors or other access issues
+        if (err.code === 'EACCES' || err.code === 'EPERM') {
+          console.warn(`Skipping directory due to permission denied: ${dir}`)
+        } else {
+          console.warn(`Error reading directory ${dir}:`, err.message)
         }
       }
       return databases
@@ -326,21 +335,30 @@ async function getFilesIncludingFuture(rootPath) {
   try {
     const findDatabases = async (dir) => {
       const databases = []
-      const items = await fs.readdir(dir, { withFileTypes: true })
-      for (const item of items) {
-        const fullPath = path.join(dir, item.name)
-        if (item.isDirectory()) {
-          if (item.name === '.increvise') {
-            const dbFile = path.join(fullPath, 'db.sqlite')
-            try {
-              await fs.access(dbFile)
-              databases.push(dbFile)
-            } catch {
-              // db.sqlite file doesn't exist in this .increvise folder
+      try {
+        const items = await fs.readdir(dir, { withFileTypes: true })
+        for (const item of items) {
+          const fullPath = path.join(dir, item.name)
+          if (item.isDirectory()) {
+            if (item.name === '.increvise') {
+              const dbFile = path.join(fullPath, 'db.sqlite')
+              try {
+                await fs.access(dbFile)
+                databases.push(dbFile)
+              } catch {
+                // db.sqlite file doesn't exist in this .increvise folder
+              }
+            } else {
+              databases.push(...(await findDatabases(fullPath)))
             }
-          } else {
-            databases.push(...(await findDatabases(fullPath)))
           }
+        }
+      } catch (err) {
+        // Skip directories with permission errors or other access issues
+        if (err.code === 'EACCES' || err.code === 'EPERM') {
+          console.warn(`Skipping directory due to permission denied: ${dir}`)
+        } else {
+          console.warn(`Error reading directory ${dir}:`, err.message)
         }
       }
       return databases
