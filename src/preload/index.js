@@ -65,6 +65,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   extractVideoClip: (videoPath, startTime, endTime, libraryId) =>
     ipcRenderer.invoke('extract-video-clip', videoPath, startTime, endTime, libraryId),
 
+  // 3d. Flashcard Extraction
+  extractFlashcard: (filePath, selectedText, charStart, charEnd, libraryId) =>
+    ipcRenderer.invoke('extract-flashcard', filePath, selectedText, charStart, charEnd, libraryId),
+
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),
   getRecentWorkspaces: (limit) => ipcRenderer.invoke('get-recent-workspaces', limit),

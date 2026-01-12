@@ -81,8 +81,9 @@ export class EditorPanel extends LitElement {
     currentFilePath: { type: String, state: true },
     isEditMode: { type: Boolean, state: true },
     hasUnsavedChanges: { type: Boolean, state: true },
-    currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video'
+    currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video' | 'flashcard'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
+    currentQueue: { type: String, state: true }, // Current file's queue name
   }
 
   static styles = css`
@@ -168,6 +169,7 @@ export class EditorPanel extends LitElement {
     this.hasUnsavedChanges = false
     this.currentViewerType = null
     this.currentDisplayMode = 'preview'
+    this.currentQueue = null
   }
 
   firstUpdated() {
@@ -181,6 +183,9 @@ export class EditorPanel extends LitElement {
       .querySelector('slot[name="markdown"]')
       .assignedElements()[0]
     this.videoViewer = this.shadowRoot.querySelector('slot[name="video"]').assignedElements()[0]
+    this.flashcardViewer = this.shadowRoot
+      .querySelector('slot[name="flashcard"]')
+      .assignedElements()[0]
 
     // Set up event listeners
     this._setupEventListeners()
@@ -289,6 +294,7 @@ export class EditorPanel extends LitElement {
         <slot name="html"></slot>
         <slot name="markdown"></slot>
         <slot name="video"></slot>
+        <slot name="flashcard"></slot>
       </div>
     `
   }
@@ -303,10 +309,17 @@ export class EditorPanel extends LitElement {
     } else if (this.currentViewerType === 'video') {
       // Video mode: [Extract Clip]
       return html`<button @click=${this._handleExtractVideoClip}>Extract Clip</button>`
+    } else if (this.currentViewerType === 'flashcard') {
+      // Flashcard mode: no action buttons
+      return html``
     } else if (this.currentDisplayMode === 'preview') {
       // Preview mode (markdown/html rendered): [Extract] [View Source]
+      // Add [Cloze] button if in intermediate queue
       return html`
         <button @click=${this._handleExtract}>Extract</button>
+        ${this.currentQueue === 'intermediate'
+          ? html`<button @click=${this._handleCloze}>Cloze</button>`
+          : ''}
         <button @click=${this._handleToggleEdit}>View Source</button>
       `
     } else if (this.currentDisplayMode === 'source') {
@@ -319,9 +332,12 @@ export class EditorPanel extends LitElement {
           <button @click=${this._handleToggleEdit}>Preview</button>
         `
       } else {
-        // Source readonly: [Extract] [Edit] [Preview]
+        // Source readonly: [Extract] [Cloze (if intermediate)] [Edit] [Preview]
         return html`
           <button @click=${this._handleExtract}>Extract</button>
+          ${this.currentQueue === 'intermediate'
+            ? html`<button @click=${this._handleCloze}>Cloze</button>`
+            : ''}
           <button @click=${this._handleEditSource}>Edit</button>
           <button @click=${this._handleToggleEdit}>Preview</button>
         `
@@ -352,16 +368,33 @@ export class EditorPanel extends LitElement {
 
       // Check if file is a PDF extract by querying database
       let pdfExtractInfo = null
+      let flashcardExtractInfo = null
+      let videoExtractInfo = null
+
       if (window.currentFileLibraryId) {
         const extractInfo = await window.fileManager.getNoteExtractInfo(
           filePath,
           window.currentFileLibraryId
         )
 
+        console.log('[openFile] Extract info check:', {
+          filePath,
+          success: extractInfo?.success,
+          found: extractInfo?.found,
+          extractType: extractInfo?.extractType,
+        })
+
         if (extractInfo && extractInfo.success && extractInfo.found) {
+          // Check extract type and assign to appropriate variable
           if (extractInfo.extractType === 'pdf-page') {
             pdfExtractInfo = extractInfo
-            console.log('extracted pdf info get')
+            console.log('[openFile] ✓ Detected PDF extract')
+          } else if (extractInfo.extractType === 'flashcard') {
+            flashcardExtractInfo = extractInfo
+            console.log('[openFile] ✓ Detected FLASHCARD extract')
+          } else if (extractInfo.extractType === 'video-clip') {
+            videoExtractInfo = extractInfo
+            console.log('[openFile] ✓ Detected video extract')
           }
         }
       }
@@ -371,25 +404,32 @@ export class EditorPanel extends LitElement {
       const isPdf = ext === '.pdf'
       const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].includes(ext)
 
-      // Check if file is a video extract by querying database
-      let videoExtractInfo = null
-      if (window.currentFileLibraryId && ext === '.md') {
-        const extractInfo = await window.fileManager.getNoteExtractInfo(
-          filePath,
-          window.currentFileLibraryId
-        )
-
-        if (extractInfo && extractInfo.success && extractInfo.found) {
-          if (extractInfo.extractType === 'video-clip') {
-            videoExtractInfo = extractInfo
-            console.log('extracted video info get')
-          }
-        }
-      }
+      console.log('[openFile] Routing decision:', {
+        ext,
+        isPdf,
+        isVideo,
+        hasPdfExtract: !!pdfExtractInfo,
+        hasFlashcard: !!flashcardExtractInfo,
+        hasVideoExtract: !!videoExtractInfo,
+        willRoute: pdfExtractInfo
+          ? 'PDF extract'
+          : flashcardExtractInfo
+            ? 'Flashcard'
+            : videoExtractInfo
+              ? 'Video extract'
+              : isPdf
+                ? 'Regular PDF'
+                : isVideo
+                  ? 'Regular Video'
+                  : 'Text file',
+      })
 
       if (pdfExtractInfo) {
         // PDF extract file
         await this._openPdfExtract(filePath, pdfExtractInfo)
+      } else if (flashcardExtractInfo) {
+        // Flashcard file
+        await this._openFlashcard(filePath, flashcardExtractInfo)
       } else if (videoExtractInfo) {
         // Video extract file
         await this._openVideoClip(filePath, videoExtractInfo)
@@ -409,6 +449,25 @@ export class EditorPanel extends LitElement {
           return
         }
         await this._openTextFile(filePath, result.content)
+      }
+
+      // Check if the opened file is in a queue
+      // Load queue info to determine if we should show Cloze button
+      if (window.currentFileLibraryId) {
+        try {
+          const queueResult = await window.fileManager.getFileQueue(
+            filePath,
+            window.currentFileLibraryId
+          )
+          if (queueResult && queueResult.queueName) {
+            this.currentQueue = queueResult.queueName
+          } else {
+            this.currentQueue = null
+          }
+        } catch (error) {
+          console.error('Error getting file queue:', error)
+          this.currentQueue = null
+        }
       }
 
       // Check if the opened file is in the revision queue
@@ -539,6 +598,48 @@ export class EditorPanel extends LitElement {
     console.log('Regular PDF loaded with extracted ranges:', {
       extractedPageRanges: extractedPageRanges.length,
       extractedLineRangesPages: extractedLineRanges.size,
+    })
+
+    this.requestUpdate()
+  }
+
+  /**
+   * Open a flashcard file
+   * @param {string} filePath
+   * @param {Object} extractInfo
+   */
+  async _openFlashcard(filePath, extractInfo) {
+    console.log('[_openFlashcard] Opening flashcard file:', filePath)
+    console.log('[_openFlashcard] Extract info:', extractInfo)
+
+    const { parentPath, rangeStart, rangeEnd } = extractInfo
+    const displayText = 'Flashcard'
+
+    // Update state
+    this.currentOpenFile = filePath
+    this.currentViewerType = 'flashcard'
+    this.currentDisplayMode = 'preview'
+    this.currentFilePath = displayText
+
+    console.log('[_openFlashcard] State updated, showing flashcard viewer')
+
+    // Show flashcard viewer, hide others
+    this._showViewer('flashcard')
+
+    console.log('[_openFlashcard] Calling loadFlashcard...')
+
+    // Load flashcard content
+    try {
+      await this.flashcardViewer.loadFlashcard(filePath, extractInfo)
+      console.log('[_openFlashcard] ✓ Flashcard loaded successfully')
+    } catch (error) {
+      console.error('[_openFlashcard] ✗ Error loading flashcard:', error)
+    }
+
+    console.log('[_openFlashcard] Flashcard opened:', {
+      parentPath,
+      charStart: rangeStart,
+      charEnd: rangeEnd,
     })
 
     this.requestUpdate()
@@ -741,10 +842,10 @@ export class EditorPanel extends LitElement {
 
   /**
    * Show specific viewer and hide others
-   * @param {string} viewer - 'pdf' | 'markdown' | 'html' | 'codemirror' | 'video'
+   * @param {string} viewer - 'pdf' | 'markdown' | 'html' | 'codemirror' | 'video' | 'flashcard'
    */
   _showViewer(viewer) {
-    const viewers = ['pdf', 'markdown', 'html', 'codemirror', 'video']
+    const viewers = ['pdf', 'markdown', 'html', 'codemirror', 'video', 'flashcard']
     viewers.forEach((v) => {
       const el = this[`${v}Viewer`] || this[`${v}Editor`]
       if (el) {
@@ -1185,6 +1286,393 @@ export class EditorPanel extends LitElement {
       }
     } catch (error) {
       console.error('Error reloading PDF extracted ranges:', error)
+    }
+  }
+
+  /**
+   * Handle Cloze button click - create flashcard from selection
+   */
+  async _handleCloze() {
+    if (!this.currentOpenFile) {
+      this._showToast('Please open a file first', true)
+      return
+    }
+
+    // Debug: Log current viewer state
+    console.log('[Cloze] Current viewer state:', {
+      viewerType: this.currentViewerType,
+      displayMode: this.currentDisplayMode,
+      htmlHidden: this.htmlViewer?.classList.contains('hidden'),
+      markdownHidden: this.markdownViewer?.classList.contains('hidden'),
+      codeMirrorHidden: this.codeMirrorEditor?.classList.contains('hidden'),
+    })
+
+    // Get selection based on current viewer
+    let selectedText = ''
+    let charStart = -1
+    let charEnd = -1
+
+    // HTML viewer active
+    if (this.htmlViewer && !this.htmlViewer.classList.contains('hidden')) {
+      console.log('[Cloze] Attempting HTML viewer selection')
+      const selection = this._getHtmlViewerSelection()
+      if (!selection) {
+        this._showToast('Please select text to create a flashcard', true)
+        return
+      }
+      selectedText = selection.text
+      charStart = selection.charStart
+      charEnd = selection.charEnd
+    }
+    // Markdown viewer active
+    else if (this.markdownViewer && !this.markdownViewer.classList.contains('hidden')) {
+      console.log('[Cloze] Attempting Markdown viewer selection')
+      const selection = this._getMarkdownViewerSelection()
+      if (!selection) {
+        this._showToast('Please select text to create a flashcard', true)
+        return
+      }
+      selectedText = selection.text
+      charStart = selection.charStart
+      charEnd = selection.charEnd
+    }
+    // CodeMirror active
+    else if (this.codeMirrorEditor && !this.codeMirrorEditor.classList.contains('hidden')) {
+      console.log('[Cloze] Attempting CodeMirror selection')
+      const selection = this._getCodeMirrorSelection()
+      if (!selection) {
+        this._showToast('Please select text to create a flashcard', true)
+        return
+      }
+      selectedText = selection.text
+      charStart = selection.charStart
+      charEnd = selection.charEnd
+    } else {
+      this._showToast('Cannot create flashcard in current view mode', true)
+      return
+    }
+
+    console.log('[Cloze] Selection extracted:', {
+      text: selectedText.substring(0, 50) + '...',
+      charStart,
+      charEnd,
+    })
+
+    if (!selectedText.trim()) {
+      this._showToast('Please select text to create a flashcard', true)
+      return
+    }
+
+    if (!window.currentFileLibraryId) {
+      this._showToast('Error: Library ID not set. Please reopen the file.', true)
+      console.error('currentFileLibraryId is not set')
+      return
+    }
+
+    try {
+      console.log('[Cloze] Calling extractFlashcard with:', {
+        file: this.currentOpenFile,
+        textLength: selectedText.length,
+        charStart,
+        charEnd,
+        libraryId: window.currentFileLibraryId,
+      })
+
+      const result = await window.fileManager.extractFlashcard(
+        this.currentOpenFile,
+        selectedText,
+        charStart,
+        charEnd,
+        window.currentFileLibraryId
+      )
+
+      console.log('[Cloze] extractFlashcard result:', result)
+
+      if (result.success) {
+        this._showToast(`Flashcard created: ${result.fileName}`)
+        console.log('[Cloze] ✓ Flashcard created successfully:', result.filePath)
+        // Clear selection
+        window.getSelection().removeAllRanges()
+        // Refresh file manager to show the new flashcard
+        this._refreshFileManager()
+      } else {
+        this._showToast(`Error: ${result.error}`, true)
+        console.error('[Cloze] ✗ Failed to create flashcard:', result.error)
+      }
+    } catch (error) {
+      console.error('[Cloze] ✗ Exception creating flashcard:', error)
+      this._showToast(`Error creating flashcard: ${error.message}`, true)
+    }
+  }
+
+  /**
+   * Get selection from HTML viewer with character positions
+   * @returns {{text: string, charStart: number, charEnd: number} | null}
+   */
+  _getHtmlViewerSelection() {
+    const content = this.htmlViewer.content || ''
+    const selection = window.getSelection()
+    const selectedText = selection.toString().trim()
+
+    console.log('[HTML Selection] Debug info:', {
+      rangeCount: selection.rangeCount,
+      isCollapsed: selection.isCollapsed,
+      selectionText: selectedText,
+      selectionLength: selectedText.length,
+      contentLength: content.length,
+      hasContent: !!content,
+    })
+
+    // Check if there's actually selected text first
+    if (!selectedText) {
+      console.log('[HTML Selection] No text selected')
+      return null
+    }
+
+    if (!selection.rangeCount || selection.isCollapsed) {
+      // Sometimes the selection object reports isCollapsed=true but we have text
+      // This can happen with certain selection APIs, so let's trust the text
+      console.log(
+        '[HTML Selection] Selection reports collapsed, but we have text - continuing anyway'
+      )
+    }
+
+    // Try multiple strategies to find the selection in source
+    let charStart = -1
+
+    // Strategy 1: Exact match
+    charStart = content.indexOf(selectedText)
+
+    if (charStart === -1) {
+      // Strategy 2: Normalized whitespace
+      console.log('[HTML Selection] Trying normalized whitespace match')
+      const normalizedSelected = selectedText.replace(/\s+/g, ' ')
+      const normalizedContent = content.replace(/\s+/g, ' ')
+      const normalizedStart = normalizedContent.indexOf(normalizedSelected)
+
+      if (normalizedStart !== -1) {
+        // Map back to original position
+        let charCount = 0
+        let normalizedCount = 0
+        for (let i = 0; i < content.length; i++) {
+          if (normalizedCount === normalizedStart) {
+            charStart = i
+            break
+          }
+          charCount++
+          if (!/\s/.test(content[i]) || (i > 0 && !/\s/.test(content[i - 1]))) {
+            normalizedCount++
+          }
+        }
+        console.log('[HTML Selection] Found via normalized whitespace')
+      }
+    }
+
+    if (charStart === -1) {
+      // Strategy 3: Strip HTML tags and match
+      console.log('[HTML Selection] Trying HTML tag stripping')
+      const strippedContent = content.replace(/<[^>]*>/g, '')
+      const strippedStart = strippedContent.indexOf(selectedText)
+
+      if (strippedStart !== -1) {
+        // Map back to position in original content
+        let strippedPos = 0
+        for (let i = 0; i < content.length; i++) {
+          if (strippedPos === strippedStart) {
+            charStart = i
+            break
+          }
+          if (content[i] === '<') {
+            // Skip to end of tag
+            const tagEnd = content.indexOf('>', i)
+            if (tagEnd !== -1) {
+              i = tagEnd
+              continue
+            }
+          }
+          strippedPos++
+        }
+        console.log('[HTML Selection] Found via HTML stripping')
+      }
+    }
+
+    if (charStart === -1) {
+      // Strategy 4: Match first significant words (at least 3)
+      console.log('[HTML Selection] Trying partial word match')
+      const words = selectedText.split(/\s+/).filter((w) => w.length > 2)
+      if (words.length >= 3) {
+        const firstWords = words.slice(0, 3).join('.*')
+        const regex = new RegExp(firstWords, 'i')
+        const match = content.match(regex)
+        if (match) {
+          charStart = match.index
+          console.log('[HTML Selection] Found via partial word match')
+        }
+      }
+    }
+
+    if (charStart === -1) {
+      this._showToast(
+        'Could not locate selection in source. Please use source view (CodeMirror) for precise selection.',
+        true
+      )
+      return null
+    }
+
+    const charEnd = charStart + selectedText.length
+
+    return {
+      text: selectedText,
+      charStart,
+      charEnd,
+    }
+  }
+
+  /**
+   * Get selection from Markdown viewer with character positions
+   * @returns {{text: string, charStart: number, charEnd: number} | null}
+   */
+  _getMarkdownViewerSelection() {
+    const content = this.markdownViewer.markdownSource || ''
+    const selection = window.getSelection()
+    const selectedText = selection.toString().trim()
+
+    console.log('[Markdown Selection] Debug info:', {
+      rangeCount: selection.rangeCount,
+      isCollapsed: selection.isCollapsed,
+      selectionText: selectedText,
+      selectionLength: selectedText.length,
+      contentLength: content.length,
+      hasContent: !!content,
+    })
+
+    // Check if there's actually selected text first
+    if (!selectedText) {
+      console.log('[Markdown Selection] No text selected')
+      return null
+    }
+
+    if (!selection.rangeCount || selection.isCollapsed) {
+      // Sometimes the selection object reports isCollapsed=true but we have text
+      console.log(
+        '[Markdown Selection] Selection reports collapsed, but we have text - continuing anyway'
+      )
+    }
+
+    // Try multiple strategies to find the selection in markdown source
+    let charStart = -1
+
+    // Strategy 1: Exact match
+    charStart = content.indexOf(selectedText)
+
+    if (charStart === -1) {
+      // Strategy 2: Normalized whitespace
+      console.log('[Markdown Selection] Trying normalized whitespace match')
+      const normalizedSelected = selectedText.replace(/\s+/g, ' ')
+      const normalizedContent = content.replace(/\s+/g, ' ')
+      const normalizedStart = normalizedContent.indexOf(normalizedSelected)
+
+      if (normalizedStart !== -1) {
+        // Map back to original position
+        let charCount = 0
+        let normalizedCount = 0
+        for (let i = 0; i < content.length; i++) {
+          if (normalizedCount === normalizedStart) {
+            charStart = i
+            break
+          }
+          charCount++
+          if (!/\s/.test(content[i]) || (i > 0 && !/\s/.test(content[i - 1]))) {
+            normalizedCount++
+          }
+        }
+        console.log('[Markdown Selection] Found via normalized whitespace')
+      }
+    }
+
+    if (charStart === -1) {
+      // Strategy 3: Strip markdown formatting
+      console.log('[Markdown Selection] Trying markdown stripping')
+      // Remove common markdown syntax: bold, italic, links, headings
+      const strippedContent = content
+        .replace(/\*\*(.+?)\*\*/g, '$1') // bold
+        .replace(/\*(.+?)\*/g, '$1') // italic
+        .replace(/__(.+?)__/g, '$1') // bold alt
+        .replace(/_(.+?)_/g, '$1') // italic alt
+        .replace(/\[(.+?)\]\(.+?\)/g, '$1') // links
+        .replace(/^#+\s+/gm, '') // headings
+        .replace(/`(.+?)`/g, '$1') // inline code
+
+      const strippedStart = strippedContent.indexOf(selectedText)
+
+      if (strippedStart !== -1) {
+        // Approximate position (may not be exact due to removed syntax)
+        charStart = strippedStart
+        console.log('[Markdown Selection] Found via markdown stripping (approximate)')
+      }
+    }
+
+    if (charStart === -1) {
+      // Strategy 4: Match first significant words (at least 3)
+      console.log('[Markdown Selection] Trying partial word match')
+      const words = selectedText.split(/\s+/).filter((w) => w.length > 2)
+      if (words.length >= 3) {
+        const firstWords = words.slice(0, 3).join('.*?')
+        const regex = new RegExp(firstWords, 'i')
+        const match = content.match(regex)
+        if (match) {
+          charStart = match.index
+          console.log('[Markdown Selection] Found via partial word match')
+        }
+      }
+    }
+
+    if (charStart === -1) {
+      this._showToast(
+        'Could not locate selection in markdown source. Please use source view (CodeMirror) for precise selection.',
+        true
+      )
+      return null
+    }
+
+    const charEnd = charStart + selectedText.length
+
+    return {
+      text: selectedText,
+      charStart,
+      charEnd,
+    }
+  }
+
+  /**
+   * Get selection from CodeMirror with character positions
+   * @returns {{text: string, charStart: number, charEnd: number} | null}
+   */
+  _getCodeMirrorSelection() {
+    const view = this.codeMirrorEditor.editorView
+    const state = view.state
+    const selection = state.selection.main
+
+    console.log('[CodeMirror Selection]', {
+      empty: selection.empty,
+      from: selection.from,
+      to: selection.to,
+    })
+
+    if (selection.empty) {
+      return null
+    }
+
+    const selectedText = state.sliceDoc(selection.from, selection.to)
+
+    if (!selectedText.trim()) {
+      return null
+    }
+
+    return {
+      text: selectedText,
+      charStart: selection.from,
+      charEnd: selection.to,
     }
   }
 

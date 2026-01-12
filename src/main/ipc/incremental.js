@@ -1192,6 +1192,135 @@ async function getNoteExtractInfo(notePath, libraryId, getCentralDbPath) {
     return { success: false, error: error.message }
   }
 }
+/**
+ * Extract a flashcard from text-based file
+ * @param {string} parentFilePath - Path to parent file
+ * @param {string} selectedText - Selected text (answer)
+ * @param {number} charStart - Start character position
+ * @param {number} charEnd - End character position
+ * @param {string} libraryId - Library ID
+ * @param {Function} getCentralDbPath - Function to get central DB path
+ * @returns {Promise<Object>} - Result object
+ */
+async function extractFlashcard(
+  parentFilePath,
+  selectedText,
+  charStart,
+  charEnd,
+  libraryId,
+  getCentralDbPath
+) {
+  try {
+    console.log('[extractFlashcard] Starting flashcard extraction:', {
+      parentFilePath,
+      textLength: selectedText.length,
+      charStart,
+      charEnd,
+      libraryId,
+    })
+
+    // Get database info from central database
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return {
+        success: false,
+        error: dbInfo.error || 'Database not found',
+      }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+
+    try {
+      // Find the top-level note folder (flat structure)
+      const noteFolder = findTopLevelNoteFolder(parentFilePath, db, libraryId, dbInfo.folderPath)
+
+      // Create note folder if it doesn't exist
+      await fs.mkdir(noteFolder, { recursive: true })
+
+      // Generate new filename using character ranges
+      const parentExt = path.extname(parentFilePath)
+      const baseName = generateChildNoteName(parentFilePath, charStart, charEnd, selectedText)
+      const newFileName = baseName + '.flashcard' + parentExt
+      const newFilePath = path.join(noteFolder, newFileName)
+
+      console.log('[extractFlashcard] Generated file path:', newFilePath)
+
+      // Check if file already exists
+      try {
+        await fs.access(newFilePath)
+        return {
+          success: false,
+          error: 'A flashcard with this name already exists. Please select different text.',
+        }
+      } catch {
+        // File doesn't exist, good to proceed
+      }
+
+      // Write empty flashcard file (dummy file)
+      await fs.writeFile(newFilePath, '', 'utf-8')
+      console.log('[extractFlashcard] Created empty flashcard file')
+
+      // Update database
+      const relativePath = path.relative(dbInfo.folderPath, newFilePath)
+      const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+
+      console.log('[extractFlashcard] Database paths:', {
+        relativePath,
+        parentRelativePath,
+      })
+
+      // Insert file record - flashcards go to spaced-standard queue with initial interval
+      db.prepare(
+        `
+            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time)
+            VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, 1, datetime('now', '+1 day'))
+          `
+      ).run(libraryId, relativePath)
+      console.log('[extractFlashcard] Inserted file record')
+
+      // Add to spaced-standard queue (for flashcards)
+      db.prepare(
+        `
+            INSERT INTO queue_membership (library_id, queue_name, relative_path)
+            VALUES (?, 'spaced-standard', ?)
+          `
+      ).run(libraryId, relativePath)
+      console.log('[extractFlashcard] Added to spaced-standard queue')
+
+      // Insert note_source record with character positions
+      const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+      db.prepare(
+        `
+            INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        'flashcard',
+        String(charStart),
+        String(charEnd),
+        sourceHash
+      )
+      console.log('[extractFlashcard] Inserted note_source record with type: flashcard')
+
+      console.log('[extractFlashcard] ✓ Flashcard extraction completed successfully')
+
+      return {
+        success: true,
+        fileName: newFileName,
+        filePath: newFilePath,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    console.error('[extractFlashcard] ✗ Error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
 
@@ -1235,6 +1364,20 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   // Video extraction handlers
   ipcMain.handle('extract-video-clip', async (event, videoPath, startTime, endTime, libraryId) =>
     extractVideoClip(videoPath, startTime, endTime, libraryId, getCentralDbPath)
+  )
+
+  // Flashcard extraction handler
+  ipcMain.handle(
+    'extract-flashcard',
+    async (event, parentFilePath, selectedText, charStart, charEnd, libraryId) =>
+      extractFlashcard(
+        parentFilePath,
+        selectedText,
+        charStart,
+        charEnd,
+        libraryId,
+        getCentralDbPath
+      )
   )
 
   ipcMain.handle('get-note-extract-info', async (event, notePath, libraryId) =>
