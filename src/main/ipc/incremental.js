@@ -1238,9 +1238,8 @@ async function extractFlashcard(
       await fs.mkdir(noteFolder, { recursive: true })
 
       // Generate new filename using character ranges
-      const parentExt = path.extname(parentFilePath)
       const baseName = generateChildNoteName(parentFilePath, charStart, charEnd, selectedText)
-      const newFileName = baseName + '.flashcard' + parentExt
+      const newFileName = baseName + '.flashcard'
       const newFilePath = path.join(noteFolder, newFileName)
 
       console.log('[extractFlashcard] Generated file path:', newFilePath)
