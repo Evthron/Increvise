@@ -210,9 +210,13 @@ async function getDirectoryTree(dirPath, libraryId = null) {
     // Add remaining files (not paired with folders)
     for (const [baseName, item] of fileMap) {
       const fullPath = path.join(dir, item.name)
+
+      // Detect flashcard files
+      const isFlashcard = item.name.endsWith('.flashcard')
+
       tree.push({
         name: item.name,
-        type: 'file',
+        type: isFlashcard ? 'flashcard' : 'file',
         path: fullPath,
         library_id: libraryId,
       })
