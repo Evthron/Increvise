@@ -135,7 +135,28 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
  * @returns {string} - Top-level note folder path
  */
 function findTopLevelNoteFolder(parentFilePath, db, libraryId, rootPath) {
-  const parentRelativePath = path.relative(rootPath, parentFilePath)
+  // Normalize the parent file path to ensure it's absolute
+  const normalizedParentPath = path.resolve(parentFilePath)
+
+  // Ensure rootPath is also normalized
+  const normalizedRootPath = path.resolve(rootPath)
+
+  // Calculate relative path, ensuring it doesn't contain '..'
+  // If parentFilePath is outside rootPath, this will return a path starting with '..'
+  const parentRelativePath = path.relative(normalizedRootPath, normalizedParentPath)
+
+  // Check if the path goes outside the root (contains '..')
+  if (parentRelativePath.startsWith('..')) {
+    console.error('[findTopLevelNoteFolder] Parent file is outside workspace:', {
+      parentFilePath: normalizedParentPath,
+      rootPath: normalizedRootPath,
+      relativePath: parentRelativePath,
+    })
+    // Fallback: create folder in same directory as parent file
+    const parentDir = path.dirname(normalizedParentPath)
+    const parentFileName = path.basename(normalizedParentPath, path.extname(normalizedParentPath))
+    return path.join(parentDir, parentFileName)
+  }
 
   // Check if parent has a parent_path in database (i.e., it's a child note)
   const result = db
@@ -149,13 +170,13 @@ function findTopLevelNoteFolder(parentFilePath, db, libraryId, rootPath) {
 
   if (!result || !result.parent_path) {
     // Parent is a top-level original note, create folder named after it
-    const parentDir = path.dirname(parentFilePath)
-    const parentFileName = path.basename(parentFilePath, path.extname(parentFilePath))
+    const parentDir = path.dirname(normalizedParentPath)
+    const parentFileName = path.basename(normalizedParentPath, path.extname(normalizedParentPath))
     return path.join(parentDir, parentFileName)
   } else {
     // Parent is a child note, recursively find its top-level ancestor
-    const grandParentPath = path.join(rootPath, result.parent_path)
-    return findTopLevelNoteFolder(grandParentPath, db, libraryId, rootPath)
+    const grandParentPath = path.join(normalizedRootPath, result.parent_path)
+    return findTopLevelNoteFolder(grandParentPath, db, libraryId, normalizedRootPath)
   }
 }
 
