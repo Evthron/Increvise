@@ -415,6 +415,47 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
     // Check if parent is a PDF file
     const isPdfParent = path.extname(parentPath).toLowerCase() === '.pdf'
 
+    // Auto-validate and recover all direct children before retrieving ranges
+    // This ensures that ranges are up-to-date if parent file was modified externally
+    if (!isPdfParent) {
+      const directChildren = db
+        .prepare(
+          `SELECT relative_path
+           FROM note_source
+           WHERE library_id = ? AND parent_path = ?`
+        )
+        .all(libraryId, parentRelativePath)
+
+      let hasRecovery = false
+      for (const child of directChildren) {
+        const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+        try {
+          const validationResult = await validateAndRecoverNoteRange(
+            childAbsPath,
+            libraryId,
+            getCentralDbPath
+          )
+          if (validationResult.success && validationResult.status === 'moved') {
+            console.log(
+              `[getChildRanges] Recovered ${child.relative_path}: ${validationResult.oldRange} -> ${validationResult.newRange}`
+            )
+            hasRecovery = true
+          }
+        } catch (err) {
+          console.warn(`[getChildRanges] Failed to validate ${child.relative_path}:`, err.message)
+        }
+      }
+
+      // If any recovery happened, close and reopen the database connection
+      // to ensure we read the updated values (avoid SQLite cache issues)
+      if (hasRecovery) {
+        db.close()
+        const newDb = new Database(dbInfo.dbPath)
+        // Replace the db reference for subsequent queries
+        Object.assign(db, newDb)
+      }
+    }
+
     // Simple query: only get direct children
     if (!useDynamicContent) {
       const children = db

@@ -24,11 +24,20 @@ import { basicSetup } from 'codemirror'
 import { isolateHistory } from '@codemirror/commands'
 
 class LockedRange {
-  constructor(originalStart, originalEnd, currentStart, currentEnd, childPath, childContent) {
-    // Original range in database
+  constructor(
+    originalStart,
+    originalEnd,
+    currentStart,
+    currentEnd,
+    childPath,
+    childContent,
+    offset = 0,
+    originalSpan = null
+  ) {
+    // Original range in database (always reflects the actual lines in parent file)
     this.originalStart = originalStart
     this.originalEnd = originalEnd
-    // Current range after line shifts from editing
+    // Current range after line shifts from editing (visual position in editor)
     this.currentStart = currentStart
     this.currentEnd = currentEnd
     // Associated child note path
@@ -36,6 +45,11 @@ class LockedRange {
     // Dynamic content from child note
     this.childContent = childContent || ''
     this.childLineCount = childContent ? childContent.split('\n').length : 0
+    // Offset for dynamic content expansion (how many lines added/removed)
+    this.offset = offset
+    // Original span in parent file (end - start + 1)
+    // This is needed to correctly calculate original range after line shifts
+    this.originalSpan = originalSpan !== null ? originalSpan : originalEnd - originalStart + 1
   }
 
   // Update child content and recalculate line count
@@ -48,25 +62,37 @@ class LockedRange {
 // Calculate line offsets for dynamic expansion/contraction
 // Takes ranges with lineCount and returns adjusted positions
 function calculateLineOffsets(ranges) {
-  let currentLineOffset = 0
   const adjustedRanges = []
+
+  console.log('[calculateLineOffsets] Input ranges:', ranges.length)
 
   for (let i = 0; i < ranges.length; i++) {
     const range = ranges[i]
     const originalSpan = range.end - range.start + 1
     const actualSpan = range.lineCount
 
+    // CRITICAL FIX: Each range should start at its original position in parent file
+    // and expand/contract in place, without affecting subsequent ranges' start positions
+    const adjustedStart = range.start
+    const adjustedEnd = range.start + actualSpan - 1
+
+    console.log(`[calculateLineOffsets] Range ${i}:`, {
+      path: range.path,
+      dbRange: `${range.start}-${range.end}`,
+      originalSpan,
+      actualSpan,
+      adjustedRange: `${adjustedStart}-${adjustedEnd}`,
+      offset: 0, // No cumulative offset needed
+    })
+
     const adjustedRange = {
       ...range,
-      adjustedStart: range.start + currentLineOffset,
-      adjustedEnd: range.start + currentLineOffset + actualSpan - 1,
-      offset: currentLineOffset,
+      adjustedStart: adjustedStart,
+      adjustedEnd: adjustedEnd,
+      offset: 0, // Each range expands in place
     }
 
     adjustedRanges.push(adjustedRange)
-
-    const offsetChange = actualSpan - originalSpan
-    currentLineOffset += offsetChange
   }
 
   return adjustedRanges
@@ -905,13 +931,18 @@ export class CodeMirrorViewer extends LitElement {
         const original = ranges[i]
         const adjusted = adjustedRanges[i]
 
+        // Calculate original span (actual lines in parent file)
+        const originalSpan = original.end - original.start + 1
+
         const lockRange = new LockedRange(
           original.start, // originalStart
           original.end, // originalEnd
           adjusted.adjustedStart, // currentStart (after offset)
           adjusted.adjustedEnd, // currentEnd (after offset)
           original.path, // childPath
-          original.content // childContent
+          original.content, // childContent
+          adjusted.offset, // offset for dynamic expansion
+          originalSpan // original span in parent file
         )
         this.lockedRanges.push(lockRange)
 
@@ -1064,16 +1095,38 @@ export class CodeMirrorViewer extends LitElement {
 
       const changeStartLine = oldDoc.lineAt(fromA).number
       for (let range of this.lockedRanges) {
+        // CRITICAL FIX: For dynamic content, we need to check against originalStart, not currentStart
+        // because the change in parent file affects the original position, not the expanded position
+        const referenceStart = range.offset !== 0 ? range.originalStart : range.currentStart
+
         // If range is entirely after the change, shift both start and end
-        if (range.currentStart > changeStartLine) {
+        if (referenceStart > changeStartLine) {
           range.currentStart += lineDelta
           range.currentEnd += lineDelta
+
+          // For dynamic content, also shift the original range
+          // For non-dynamic content, original follows current
+          if (range.offset !== 0) {
+            range.originalStart += lineDelta
+            range.originalEnd += lineDelta
+          } else {
+            range.originalStart = range.currentStart
+            range.originalEnd = range.currentEnd
+          }
+
           hasChanges = true
         }
         // When lines are inserted/deleted within a locked range, only adjust end
         // This is not expected to be happening, but handle it just in case
-        else if (range.currentEnd >= changeStartLine && range.currentStart < changeStartLine) {
+        else if (range.currentEnd >= changeStartLine && referenceStart < changeStartLine) {
           range.currentEnd += lineDelta
+
+          if (range.offset !== 0) {
+            range.originalEnd += lineDelta
+          } else {
+            range.originalEnd = range.currentEnd
+          }
+
           hasChanges = true
         }
       }
@@ -1124,10 +1177,11 @@ export class CodeMirrorViewer extends LitElement {
 
   // Confirm range updates after successful save
   confirmRangeUpdates() {
-    for (let range of this.lockedRanges) {
-      range.originalStart = range.currentStart
-      range.originalEnd = range.currentEnd
-    }
+    // After saving, the originalStart/End have already been updated correctly
+    // in updateLockedRangesForChanges() to reflect the true position in parent file.
+    // For dynamic content mode, originalStart/End != currentStart/End due to expansion.
+    // For non-dynamic mode, they should be equal.
+    // We just need to reset the hasRangeChanges flag.
     this.hasRangeChanges = false
   }
 
