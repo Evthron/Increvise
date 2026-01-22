@@ -14,7 +14,7 @@ export default defineConfig(({ command, mode }) => {
       plugins: [externalizeDepsPlugin()],
       build: {
         minify: !isDev,
-        sourcemap: isDev ? 'inline' : false,
+        sourcemap: isDev ? true : false,
         rollupOptions: {
           input: {
             index: resolve(__dirname, 'src/main/index.js'),

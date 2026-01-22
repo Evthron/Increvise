@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "build",
+      "label": "npm: build",
+      "problemMatcher": [],
+      "detail": "electron-vite build",
+      "options": {
+        "env": {
+          "VITE_DEV_MODE": "true"
+        }
+      }
+    }
+  ]
+}

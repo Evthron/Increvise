@@ -2,27 +2,23 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Electron (Main + Renderer)",
+      "name": "Debug Main (IPC)",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite",
-      "runtimeArgs": ["--sourcemap"],
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": ["--inspect=5858", "."],
       "env": {
         "ELECTRON_ENABLE_LOGGING": "1",
-        "ELECTRON_ENABLE_STACK_DUMPING": "1"
+        "VITE_DEV_MODE": "true"
       },
       "skipFiles": ["<node_internals>/**"],
       "outputCapture": "std",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Attach to Renderer",
-      "type": "chrome",
-      "request": "attach",
-      "port": 9222,
-      "webRoot": "${workspaceFolder}",
-      "timeout": 30000
+      "console": "integratedTerminal",
+      "preLaunchTask": "npm: build",
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "resolveSourceMapLocations": ["${workspaceFolder}/**", "!**/node_modules/**"],
+      "sourceMaps": true
     }
   ]
 }
