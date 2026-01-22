@@ -22,6 +22,7 @@ const createWindow = () => {
   // In dev mode, use the dev server; in production, load the built file
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    win.webContents.openDevTools()
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }

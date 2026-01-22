@@ -7,7 +7,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "VITE_DEV_MODE=true electron-vite build && electron-rebuild -f -w better-sqlite3 && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "prestart": "electron-rebuild -f -w better-sqlite3",
