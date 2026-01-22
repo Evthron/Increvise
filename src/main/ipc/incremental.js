@@ -248,85 +248,51 @@ function findContentByHashAndLineCount(parentContent, targetHash, numberOfLines)
  * @returns {Promise<Object>} - Validation result
  */
 async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath) {
-  try {
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: 'Database not found' }
-    }
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return { success: false, error: 'Database not found' }
+  }
 
-    const db = new Database(dbInfo.dbPath)
-    const relativePath = path.relative(dbInfo.folderPath, notePath)
+  const db = new Database(dbInfo.dbPath)
+  const relativePath = path.relative(dbInfo.folderPath, notePath)
 
-    // Get note record
-    const note = db
-      .prepare(
-        `
-        SELECT parent_path, range_start, range_end, source_hash
-        FROM note_source
-        WHERE library_id = ? AND relative_path = ?
-      `
-      )
-      .get(libraryId, relativePath)
+  const directChildren = db
+    .prepare(
+      `SELECT relative_path, range_start, range_end, source_hash
+           FROM note_source
+           WHERE library_id = ? AND parent_path = ?`
+    )
+    .all(libraryId, relativePath)
 
-    if (!note) {
-      db.close()
-      return { success: false, error: 'Note not found in database' }
-    }
-
-    // Read parent content
-    const parentPath = path.join(dbInfo.folderPath, note.parent_path)
-    const parentContent = await fs.readFile(parentPath, 'utf-8')
-
-    // Use the hash from the first extract to recover extract location
-    const sourceHash = note.source_hash
+  // Read parent content
+  const parentContent = await fs.readFile(notePath, 'utf-8')
+  for (const child of directChildren) {
+    const relativePath = child.relative_path
 
     // Validate current position in database
-    const dbRange = [parseInt(note.range_start), parseInt(note.range_end)]
+    const dbRange = [parseInt(child.range_start), parseInt(child.range_end)]
     const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
     const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
 
-    // Case 1: Position still valid
-    if (currentHash === sourceHash) {
-      db.close()
-      return {
-        success: true,
-        status: 'valid',
-        range: dbRange,
+    // If hash mismatch, try to recover
+    if (currentHash !== child.source_hash) {
+      const lineCount = dbRange[1] - dbRange[0] + 1
+
+      const newRange = findContentByHashAndLineCount(parentContent, child.source_hash, lineCount)
+
+      if (newRange) {
+        // Recovery successful - update database
+        db.prepare(
+          `
+              UPDATE note_source
+              SET range_start = ?, range_end = ?
+              WHERE library_id = ? AND relative_path = ?
+            `
+        ).run(String(newRange.start), String(newRange.end), libraryId, relativePath)
+      } else {
+        console.warn(`Failed to recover position for child note: ${relativePath}`)
       }
     }
-    const lineCount = dbRange[1] - dbRange[0] + 1
-
-    // Case 2: Position invalid, try to recover
-    const newRange = findContentByHashAndLineCount(parentContent, sourceHash, lineCount)
-
-    if (newRange) {
-      // Recovery successful - update database
-      db.prepare(
-        `
-        UPDATE note_source
-        SET range_start = ?, range_end = ?
-        WHERE library_id = ? AND relative_path = ?
-      `
-      ).run(String(newRange.start), String(newRange.end), libraryId, relativePath)
-
-      db.close()
-      return {
-        success: true,
-        status: 'moved',
-        oldRange: dbRange,
-        newRange: [newRange.start, newRange.end],
-      }
-    }
-
-    // Case 3: Cannot recover - keep database unchanged
-    db.close()
-    return {
-      success: true,
-      status: 'lost',
-      range: dbRange,
-    }
-  } catch (error) {
-    return { success: false, error: error.message }
   }
 }
 
@@ -418,42 +384,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
     if (!isPdfParent) {
-      const directChildren = db
-        .prepare(
-          `SELECT relative_path
-           FROM note_source
-           WHERE library_id = ? AND parent_path = ?`
-        )
-        .all(libraryId, parentRelativePath)
-
-      let hasRecovery = false
-      for (const child of directChildren) {
-        const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
-        try {
-          const validationResult = await validateAndRecoverNoteRange(
-            childAbsPath,
-            libraryId,
-            getCentralDbPath
-          )
-          if (validationResult.success && validationResult.status === 'moved') {
-            console.log(
-              `[getChildRanges] Recovered ${child.relative_path}: ${validationResult.oldRange} -> ${validationResult.newRange}`
-            )
-            hasRecovery = true
-          }
-        } catch (err) {
-          console.warn(`[getChildRanges] Failed to validate ${child.relative_path}:`, err.message)
-        }
-      }
-
-      // If any recovery happened, close and reopen the database connection
-      // to ensure we read the updated values (avoid SQLite cache issues)
-      if (hasRecovery) {
-        db.close()
-        const newDb = new Database(dbInfo.dbPath)
-        // Replace the db reference for subsequent queries
-        Object.assign(db, newDb)
-      }
+      validateAndRecoverNoteRange(parentPath, libraryId, getCentralDbPath)
     }
 
     // Simple query: only get direct children
