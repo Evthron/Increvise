@@ -148,3 +148,4 @@ dist-electron/
 *.sqlite
 test/test-workspace
 test/temp-test-workspace
+.increvise/
