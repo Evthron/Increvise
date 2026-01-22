@@ -18,6 +18,14 @@ Increvise is an application that enables the incremental reading technique to be
 
 <img width="2151" height="1063" alt="image" src="https://github.com/user-attachments/assets/2649d8e7-29f3-4acc-8ef2-f2cae171d9d8" />
 
+## Contributors
+
+This project is developed by:
+
+- [Evthron](https://github.com/Evthron)
+- [lwyKevin](https://github.com/lwyKevin)
+- [Nameless0-0](https://github.com/Nameless0-0)
+
 ## License
 
 This project is licensed under the **GPL-3.0-or-later** license.
@@ -25,6 +33,6 @@ This project is licensed under the **GPL-3.0-or-later** license.
 **SPDX Identifiers:**
 
 - `SPDX-License-Identifier: GPL-3.0-or-later`
-- `SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+- `SPDX-FileCopyrightText: 2025-2026 The Increvise Project Contributors
 
 For details, see the [LICENSE](LICENSE) file.

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+// SPDX-FileCopyrightText: 2025-2026 The Increvise Project Contributors
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -118,7 +118,7 @@ async function test1_CreateDatabase() {
     const db = new Database(result.path, { readonly: true })
     const library = db.prepare('SELECT * FROM library').get()
     const tables = db
-      .prepare('SELECT name FROM sqlite_master WHERE type=\'table\' ORDER BY name')
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all()
     db.close()
 
@@ -198,7 +198,7 @@ async function test3_NewQueueFeedback() {
 
   console.log(`  After:  queue=${after.queue_name}`)
   console.log(`  Result: ${result.message}`)
-  console.log('  ✓ File moved from \'new\' to \'processing\' queue')
+  console.log("  ✓ File moved from 'new' to 'processing' queue")
 }
 
 // ========================================
@@ -380,7 +380,7 @@ async function test10_GetFilesForRevision() {
   const db = new Database(TEST_DB_PATH, { readonly: true })
   const allFiles = db
     .prepare(
-      'SELECT relative_path, date(due_time) <= date(\'now\') as is_due FROM file ORDER BY relative_path'
+      "SELECT relative_path, date(due_time) <= date('now') as is_due FROM file ORDER BY relative_path"
     )
     .all()
   db.close()
@@ -433,7 +433,7 @@ async function test12_QueueConfigurations() {
 
   // Check all spaced queues exist
   const queues = db
-    .prepare('SELECT queue_name, description FROM review_queue WHERE queue_name LIKE \'spaced-%\'')
+    .prepare("SELECT queue_name, description FROM review_queue WHERE queue_name LIKE 'spaced-%'")
     .all()
 
   console.log(`  ✓ Found ${queues.length} spaced sub-queues:`)
@@ -444,7 +444,7 @@ async function test12_QueueConfigurations() {
   // Check configurations for spaced-standard
   const configs = db
     .prepare(
-      'SELECT config_key, config_value FROM queue_config WHERE queue_name = \'spaced-standard\''
+      "SELECT config_key, config_value FROM queue_config WHERE queue_name = 'spaced-standard'"
     )
     .all()
 
@@ -505,7 +505,7 @@ async function test14_MoveFileToQueue() {
   db2.close()
 
   console.log(`  After:  queue=${after.queue_name}, easiness=${after.easiness}`)
-  console.log('  ✓ File moved and easiness reset to queue\'s initial_ef')
+  console.log("  ✓ File moved and easiness reset to queue's initial_ef")
 }
 
 // ========================================

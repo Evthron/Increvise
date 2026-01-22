@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 The Increvise Project Contributors
+// SPDX-FileCopyrightText: 2025-2026 The Increvise Project Contributors
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -266,8 +266,8 @@ export class FlashcardViewer extends LitElement {
         <div class="answer-section">
           <div class="answer-label">Answer</div>
           ${this.showAnswer
-    ? html`<div class="answer-content">${this.answerText}</div>`
-    : html`
+            ? html`<div class="answer-content">${this.answerText}</div>`
+            : html`
                 <div class="answer-hidden">
                   <button class="show-answer-btn" @click=${this._toggleAnswer}>Show Answer</button>
                 </div>
