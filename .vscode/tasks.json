@@ -6,7 +6,7 @@
       "script": "build",
       "label": "npm: build",
       "problemMatcher": [],
-      "detail": "electron-vite build",
+      "detail": "electron-vite build && electron-rebuild -f -w better-sqlite3",
       "options": {
         "env": {
           "VITE_DEV_MODE": "true"
