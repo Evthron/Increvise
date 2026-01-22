@@ -1,63 +1,60 @@
 # AGENTS.md
 
-## Build, Lint, and Test Commands
+## Commands
 
-### Build
+### Development
 
-- **Start the application**: `npm start`
+- `npm run dev` - Start Electron with hot reload
+- `npm run build` - Build for production
+- `npm start` - Preview production build
 
-### Lint
+### Testing
 
-- **Lint the code**: ESLint is configured. Run `npx eslint .` to lint the codebase.
+- `npm test` - Run all tests (auto-rebuilds better-sqlite3)
+- `npm run test:validation` / `test:incremental` / `test:spaced` / `test:workspace` - Run specific test suites
+- `npm run test:clean` - Remove test artifacts
 
-### Test
+### Code Quality
 
-- **Run all tests**: No test framework is currently configured. Add a testing framework like Jest or Mocha to enable automated tests.
-- **Run a single test**: Not applicable until a test framework is added.
+- `npx eslint .` - Lint code
+- `npx prettier --write .` - Format code
 
-## Code Style Guidelines
+### Native Modules
 
-### General
+- `npm run rebuild:electron` - Rebuild better-sqlite3 for Electron
+- `npm run rebuild:node` - Rebuild better-sqlite3 for Node
 
-- **Module System**: ES Modules (`import`/`export` syntax is used; see `type: "module"` in package.json).
-- **File Extensions**: Use `.js` for JavaScript files.
+## Project Structure
 
-### Imports
+Electron app with:
 
-- Use `import`/`export` for modules.
-- Group `node:` modules (e.g., `path`, `fs`) at the top, followed by third-party modules, and then local modules.
+- `src/main/` - Main process (IPC handlers, database)
+  - `src/main/db/` - Database initialization
+  - `src/main/ipc/` - IPC handlers (file, workspace, incremental, spaced)
+- `src/preload/` - Secure IPC bridge using contextBridge
+- `src/renderer/` - UI layer (Lit web components)
+  - `src/renderer/ui/` - Components (FileTree, EditorPanel, viewers, etc.)
+- `test/` - Node.js test runner tests
 
-### Formatting
+## Key Technologies
 
-- **Indentation**: Use 2 spaces.
-- **Line Length**: Keep lines under 80 characters where possible.
-- **Semicolons**: Omit semicolons unless required to prevent errors.
-- **Quotes**: Use single quotes for strings.
+- **Better-SQLite3**: Synchronous API (no async/await needed for queries)
+  - Central DB: global workspace metadata and settings
+  - Workspace DB: per-workspace in `.increvise/db.sqlite`
+  - Use prepared statements and transactions for performance
+- **Lit**: Web components extending `LitElement`
+- **CodeMirror**: Code/text editor
+- **Marked**: Markdown rendering
+- **pdfjs-dist**: PDF viewing
 
-### Types
+## Code Conventions
 
-- No TypeScript or explicit type-checking is used. Consider adding TypeScript for better type safety.
-
-### Naming Conventions
-
-- **Variables and Functions**: Use `camelCase`.
-- **Constants**: Use `UPPER_SNAKE_CASE`.
-- **Classes**: Use `PascalCase`.
-- **Files**: Use `kebab-case`.
-
-### Error Handling
-
-- Always handle errors in asynchronous functions using `try-catch` blocks.
-- Log errors to the console with meaningful messages.
-
-### Specific Practices
-
-- Use `async/await` for asynchronous operations.
-- Avoid deeply nested callbacks; refactor into smaller functions.
-- Use `contextBridge` in `preload.js` to expose APIs securely.
-
-## Recommendations
-
-- Configure a test framework like Jest or Mocha.
-- Consider adding TypeScript for type safety.
-- Document additional commands and guidelines as the project evolves.
+- **ES Modules**: Use `import`/`export`, `node:` prefix for built-ins
+- **Formatting**: Prettier and ESLint configured (see `.prettierrc` and `eslint.config.mjs`)
+- **File Headers**: All source files require SPDX headers:
+  ```javascript
+  // SPDX-FileCopyrightText: 2025-2026 The Increvise Project Contributors
+  //
+  // SPDX-License-Identifier: GPL-3.0-or-later
+  ```
+- **Import Order**: Node built-ins → third-party → local modules
