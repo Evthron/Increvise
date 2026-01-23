@@ -544,11 +544,14 @@ export class EditorPanel extends LitElement {
     const { extractedPages, extractedLineRanges } = processExtractedRanges(
       filteredRangesResult || []
     )
+    // The last read page is the page of the furthest extracted range, so the reader can continue extracting
+    const lastReadPage = extractedPages.size > 0 ? Math.max(...extractedPages) : pageStart
 
     // Load PDF with all configurations at once
     const options = new pdfOptions({
       pageStart: pageStart,
       pageEnd: pageEnd,
+      lastReadPage: lastReadPage,
       extractedPages: extractedPages,
       extractedLineRanges: extractedLineRanges,
     })
@@ -588,10 +591,13 @@ export class EditorPanel extends LitElement {
     // Convert database ranges to pdfViewer format
     const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult || [])
 
+    // The last read page is the page of the furthest extracted range, so the reader can continue extracting
+    const lastReadPage = extractedPages.size > 0 ? Math.max(...extractedPages) : 1
     // Load PDF with extracted ranges
     await this.pdfViewer.loadPdf(
       filePath,
       new pdfOptions({
+        lastReadPage: lastReadPage,
         extractedPages: extractedPages,
         extractedLineRanges: extractedLineRanges,
       })

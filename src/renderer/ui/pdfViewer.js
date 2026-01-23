@@ -14,6 +14,7 @@ export class pdfOptions {
   constructor({
     pageStart = null,
     pageEnd = null,
+    lastReadPage = null,
     extractedPages = [],
     extractedLineRanges = new Map(),
   } = {}) {
@@ -21,6 +22,8 @@ export class pdfOptions {
     this.pageStart = pageStart
     // Page range restriction - end page
     this.pageEnd = pageEnd
+    // Last read page number
+    this.lastReadPage = lastReadPage
     // Already extracted pages (whole page extracts) - Array<number>
     this.extractedPages = extractedPages
     // Already extracted line ranges (text extracts) - Map<pageNum, Array<{start, end, notePath}>>
@@ -1211,8 +1214,14 @@ export class PdfViewer extends LitElement {
       }
     }
 
-    // Set current page: if restricted, start from pageStart, otherwise start from page 1
-    this.currentPage = this.restrictedRange ? this.restrictedRange.start : 1
+    // Set current page: prefer lastReadPage, then restrictedRange.start, then 1
+    if (options.lastReadPage) {
+      this.currentPage = options.lastReadPage
+    } else if (this.restrictedRange) {
+      this.currentPage = this.restrictedRange.start
+    } else {
+      this.currentPage = 1
+    }
 
     // Set extracted page ranges and line ranges
     this.extractedPages = options.extractedPages || new Set()
