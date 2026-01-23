@@ -383,7 +383,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
 
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
-    if (!isMarkdown) {
+    if (isMarkdown) {
       validateAndRecoverNoteRange(parentPath, libraryId, getCentralDbPath)
     }
 
@@ -405,7 +405,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
         .all(libraryId, parentRelativePath)
 
       // Read direct children content (skip if parent is PDF)
-      if (!isMarkdown) {
+      if (isMarkdown) {
         for (const child of children) {
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
           try {
