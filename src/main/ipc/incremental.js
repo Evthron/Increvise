@@ -404,7 +404,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
         )
         .all(libraryId, parentRelativePath)
 
-      // Read direct children content (skip if parent is PDF)
+      // Read direct children content (skip if parent is not markdown)
       if (isMarkdown) {
         for (const child of children) {
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
