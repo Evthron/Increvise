@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global setTimeout, customElements, CustomEvent */
-
 // Feedback Bar Lit component
 // Manages revision workflow state and feedback controls
 

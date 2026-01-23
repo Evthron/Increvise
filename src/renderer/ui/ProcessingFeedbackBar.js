@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global customElements */
-
 // Processing Feedback Bar Lit component
 // Displays simplified skip/viewed buttons for processing queue
 

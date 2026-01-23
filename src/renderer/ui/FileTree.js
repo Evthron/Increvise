@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global customElements */
-
 // FileTree Lit component
 // Handles rendering and interaction with the file/directory/note tree
 

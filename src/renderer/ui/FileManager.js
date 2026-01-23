@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global CustomEvent, setTimeout, customElements */
-
 // File Manager Lit component
 // Manages workspace history, file tree, and folder selection
 

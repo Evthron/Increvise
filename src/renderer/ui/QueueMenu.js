@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global customElements, CustomEvent */
-
 // Queue Menu Lit component
 // Displays a dropdown menu for switching between queues
 

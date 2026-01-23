@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/* global setTimeout, customElements */
-
 // Editor Panel Lit component
 // Manages file editor, preview, and related events
 
