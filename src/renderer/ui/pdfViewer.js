@@ -1151,6 +1151,15 @@ export class PdfViewer extends LitElement {
     try {
       this.isLoading = true
       this.errorMessage = ''
+
+      // Check if the same file is already loaded
+      if (this.pdfPath === filePath && this.pdfDocument) {
+        // Apply new options if provided
+        this.applyOptions(options)
+        this.isLoading = false
+        return
+      }
+
       this.pdfPath = filePath
 
       // Clean up previous document
