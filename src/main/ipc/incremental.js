@@ -378,12 +378,12 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
     const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
 
-    // Check if parent is a PDF file
-    const isPdfParent = path.extname(parentPath).toLowerCase() === '.pdf'
+    // Check if parent is a text-like file (markdown)
+    const isMarkdown = path.extname(parentPath).toLowerCase() === '.md'
 
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
-    if (!isPdfParent) {
+    if (!isMarkdown) {
       validateAndRecoverNoteRange(parentPath, libraryId, getCentralDbPath)
     }
 
@@ -405,7 +405,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
         .all(libraryId, parentRelativePath)
 
       // Read direct children content (skip if parent is PDF)
-      if (!isPdfParent) {
+      if (!isMarkdown) {
         for (const child of children) {
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
           try {
@@ -438,8 +438,8 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
           pageNum: startParsed.page,
           lineStart: startParsed.line,
           lineEnd: endParsed.line,
-          content: isPdfParent ? undefined : child.content,
-          lineCount: isPdfParent ? undefined : child.content.split('\n').length,
+          content: child.content,
+          lineCount: child.content?.split('\n').length,
         }
       })
 
