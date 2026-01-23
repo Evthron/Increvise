@@ -63,6 +63,11 @@ async function createWorkspaceDb(workspaceDir, libraryId, centralDbPath) {
       rank REAL DEFAULT 70.0,
       interval INTEGER DEFAULT 1,
       due_time DATETIME,
+      queue TEXT DEFAULT 'new',
+      rotation_interval INTEGER DEFAULT 3,
+      intermediate_multiplier REAL DEFAULT 1.0,
+      intermediate_base INTEGER DEFAULT 7,
+      extraction_count INTEGER DEFAULT 0,
       PRIMARY KEY (library_id, relative_path),
       FOREIGN KEY (library_id) REFERENCES library(library_id)
     );
@@ -225,14 +230,13 @@ describe('Dynamic Content - getChildRanges with content', () => {
     const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
 
     console.log('Result:', JSON.stringify(result, null, 2))
-    assert.strictEqual(result.success, true)
 
     // Should only return depth=1 children (not grandchildren)
-    assert.strictEqual(result.ranges.length, 2)
+    assert.strictEqual(result.length, 2)
 
     // Find child1 and child2
-    const child1 = result.ranges.find((r) => r.path === 'parent/child1.md')
-    const child2 = result.ranges.find((r) => r.path === 'parent/child2.md')
+    const child1 = result.find((r) => r.path === 'parent/child1.md')
+    const child2 = result.find((r) => r.path === 'parent/child2.md')
 
     // Check child1 (no nested children)
     assert.ok(child1, 'child1 should exist')
@@ -276,8 +280,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
     const parentPath = path.join(workspaceDir, 'parent.md')
     const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
 
-    assert.strictEqual(result.success, true)
-    const missingChild = result.ranges.find((r) => r.path === 'parent/missing.md')
+    const missingChild = result.find((r) => r.path === 'parent/missing.md')
     assert.ok(missingChild)
     assert.strictEqual(missingChild.content, '[Content unavailable]')
   })
@@ -290,17 +293,15 @@ describe('Dynamic Content - getChildRanges with content', () => {
     const parentPath = path.join(workspaceDir, 'parent.md')
     const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
 
-    assert.strictEqual(result.success, true)
-
     // Should only have direct children (not including missing.md from previous test)
-    const directChildren = result.ranges.filter(
+    const directChildren = result.filter(
       (r) => r.path === 'parent/child1.md' || r.path === 'parent/child2.md'
     )
     assert.strictEqual(directChildren.length, 2)
 
     // Both children should exist
-    const child1 = result.ranges.find((r) => r.path === 'parent/child1.md')
-    const child2 = result.ranges.find((r) => r.path === 'parent/child2.md')
+    const child1 = result.find((r) => r.path === 'parent/child1.md')
+    const child2 = result.find((r) => r.path === 'parent/child2.md')
 
     assert.ok(child1)
     assert.ok(child2)
@@ -341,9 +342,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
     const parentPath = path.join(workspaceDir, 'parent.md')
     const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
 
-    assert.strictEqual(result.success, true)
-
-    const child1 = result.ranges.find((r) => r.path === 'parent/child1.md')
+    const child1 = result.find((r) => r.path === 'parent/child1.md')
     assert.ok(child1)
 
     // child1 original: "Child 1 line 1\nChild 1 line 2"
@@ -393,9 +392,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
     const parentPath = path.join(workspaceDir, 'parent.md')
     const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
 
-    assert.strictEqual(result.success, true)
-
-    const child2 = result.ranges.find((r) => r.path === 'parent/child2.md')
+    const child2 = result.find((r) => r.path === 'parent/child2.md')
     assert.ok(child2)
 
     // Expected expansion:

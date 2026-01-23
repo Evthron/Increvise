@@ -159,8 +159,22 @@ Line 10`
   })
 
   describe('validateAndRecoverNoteRange', () => {
-    it('should validate note with valid position', async () => {
-      // Setup
+    it('should validate children with valid positions (no recovery needed)', async () => {
+      // Setup parent content
+      const parentContent = `Line 1
+Line 2
+Line 3
+Line 4
+Line 5
+Line 6
+Line 7
+Line 8
+Line 9
+Line 10`
+      const parentPath = path.join(TEST_WORKSPACE, 'parent.md')
+      await fs.writeFile(parentPath, parentContent)
+
+      // Setup child note with valid position
       const childContent = 'Line 3\nLine 4\nLine 5'
       const childPath = path.join(TEST_WORKSPACE, 'tutorial', '3-5-child.md')
       await fs.mkdir(path.join(TEST_WORKSPACE, 'tutorial'), { recursive: true })
@@ -181,20 +195,22 @@ Line 10`
       ).run('test-lib', 'tutorial/3-5-child.md', 'parent.md', 'text-lines', '3', '5', hash)
       db.close()
 
-      // Test
-      const result = await validateAndRecoverNoteRange(
-        childPath,
-        'test-lib',
-        createMockGetCentralDbPath()
-      )
+      // Test - pass parent path, not child path
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath())
 
-      assert.strictEqual(result.success, true)
-      assert.strictEqual(result.status, 'valid')
-      assert.deepStrictEqual(result.range, [3, 5])
+      // Verify database was NOT updated (hash matches, no recovery needed)
+      const db2 = new Database(DB_PATH)
+      const unchanged = db2
+        .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
+        .get('tutorial/3-5-child.md')
+      db2.close()
+
+      assert.strictEqual(unchanged.range_start, '3')
+      assert.strictEqual(unchanged.range_end, '5')
     })
 
-    it('should recover moved content', async () => {
-      // Setup - parent content changed
+    it('should recover moved content for children', async () => {
+      // Setup - parent content changed with new lines inserted at top
       const newParentContent = `New Line 1
 New Line 2
 New Line 3
@@ -205,7 +221,8 @@ Line 6
 Line 7
 Line 8
 Line 9`
-      await fs.writeFile(path.join(TEST_WORKSPACE, 'parent.md'), newParentContent)
+      const parentPath = path.join(TEST_WORKSPACE, 'parent.md')
+      await fs.writeFile(parentPath, newParentContent)
 
       const childContent = 'Line 3\nLine 4\nLine 5'
       const childPath = path.join(TEST_WORKSPACE, 'tutorial', '3-5-moved.md')
@@ -226,41 +243,29 @@ Line 9`
       ).run('test-lib', 'tutorial/3-5-moved.md', 'parent.md', 'text-lines', '3', '5', hash)
       db.close()
 
-      // Update childNote content to simulate noraml extension on extracted note
-      const newChildContent = childContent + '\nNew Line A\nNew Line B\nNew Line C'
-      await fs.writeFile(childPath, newChildContent)
+      // Test - validate parent's children
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath())
 
-      // Test
-      const result = await validateAndRecoverNoteRange(
-        childPath,
-        'test-lib',
-        createMockGetCentralDbPath()
-      )
-      console.log(result)
-
-      assert.strictEqual(result.success, true)
-      assert.strictEqual(result.status, 'moved')
-      assert.deepStrictEqual(result.oldRange, [3, 5])
-      assert.deepStrictEqual(result.newRange, [4, 6]) // Content moved from 3-5 to 4-6 (after 3 new lines)
-
-      // Verify database was updated
+      // Verify database was updated with new position
       const db2 = new Database(DB_PATH)
       const updated = db2
         .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
         .get('tutorial/3-5-moved.md')
       db2.close()
 
+      // Content moved from lines 3-5 to lines 4-6 (after 3 new lines were inserted)
       assert.strictEqual(updated.range_start, '4')
       assert.strictEqual(updated.range_end, '6')
     })
 
-    it('should return lost status when content cannot be recovered', async () => {
+    it('should not update database when content cannot be recovered', async () => {
       // Setup - parent content completely changed
       const changedParentContent = `Completely different content
 This is new
 Nothing matches
 The old content is gone`
-      await fs.writeFile(path.join(TEST_WORKSPACE, 'parent.md'), changedParentContent)
+      const parentPath = path.join(TEST_WORKSPACE, 'parent.md')
+      await fs.writeFile(parentPath, changedParentContent)
 
       const childContent = 'Line 3\nLine 4\nLine 5'
       const childPath = path.join(TEST_WORKSPACE, 'tutorial', '3-5-lost.md')
@@ -281,22 +286,10 @@ The old content is gone`
       ).run('test-lib', 'tutorial/3-5-lost.md', 'parent.md', 'text-lines', '3', '5', hash)
       db.close()
 
-      // Update childNote content to simulate normal extension on extracted note
-      const newChildContent = childContent + '\nNew Line A\nNew Line B\nNew Line C'
-      await fs.writeFile(childPath, newChildContent)
+      // Test - validate parent's children (content cannot be found)
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath())
 
-      // Test
-      const result = await validateAndRecoverNoteRange(
-        childPath,
-        'test-lib',
-        createMockGetCentralDbPath()
-      )
-
-      assert.strictEqual(result.success, true)
-      assert.strictEqual(result.status, 'lost')
-      assert.deepStrictEqual(result.range, [3, 5])
-
-      // Verify database was NOT updated (keeps old values)
+      // Verify database was NOT updated (keeps old values since recovery failed)
       const db2 = new Database(DB_PATH)
       const unchanged = db2
         .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
@@ -305,6 +298,78 @@ The old content is gone`
 
       assert.strictEqual(unchanged.range_start, '3')
       assert.strictEqual(unchanged.range_end, '5')
+    })
+
+    it('should validate multiple children of the same parent', async () => {
+      // Setup parent content
+      const parentContent = `Line 1
+Line 2
+Line 3
+Line 4
+Line 5
+Line 6
+Line 7
+Line 8
+Line 9
+Line 10`
+      const parentPath = path.join(TEST_WORKSPACE, 'parent-multi.md')
+      await fs.writeFile(parentPath, parentContent)
+
+      // Setup first child
+      const child1Content = 'Line 2\nLine 3'
+      const child1Path = path.join(TEST_WORKSPACE, 'tutorial', '2-3-child1.md')
+      await fs.writeFile(child1Path, child1Content)
+
+      // Setup second child
+      const child2Content = 'Line 7\nLine 8\nLine 9'
+      const child2Path = path.join(TEST_WORKSPACE, 'tutorial', '7-9-child2.md')
+      await fs.writeFile(child2Path, child2Content)
+
+      const db = new Database(DB_PATH)
+      db.prepare('INSERT INTO file (library_id, relative_path) VALUES (?, ?)').run(
+        'test-lib',
+        'tutorial/2-3-child1.md'
+      )
+      db.prepare('INSERT INTO file (library_id, relative_path) VALUES (?, ?)').run(
+        'test-lib',
+        'tutorial/7-9-child2.md'
+      )
+
+      const hash1 = crypto.createHash('sha256').update(child1Content).digest('hex')
+      const hash2 = crypto.createHash('sha256').update(child2Content).digest('hex')
+
+      db.prepare(
+        `
+        INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run('test-lib', 'tutorial/2-3-child1.md', 'parent-multi.md', 'text-lines', '2', '3', hash1)
+
+      db.prepare(
+        `
+        INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run('test-lib', 'tutorial/7-9-child2.md', 'parent-multi.md', 'text-lines', '7', '9', hash2)
+      db.close()
+
+      // Test - validate all children of parent
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath())
+
+      // Verify both children remain unchanged (valid positions)
+      const db2 = new Database(DB_PATH)
+      const child1 = db2
+        .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
+        .get('tutorial/2-3-child1.md')
+      const child2 = db2
+        .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
+        .get('tutorial/7-9-child2.md')
+      db2.close()
+
+      assert.strictEqual(child1.range_start, '2')
+      assert.strictEqual(child1.range_end, '3')
+      assert.strictEqual(child2.range_start, '7')
+      assert.strictEqual(child2.range_end, '9')
     })
   })
 })
