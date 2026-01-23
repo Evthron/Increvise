@@ -14,23 +14,21 @@ import { videoOptions } from './VideoViewer.js'
 /**
  * Convert database extractedRanges to pdfViewer-ready format
  * @param {Array} ranges - Raw ranges from database (getChildRanges result)
- * @returns {{extractedPageRanges: Array<number>, extractedLineRanges: Map<number, Array>}}
+ * @returns {{extractedPages: Set<number>, extractedLineRanges: Map<number, Array>}}
  */
 function processExtractedRanges(ranges) {
-  const extractedPageRanges = []
+  const extractedPages = new Set()
   const extractedLineRanges = new Map()
 
   for (const range of ranges) {
     // Handle pdf-page extracts (whole page extracts)
     if (range.extract_type === 'pdf-page') {
-      const startPage = parseInt(range.pageNum || range.start)
-      const endPage = parseInt(range.pageNum || range.end)
+      const startPage = parseInt(range.start)
+      const endPage = parseInt(range.end)
 
       // Add all pages in the range
       for (let page = startPage; page <= endPage; page++) {
-        if (!extractedPageRanges.includes(page)) {
-          extractedPageRanges.push(page)
-        }
+        extractedPages.add(page)
       }
     }
 
@@ -51,7 +49,7 @@ function processExtractedRanges(ranges) {
     }
   }
 
-  return { extractedPageRanges, extractedLineRanges }
+  return { extractedPages, extractedLineRanges }
 }
 
 /**
@@ -537,7 +535,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to pdfViewer format
-    const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+    const { extractedPages, extractedLineRanges } = processExtractedRanges(
       rangesResult?.success ? rangesResult.ranges : []
     )
 
@@ -545,7 +543,7 @@ export class EditorPanel extends LitElement {
     const options = new pdfOptions({
       pageStart: pageStart,
       pageEnd: pageEnd,
-      extractedPageRanges: extractedPageRanges,
+      extractedPages: extractedPages,
       extractedLineRanges: extractedLineRanges,
     })
 
@@ -555,7 +553,7 @@ export class EditorPanel extends LitElement {
     console.log('PDF extract loaded with configuration:', {
       pageStart,
       pageEnd,
-      extractedPageRanges: extractedPageRanges.length,
+      extractedPages: extractedPages.length,
       extractedLineRangesPages: extractedLineRanges.size,
     })
 
@@ -582,7 +580,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to pdfViewer format
-    const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
+    const { extractedPages, extractedLineRanges } = processExtractedRanges(
       rangesResult?.success ? rangesResult.ranges : []
     )
 
@@ -590,13 +588,13 @@ export class EditorPanel extends LitElement {
     await this.pdfViewer.loadPdf(
       filePath,
       new pdfOptions({
-        extractedPageRanges: extractedPageRanges,
+        extractedPages: extractedPages,
         extractedLineRanges: extractedLineRanges,
       })
     )
 
     console.log('Regular PDF loaded with extracted ranges:', {
-      extractedPageRanges: extractedPageRanges.length,
+      extractedPages: extractedPages.length,
       extractedLineRangesPages: extractedLineRanges.size,
     })
 
@@ -1277,11 +1275,9 @@ export class EditorPanel extends LitElement {
         window.currentFileLibraryId
       )
       if (rangesResult && rangesResult.success) {
-        const { extractedPageRanges, extractedLineRanges } = processExtractedRanges(
-          rangesResult.ranges
-        )
+        const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult.ranges)
 
-        this.pdfViewer.extractedPageRanges = extractedPageRanges
+        this.pdfViewer.extractedPages = extractedPages
         this.pdfViewer.extractedLineRanges = extractedLineRanges
       }
     } catch (error) {

@@ -14,7 +14,7 @@ export class pdfOptions {
   constructor({
     pageStart = null,
     pageEnd = null,
-    extractedPageRanges = [],
+    extractedPages = [],
     extractedLineRanges = new Map(),
   } = {}) {
     // Page range restriction - start page
@@ -22,7 +22,7 @@ export class pdfOptions {
     // Page range restriction - end page
     this.pageEnd = pageEnd
     // Already extracted pages (whole page extracts) - Array<number>
-    this.extractedPageRanges = extractedPageRanges
+    this.extractedPages = extractedPages
     // Already extracted line ranges (text extracts) - Map<pageNum, Array<{start, end, notePath}>>
     this.extractedLineRanges = extractedLineRanges
   }
@@ -920,7 +920,7 @@ class PageRangeDialog extends LitElement {
     rangeStart: { type: Number },
     rangeEnd: { type: Number },
     restrictedRange: { type: Object },
-    extractedPageRanges: { type: Array },
+    extractedPages: { type: Array },
     extractedLineRanges: { type: Object },
   }
 
@@ -1135,7 +1135,7 @@ export class PdfViewer extends LitElement {
     this.isLoading = false
     this.errorMessage = ''
     this.pdfDocument = null
-    this.extractedPageRanges = []
+    this.extractedPages = []
     this.extractedLineRanges = new Map()
     this.showRangeDialog = false
     this.rangeStart = 1
@@ -1206,7 +1206,7 @@ export class PdfViewer extends LitElement {
     this.currentPage = this.restrictedRange ? this.restrictedRange.start : 1
 
     // Set extracted page ranges and line ranges
-    this.extractedPageRanges = options.extractedPageRanges || []
+    this.extractedPages = options.extractedPages || new Set()
     this.extractedLineRanges = options.extractedLineRanges || new Map()
   }
 
@@ -1496,7 +1496,7 @@ export class PdfViewer extends LitElement {
    * @returns {boolean}
    */
   _isCurrentPageExtracted() {
-    return this.extractedPageRanges.includes(this.currentPage)
+    return this.extractedPages?.has(this.currentPage)
   }
 
   handleRenderError(e) {
