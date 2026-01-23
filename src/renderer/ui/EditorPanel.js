@@ -501,7 +501,8 @@ export class EditorPanel extends LitElement {
 
     console.log('Parsing range:', { rangeStart, rangeEnd, type: typeof rangeStart })
 
-    if (typeof rangeStart === 'string' && rangeStart.includes(':')) {
+    const isTextExtract = typeof rangeStart === 'string' && rangeStart.includes(':')
+    if (isTextExtract) {
       // Text extract with line numbers: "pageNum:lineNum"
       const [pageStr, lineStartStr] = rangeStart.split(':')
       const [endPageStr, lineEndStr] = rangeEnd.split(':')
@@ -534,8 +535,15 @@ export class EditorPanel extends LitElement {
       window.currentFileLibraryId
     )
 
+    // Filter ranges to only those within the current extract range
+    const filteredRangesResult = rangesResult
+      .filter((range) => range.start >= pageStart && range.end <= pageEnd)
+      .filter((range) => !(range.start === pageStart && range.end === pageEnd))
+
     // Convert database ranges to pdfViewer format
-    const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult || [])
+    const { extractedPages, extractedLineRanges } = processExtractedRanges(
+      filteredRangesResult || []
+    )
 
     // Load PDF with all configurations at once
     const options = new pdfOptions({
