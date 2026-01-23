@@ -490,15 +490,17 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
       )
       .all(libraryId, parentRelativePath, libraryId)
 
-    // Read all children content
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i]
-      const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
-      try {
-        child.content = await fs.readFile(childAbsPath, 'utf-8')
-      } catch (err) {
-        console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
-        child.content = '[Content unavailable]'
+    if (isMarkdown) {
+      // Read all children content
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]
+        const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+        try {
+          child.content = await fs.readFile(childAbsPath, 'utf-8')
+        } catch (err) {
+          console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
+          child.content = '[Content unavailable]'
+        }
       }
     }
 
