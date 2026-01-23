@@ -535,9 +535,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to pdfViewer format
-    const { extractedPages, extractedLineRanges } = processExtractedRanges(
-      rangesResult?.success ? rangesResult.ranges : []
-    )
+    const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult || [])
 
     // Load PDF with all configurations at once
     const options = new pdfOptions({
@@ -580,9 +578,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to pdfViewer format
-    const { extractedPages, extractedLineRanges } = processExtractedRanges(
-      rangesResult?.success ? rangesResult.ranges : []
-    )
+    const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult || [])
 
     // Load PDF with extracted ranges
     await this.pdfViewer.loadPdf(
@@ -675,9 +671,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to videoViewer format
-    const extractedRanges = processVideoExtractedRanges(
-      rangesResult?.success ? rangesResult.ranges : []
-    )
+    const extractedRanges = processVideoExtractedRanges(rangesResult || [])
 
     // Load video with time restriction
     const options = new videoOptions({
@@ -718,9 +712,7 @@ export class EditorPanel extends LitElement {
     )
 
     // Convert database ranges to videoViewer format
-    const extractedRanges = processVideoExtractedRanges(
-      rangesResult?.success ? rangesResult.ranges : []
-    )
+    const extractedRanges = processVideoExtractedRanges(rangesResult || [])
 
     // Load video with extracted ranges
     await this.videoViewer.loadVideo(
@@ -883,13 +875,13 @@ export class EditorPanel extends LitElement {
       throw error
     }
 
-    if (rangesResult.ranges.length === 0) {
+    if (!rangesResult || rangesResult.length === 0) {
       this.codeMirrorEditor.clearLockedLines()
       return
     }
 
     try {
-      this.codeMirrorEditor.lockLineRanges(rangesResult.ranges)
+      this.codeMirrorEditor.lockLineRanges(rangesResult)
     } catch (error) {
       console.error('[loadAndLockExtractedRanges] Error locking ranges in editor:', error)
       throw error
@@ -914,12 +906,8 @@ export class EditorPanel extends LitElement {
         window.currentFileLibraryId
       )
 
-      if (rangesResult.success) {
-        if (rangesResult.ranges.length > 0) {
-          viewer.lockContent?.(rangesResult.ranges)
-        } else {
-          viewer.clearLockedContent?.()
-        }
+      if (rangesResult && rangesResult.length > 0) {
+        viewer.lockContent?.(rangesResult)
       } else {
         viewer.clearLockedContent?.()
       }
@@ -1274,8 +1262,8 @@ export class EditorPanel extends LitElement {
         pdfPath,
         window.currentFileLibraryId
       )
-      if (rangesResult && rangesResult.success) {
-        const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult.ranges)
+      if (rangesResult) {
+        const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult)
 
         this.pdfViewer.extractedPages = extractedPages
         this.pdfViewer.extractedLineRanges = extractedLineRanges
@@ -1738,8 +1726,8 @@ export class EditorPanel extends LitElement {
         videoPath,
         window.currentFileLibraryId
       )
-      if (rangesResult && rangesResult.success) {
-        const extractedRanges = processVideoExtractedRanges(rangesResult.ranges)
+      if (rangesResult) {
+        const extractedRanges = processVideoExtractedRanges(rangesResult)
         this.videoViewer.extractedRanges = extractedRanges
       }
     } catch (error) {

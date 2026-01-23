@@ -372,7 +372,8 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
-      return { success: false, error: 'Database not found' }
+      console.error('Database not found for library:', libraryId)
+      return []
     }
 
     const db = new Database(dbInfo.dbPath)
@@ -445,10 +446,7 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
 
       db.close()
 
-      return {
-        success: true,
-        ranges,
-      }
+      return ranges
     }
 
     // Dynamic content: use recursive CTE to get all nested children
@@ -570,12 +568,10 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
 
     db.close()
 
-    return {
-      success: true,
-      ranges,
-    }
+    return ranges
   } catch (error) {
-    return { success: false, error: error.message }
+    console.error('Error in getChildRanges:', error)
+    return []
   }
 }
 
