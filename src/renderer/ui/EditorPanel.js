@@ -1052,19 +1052,13 @@ export class EditorPanel extends LitElement {
       return
     }
 
-    // Default: CodeMirror
-    await this._handleCodeMirrorExtraction()
-  }
-
-  /**
-   * Helper for CodeMirror text extraction
-   */
-  async _handleCodeMirrorExtraction() {
+    // CodeMirror viewer active
     if (!this.codeMirrorEditor) {
       this._showToast('CodeMirror editor not found', true)
       return
     }
 
+    // Check edit mode
     if (this.isEditMode === true) {
       this._showToast('Please switch to preview mode before extracting', true)
       return
@@ -1080,58 +1074,15 @@ export class EditorPanel extends LitElement {
       }
     }
 
-    const selectedLines = this.codeMirrorEditor.getSelectedLines()
-    if (!selectedLines || selectedLines.length === 0) {
-      this._showToast('Please select lines to extract', true)
-      return
-    }
-
-    let selectedText = selectedLines.map((line) => line.text).join('\n')
-
-    if (!selectedText.trim()) {
-      this._showToast('Please select text to extract', true)
-      return
-    }
-
-    // Check if current file is markdown - apply cleaning if needed
-    const isMarkdownFile =
-      this.currentOpenFile &&
-      (this.currentOpenFile.endsWith('.md') || this.currentOpenFile.endsWith('.markdown'))
-
-    if (isMarkdownFile && this.markdownViewer) {
-      selectedText = this.markdownViewer.cleanPartialFormatting?.(selectedText) || selectedText
-    }
-
-    // Extract line numbers for range tracking
-    const rangeStart = selectedLines[0].number
-    const rangeEnd = selectedLines[selectedLines.length - 1].number
-
-    if (!window.currentFileLibraryId) {
-      this._showToast('Error: Library ID not set. Please reopen the file.', true)
-      console.error('currentFileLibraryId is not set')
-      return
-    }
-
-    try {
-      const result = await window.fileManager.extractNote(
-        this.currentOpenFile,
-        selectedText,
-        rangeStart,
-        rangeEnd,
-        window.currentFileLibraryId
-      )
-      if (result.success) {
-        await this._loadAndLockExtractedRanges(this.currentOpenFile)
-        this.codeMirrorEditor.clearHistory()
-        this._showToast(`Note extracted to ${result.fileName}`)
-        // Refresh file manager to show the new extracted note
-        this._refreshFileManager()
-      } else {
-        this._showToast(`Error: ${result.error}`, true)
-      }
-    } catch (error) {
-      console.error('Error extracting note:', error)
-      this._showToast(`Error extracting note: ${error.message}`, true)
+    // Call CodeMirror extraction
+    const result = await this.codeMirrorEditor.extractSelection(this.currentOpenFile)
+    if (!result.success) {
+      this._showToast(result.error || 'Extraction failed', true)
+    } else {
+      await this._loadAndLockExtractedRanges(this.currentOpenFile)
+      this.codeMirrorEditor.clearHistory()
+      this._showToast('Note extracted successfully')
+      this._refreshFileManager()
     }
   }
 

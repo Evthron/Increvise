@@ -781,6 +781,46 @@ export class CodeMirrorViewer extends LitElement {
     return lines
   }
 
+  /**
+   * Extract selected lines to a new note
+   * @param {string} filePath - The file path for extraction
+   * @returns {Object} - {success: boolean, error?: string}
+   */
+  async extractSelection(filePath) {
+    // Get selected lines
+    const selectedLines = this.getSelectedLines()
+    if (!selectedLines || selectedLines.length === 0) {
+      return { success: false, error: 'Please select lines to extract' }
+    }
+
+    const selectedText = selectedLines.map((line) => line.text).join('\n')
+    if (!selectedText.trim()) {
+      return { success: false, error: 'Please select text to extract' }
+    }
+
+    if (!filePath) {
+      return { success: false, error: 'File path not provided' }
+    }
+
+    // Extract line numbers for range tracking
+    const rangeStart = selectedLines[0].number
+    const rangeEnd = selectedLines[selectedLines.length - 1].number
+    const libraryId = window.currentFileLibraryId
+
+    if (!libraryId) {
+      return { success: false, error: 'Library ID not set' }
+    }
+
+    try {
+      // Call extraction API
+      await window.fileManager.extractNote(filePath, selectedText, rangeStart, rangeEnd, libraryId)
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to extract note:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
   // Lock the currently selected lines
   lockSelectedLines() {
     if (!this.editorView) return []
