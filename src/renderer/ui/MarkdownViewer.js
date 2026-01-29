@@ -606,25 +606,27 @@ export class MarkdownViewer extends LitElement {
     this.requestUpdate() // Re-render with locked styling
   }
 
-  async extractSelection() {
+  async extractSelection(filePath) {
     const selection = this.getSemanticSelection()
     if (!selection || !selection.text) {
       return { success: false, error: 'No text selected' }
     }
 
-    // Dispatch custom event for editor.js to handle
-    this.dispatchEvent(
-      new CustomEvent('extract-requested', {
-        detail: {
-          text: selection.markdown || selection.text,
-          viewerType: 'markdown',
-        },
-        bubbles: true,
-        composed: true,
-      })
-    )
+    if (!filePath) {
+      return { success: false, error: 'File path not provided' }
+    }
 
-    return { success: true }
+    const text = selection.markdown || selection.text
+    const libraryId = window.currentFileLibraryId
+
+    try {
+      // Preview mode: no line number info
+      await window.fileManager.extractNote(filePath, text, 0, 0, libraryId)
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to extract note:', error)
+      return { success: false, error: error.message }
+    }
   }
 
   /**

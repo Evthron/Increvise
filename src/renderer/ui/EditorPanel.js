@@ -216,38 +216,6 @@ export class EditorPanel extends LitElement {
       })
     }
 
-    // Listen for extraction events from markdown/html viewers
-    document.addEventListener('extract-requested', async (e) => {
-      const { text, viewerType } = e.detail
-
-      if (!window.currentFileLibraryId) {
-        this._showToast('Error: Library ID not set', true)
-        return
-      }
-
-      try {
-        const result = await window.fileManager.extractNote(
-          this.currentOpenFile,
-          text,
-          0,
-          0,
-          window.currentFileLibraryId
-        )
-
-        if (result.success) {
-          const viewer = viewerType === 'markdown' ? this.markdownViewer : this.htmlViewer
-          await this._loadAndLockExtractedContent(this.currentOpenFile, viewer)
-          this._showToast(`Note extracted to ${result.fileName}`)
-          // Refresh file manager to show the new extracted note
-          this._refreshFileManager()
-        } else {
-          this._showToast(`Error: ${result.error}`, true)
-        }
-      } catch (error) {
-        this._showToast(`Error: ${error.message}`, true)
-      }
-    })
-
     // Listen for child note open requests from CodeMirror widget badges
     window.addEventListener('open-child-note', async (event) => {
       const { path: childPath } = event.detail
@@ -973,13 +941,6 @@ export class EditorPanel extends LitElement {
       if (result.success) {
         this.hasUnsavedChanges = false
 
-        // Update preview viewers with the new content
-        if (this.currentViewerType === 'markdown') {
-          this.markdownViewer.setMarkdown(content)
-        } else if (this.currentViewerType === 'html') {
-          this.htmlViewer.setHtml(content)
-        }
-
         if (!silent) {
           this._showToast('File saved successfully!')
         }
@@ -1065,18 +1026,28 @@ export class EditorPanel extends LitElement {
 
     // HTML viewer active
     if (this.htmlViewer && !this.htmlViewer.classList.contains('hidden')) {
-      const result = await this.htmlViewer.extractSelection()
+      const result = await this.htmlViewer.extractSelection(this.currentOpenFile)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
+      } else {
+        // Success: reload locked content, show toast, refresh file manager
+        await this._loadAndLockExtractedContent(this.currentOpenFile, this.htmlViewer)
+        this._showToast('Note extracted successfully')
+        this._refreshFileManager()
       }
       return
     }
 
     // Markdown viewer active
     if (this.markdownViewer && !this.markdownViewer.classList.contains('hidden')) {
-      const result = await this.markdownViewer.extractSelection()
+      const result = await this.markdownViewer.extractSelection(this.currentOpenFile)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
+      } else {
+        // Success: reload locked content, show toast, refresh file manager
+        await this._loadAndLockExtractedContent(this.currentOpenFile, this.markdownViewer)
+        this._showToast('Note extracted successfully')
+        this._refreshFileManager()
       }
       return
     }
