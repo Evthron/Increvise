@@ -911,17 +911,14 @@ export class EditorPanel extends LitElement {
       // Switch from preview to source (readonly)
       await this._showSourceMode(undefined, false)
     } else if (this.currentDisplayMode === 'source') {
-      // Switch from source back to preview (for markdown/html)
-      if (this.currentViewerType === 'markdown' || this.currentViewerType === 'html') {
-        if (this.isEditMode && this.codeMirrorEditor.hasUnsavedChanges) {
-          const confirmed = confirm('You have unsaved changes. Continue without saving?')
-          if (!confirmed) return
-        }
-
-        this.isEditMode = false
-        const content = this.codeMirrorEditor.editorView.state.doc.toString()
-        await this._showPreviewMode(content)
+      // Switch from source back to preview
+      if (this.codeMirrorEditor.hasUnsavedChanges) {
+        this.codeMirrorEditor.saveFile(this.currentFilePath)
+        this._showToast('File saved')
       }
+      this.isEditMode = false
+      const content = this.codeMirrorEditor.editorView.state.doc.toString()
+      await this._showPreviewMode(content)
     }
 
     this.requestUpdate()
@@ -937,8 +934,8 @@ export class EditorPanel extends LitElement {
     if (this.isEditMode) {
       // Switch from editable to readonly (Select mode)
       if (this.codeMirrorEditor.hasUnsavedChanges) {
-        const confirmed = confirm('You have unsaved changes. Discard changes?')
-        if (!confirmed) return
+        this.codeMirrorEditor.saveFile(this.currentFilePath)
+        this._showToast('File saved')
       }
       this.isEditMode = false
       this.codeMirrorEditor.disableEditing()
