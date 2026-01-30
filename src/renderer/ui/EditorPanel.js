@@ -968,8 +968,6 @@ export class EditorPanel extends LitElement {
     if (!result.success) {
       this._showToast(result.error || 'Extraction failed', true)
     } else {
-      await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
-      this.codeMirrorEditor.clearHistory()
       this._showToast('Note extracted successfully')
       this._refreshFileManager()
     }

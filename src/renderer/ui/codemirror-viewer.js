@@ -808,6 +808,8 @@ export class CodeMirrorViewer extends LitElement {
     try {
       // Call extraction API
       await window.fileManager.extractNote(filePath, selectedText, rangeStart, rangeEnd, libraryId)
+      await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
+      this.codeMirrorEditor.clearHistory()
       return { success: true }
     } catch (error) {
       console.error('Failed to extract note:', error)
