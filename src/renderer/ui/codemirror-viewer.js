@@ -874,9 +874,19 @@ export class CodeMirrorViewer extends LitElement {
   // Ranges data is from database with child content
   // Format: [{start: 10, end: 15, path: 'note.md', content: '...', lineCount: 5}, ...]
   // Returns: { success: boolean, error?: string }
-  lockLineRanges(ranges, useDynamicContent = true) {
-    if (!this.editorView || !ranges || ranges.length === 0) {
-      return { success: false, error: 'No editor or no ranges' }
+  async lockLineRanges(filePath, useDynamicContent = true) {
+    let ranges
+    try {
+      ranges = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+    } catch (error) {
+      console.error('Failed to get child ranges:', error)
+      this.clearLockedLines()
+      return { success: false, error: 'Failed to load child ranges' }
+    }
+
+    if (!ranges || ranges.length === 0) {
+      this.clearLockedLines()
+      return { success: true }
     }
 
     // Clear existing data from last document load
@@ -1014,9 +1024,9 @@ export class CodeMirrorViewer extends LitElement {
       this.editorView.dispatch({
         effects: this.addLockedLineEffect.of(Array.from(this.lockedLines)),
       })
-
-      return { success: true }
     }
+    this.clearHistory()
+    return { success: true }
   }
 
   // Apply dynamic content decorations (called by lockLineRanges)

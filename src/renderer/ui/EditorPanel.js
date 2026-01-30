@@ -795,8 +795,7 @@ export class EditorPanel extends LitElement {
     }
 
     // Load and lock extracted ranges
-    await this._loadAndLockExtractedRanges(this.currentFilePath)
-    this.codeMirrorEditor.clearHistory()
+    await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
   }
 
   /**
@@ -823,40 +822,6 @@ export class EditorPanel extends LitElement {
       this.codeMirrorEditor?.classList.add('hidden')
     }
   }
-
-  /**
-   * Load extracted line ranges from database and lock them in editor
-   * @param {string} filePath
-   */
-  async _loadAndLockExtractedRanges(filePath) {
-    if (!window.currentFileLibraryId) {
-      console.warn('[loadAndLockExtractedRanges] No library ID set')
-      this.codeMirrorEditor.clearLockedLines()
-      return
-    }
-
-    let rangesResult
-    try {
-      rangesResult = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
-    } catch (error) {
-      console.error('[loadAndLockExtractedRanges] Error querying database:', error)
-      this.codeMirrorEditor.clearLockedLines()
-      throw error
-    }
-
-    if (!rangesResult || rangesResult.length === 0) {
-      this.codeMirrorEditor.clearLockedLines()
-      return
-    }
-
-    try {
-      this.codeMirrorEditor.lockLineRanges(rangesResult)
-    } catch (error) {
-      console.error('[loadAndLockExtractedRanges] Error locking ranges in editor:', error)
-      throw error
-    }
-  }
-
   /**
    * Load extracted content and lock them in markdown/html viewers
    * @param {string} filePath
@@ -943,7 +908,7 @@ export class EditorPanel extends LitElement {
       const result = await window.fileManager.readFile(this.currentFilePath)
       if (result.success) {
         this.codeMirrorEditor.setContent(result.content)
-        await this._loadAndLockExtractedRanges(this.currentFilePath)
+        await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
         this.codeMirrorEditor.clearHistory()
       }
     } else {
@@ -998,25 +963,12 @@ export class EditorPanel extends LitElement {
       return
     }
 
-    // Check if there are unsaved changes or line range changes
-    if (this.codeMirrorEditor.hasUnsavedChanges || this.codeMirrorEditor.hasRangeChanges) {
-      this._showToast('Saving changes before extraction...')
-      const saveResult = await this.codeMirrorEditor.saveFile(this.currentFilePath)
-      if (saveResult.success) {
-        this._showToast('File saved')
-        return
-      } else {
-        this._showToast(saveResult.error || 'Error saving file', true)
-        return
-      }
-    }
-
     // Call CodeMirror extraction
     const result = await this.codeMirrorEditor.extractSelection(this.currentFilePath)
     if (!result.success) {
       this._showToast(result.error || 'Extraction failed', true)
     } else {
-      await this._loadAndLockExtractedRanges(this.currentFilePath)
+      await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
       this.codeMirrorEditor.clearHistory()
       this._showToast('Note extracted successfully')
       this._refreshFileManager()
