@@ -642,6 +642,7 @@ async function writeFile(filePath, content) {
 async function extractNote(
   parentFilePath,
   selectedText,
+  childFileName,
   rangeStart,
   rangeEnd,
   libraryId,
@@ -667,11 +668,19 @@ async function extractNote(
       // Create note folder if it doesn't exist
       await fs.mkdir(noteFolder, { recursive: true })
 
-      // Generate new filename using hierarchical naming scheme
-      // Preserve parent file's extension to maintain format (.html, .md, etc.)
+      // Generate or use provided filename
       const parentExt = path.extname(parentFilePath)
-      const newFileName =
-        generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + parentExt
+      let newFileName
+
+      if (childFileName) {
+        // Use provided filename, add extension if not present
+        newFileName = childFileName.endsWith(parentExt) ? childFileName : childFileName + parentExt
+      } else {
+        // Generate new filename using hierarchical naming scheme (fallback)
+        newFileName =
+          generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + parentExt
+      }
+
       const newFilePath = path.join(noteFolder, newFileName)
 
       // Check if file already exists
@@ -1318,8 +1327,16 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
 
   ipcMain.handle(
     'extract-note',
-    async (event, parentFilePath, selectedText, rangeStart, rangeEnd, libraryId) =>
-      extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
+    async (event, parentFilePath, selectedText, childFileName, rangeStart, rangeEnd, libraryId) =>
+      extractNote(
+        parentFilePath,
+        selectedText,
+        childFileName,
+        rangeStart,
+        rangeEnd,
+        libraryId,
+        getCentralDbPath
+      )
   )
 
   ipcMain.handle('validate-note', async (event, notePath, libraryId) =>

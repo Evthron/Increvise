@@ -155,6 +155,140 @@ class ChildContentWidget extends WidgetType {
   }
 }
 
+/**
+ * Helper: Get basename of a file path
+ * @param {string} filePath - Full file path
+ * @param {string} ext - Optional extension to remove
+ * @returns {string} - Base name
+ */
+function basename(filePath, ext) {
+  const parts = filePath.replace(/\\/g, '/').split('/')
+  let name = parts[parts.length - 1] || ''
+  if (ext && name.endsWith(ext)) {
+    name = name.slice(0, -ext.length)
+  }
+  return name
+}
+
+/**
+ * Helper: Get file extension
+ * @param {string} filePath - Full file path
+ * @returns {string} - Extension including dot (e.g., '.md')
+ */
+function extname(filePath) {
+  const name = basename(filePath)
+  const lastDot = name.lastIndexOf('.')
+  return lastDot === -1 ? '' : name.slice(lastDot)
+}
+
+/**
+ * Parse a hierarchical note filename
+ * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
+ * Example: "10-20-introduction-to.15-18-core-concepts.md"
+ * @param {string} fileName - The note filename without extension
+ * @returns {Array|null} - Array of layer objects [{rangeStart, rangeEnd, name}, ...] or null
+ */
+function parseNoteFileName(fileName) {
+  // Split by dots to get each layer
+  const layers = fileName.split('.')
+  const parsed = []
+
+  for (const layer of layers) {
+    // Match pattern: rangeStart-rangeEnd-name
+    const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
+    if (!match) return null
+
+    parsed.push({
+      rangeStart: parseInt(match[1]),
+      rangeEnd: parseInt(match[2]),
+      name: match[3],
+    })
+  }
+
+  return parsed.length > 0 ? parsed : null
+}
+
+/**
+ * Generate filename for a new child note
+ * @param {string} parentFilePath - Path to parent note file
+ * @param {number} rangeStart - Start line of extracted text
+ * @param {number} rangeEnd - End line of extracted text
+ * @param {string} extractedText - The extracted text to generate name from
+ * @returns {string} - New filename without extension
+ */
+function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedText) {
+  const parentFileName = basename(parentFilePath, extname(parentFilePath))
+  const parentLayers = parseNoteFileName(parentFileName)
+
+  // Strip HTML tags to get plain text for naming
+  // This regex removes all HTML tags including their attributes
+  const plainText = extractedText.replace(/<[^>]*>/g, '').trim()
+
+  // Generate name from first 3 words of extracted text - optimized
+  let words = ''
+  const text = plainText
+  let wordCount = 0
+  let currentWord = ''
+
+  for (let i = 0; i < text.length && wordCount < 3; i++) {
+    const char = text[i]
+    const lower = char.toLowerCase()
+    const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+    if (isAlphaNum) {
+      currentWord += lower
+    } else if (currentWord.length > 0) {
+      if (words) words += '-'
+      words += currentWord
+      currentWord = ''
+      wordCount++
+    }
+  }
+  // Add last word if exists
+  if (currentWord.length > 0 && wordCount < 3) {
+    if (words) words += '-'
+    words += currentWord
+  }
+
+  if (!parentLayers) {
+    // Parent is a top-level file - extract name from filename (as fallback)
+    let parentName = ''
+    wordCount = 0
+    currentWord = ''
+
+    for (let i = 0; i < parentFileName.length && wordCount < 3; i++) {
+      const char = parentFileName[i]
+      const lower = char.toLowerCase()
+      const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+      if (isAlphaNum || char === '-') {
+        currentWord += lower
+      } else if (currentWord.length > 0) {
+        if (parentName) parentName += '-'
+        parentName += currentWord
+        currentWord = ''
+        wordCount++
+      }
+    }
+    if (currentWord.length > 0 && wordCount < 3) {
+      if (parentName) parentName += '-'
+      parentName += currentWord
+    }
+
+    // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
+    // For text-line extractions, use range-based naming with parent name as fallback
+    if (rangeStart === 0 && rangeEnd === 0) {
+      return `0-0-${words || parentName || 'note'}`
+    } else {
+      return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+    }
+  } else {
+    // Flat structure: keep all parent layers, append new layer
+    const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
+    return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+  }
+}
+
 export class CodeMirrorViewer extends LitElement {
   static properties = {
     content: { type: String },
@@ -806,10 +940,20 @@ export class CodeMirrorViewer extends LitElement {
     }
 
     try {
-      // Call extraction API
-      await window.fileManager.extractNote(filePath, selectedText, rangeStart, rangeEnd, libraryId)
-      await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
-      this.codeMirrorEditor.clearHistory()
+      // Generate child note filename
+      const childFileName = generateChildNoteName(filePath, rangeStart, rangeEnd, selectedText)
+
+      // Call extraction API with generated filename
+      await window.fileManager.extractNote(
+        filePath,
+        selectedText,
+        childFileName,
+        rangeStart,
+        rangeEnd,
+        libraryId
+      )
+      await this.lockLineRanges(filePath)
+      this.clearHistory()
       return { success: true }
     } catch (error) {
       console.error('Failed to extract note:', error)

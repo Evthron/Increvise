@@ -40,8 +40,16 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
-  extractNote: (filePath, selectedText, rangeStart, rangeEnd, libraryId) =>
-    ipcRenderer.invoke('extract-note', filePath, selectedText, rangeStart, rangeEnd, libraryId),
+  extractNote: (filePath, selectedText, childFileName, rangeStart, rangeEnd, libraryId) =>
+    ipcRenderer.invoke(
+      'extract-note',
+      filePath,
+      selectedText,
+      childFileName,
+      rangeStart,
+      rangeEnd,
+      libraryId
+    ),
   validateAndRecoverNoteRange: (notePath, libraryId) =>
     ipcRenderer.invoke('validate-note', notePath, libraryId),
   compareFilenameWithDbRange: (notePath, libraryId) =>

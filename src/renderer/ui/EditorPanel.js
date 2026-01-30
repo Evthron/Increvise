@@ -300,8 +300,7 @@ export class EditorPanel extends LitElement {
   }
 
   /**
-   * Opens a file and displays its content in the editor and preview.
-   * @param {string} filePath
+   * Save file handler
    */
   async openFile(filePath) {
     try {
@@ -747,7 +746,7 @@ export class EditorPanel extends LitElement {
         this.markdownViewer.setMarkdown(content)
       }
 
-      await this._loadAndLockExtractedContent(this.currentFilePath, this.markdownViewer)
+      await this.markdownViewer.loadAndLockExtractedContent(this.currentFilePath)
     } else if (this.currentViewerType === 'html') {
       this._showViewer('html')
 
@@ -755,7 +754,7 @@ export class EditorPanel extends LitElement {
         this.htmlViewer.setHtml(content)
       }
 
-      await this._loadAndLockExtractedContent(this.currentFilePath, this.htmlViewer)
+      await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
     }
   }
 
@@ -820,34 +819,6 @@ export class EditorPanel extends LitElement {
       this.codeMirrorEditor.classList.remove('hidden')
     } else {
       this.codeMirrorEditor?.classList.add('hidden')
-    }
-  }
-  /**
-   * Load extracted content and lock them in markdown/html viewers
-   * @param {string} filePath
-   * @param {Object} viewer
-   */
-  async _loadAndLockExtractedContent(filePath, viewer) {
-    try {
-      if (!window.currentFileLibraryId) {
-        console.warn('No library ID set, cannot load extracted content')
-        viewer.clearLockedContent?.()
-        return
-      }
-
-      const rangesResult = await window.fileManager.getChildRanges(
-        filePath,
-        window.currentFileLibraryId
-      )
-
-      if (rangesResult && rangesResult.length > 0) {
-        viewer.lockContent?.(rangesResult)
-      } else {
-        viewer.clearLockedContent?.()
-      }
-    } catch (error) {
-      console.error('Error loading extracted content:', error)
-      viewer.clearLockedContent?.()
     }
   }
 
@@ -936,7 +907,7 @@ export class EditorPanel extends LitElement {
         this._showToast(result.error || 'Extraction failed', true)
       } else {
         // Success: reload locked content, show toast, refresh file manager
-        await this._loadAndLockExtractedContent(this.currentFilePath, this.htmlViewer)
+        await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
         this._showToast('Note extracted successfully')
         this._refreshFileManager()
       }
@@ -950,7 +921,7 @@ export class EditorPanel extends LitElement {
         this._showToast(result.error || 'Extraction failed', true)
       } else {
         // Success: reload locked content, show toast, refresh file manager
-        await this._loadAndLockExtractedContent(this.currentFilePath, this.markdownViewer)
+        await this.markdownViewer.loadAndLockExtractedContent(this.currentFilePath)
         this._showToast('Note extracted successfully')
         this._refreshFileManager()
       }

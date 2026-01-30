@@ -4,6 +4,140 @@
 // HTMLViewer.js
 import { LitElement, html, css } from 'lit'
 
+/**
+ * Helper: Get basename of a file path
+ * @param {string} filePath - Full file path
+ * @param {string} ext - Optional extension to remove
+ * @returns {string} - Base name
+ */
+function basename(filePath, ext) {
+  const parts = filePath.replace(/\\/g, '/').split('/')
+  let name = parts[parts.length - 1] || ''
+  if (ext && name.endsWith(ext)) {
+    name = name.slice(0, -ext.length)
+  }
+  return name
+}
+
+/**
+ * Helper: Get file extension
+ * @param {string} filePath - Full file path
+ * @returns {string} - Extension including dot (e.g., '.md')
+ */
+function extname(filePath) {
+  const name = basename(filePath)
+  const lastDot = name.lastIndexOf('.')
+  return lastDot === -1 ? '' : name.slice(lastDot)
+}
+
+/**
+ * Parse a hierarchical note filename
+ * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
+ * Example: "10-20-introduction-to.15-18-core-concepts.md"
+ * @param {string} fileName - The note filename without extension
+ * @returns {Array|null} - Array of layer objects [{rangeStart, rangeEnd, name}, ...] or null
+ */
+function parseNoteFileName(fileName) {
+  // Split by dots to get each layer
+  const layers = fileName.split('.')
+  const parsed = []
+
+  for (const layer of layers) {
+    // Match pattern: rangeStart-rangeEnd-name
+    const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
+    if (!match) return null
+
+    parsed.push({
+      rangeStart: parseInt(match[1]),
+      rangeEnd: parseInt(match[2]),
+      name: match[3],
+    })
+  }
+
+  return parsed.length > 0 ? parsed : null
+}
+
+/**
+ * Generate filename for a new child note
+ * @param {string} parentFilePath - Path to parent note file
+ * @param {number} rangeStart - Start line of extracted text
+ * @param {number} rangeEnd - End line of extracted text
+ * @param {string} extractedText - The extracted text to generate name from
+ * @returns {string} - New filename without extension
+ */
+function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedText) {
+  const parentFileName = basename(parentFilePath, extname(parentFilePath))
+  const parentLayers = parseNoteFileName(parentFileName)
+
+  // Strip HTML tags to get plain text for naming
+  // This regex removes all HTML tags including their attributes
+  const plainText = extractedText.replace(/<[^>]*>/g, '').trim()
+
+  // Generate name from first 3 words of extracted text - optimized
+  let words = ''
+  const text = plainText
+  let wordCount = 0
+  let currentWord = ''
+
+  for (let i = 0; i < text.length && wordCount < 3; i++) {
+    const char = text[i]
+    const lower = char.toLowerCase()
+    const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+    if (isAlphaNum) {
+      currentWord += lower
+    } else if (currentWord.length > 0) {
+      if (words) words += '-'
+      words += currentWord
+      currentWord = ''
+      wordCount++
+    }
+  }
+  // Add last word if exists
+  if (currentWord.length > 0 && wordCount < 3) {
+    if (words) words += '-'
+    words += currentWord
+  }
+
+  if (!parentLayers) {
+    // Parent is a top-level file - extract name from filename (as fallback)
+    let parentName = ''
+    wordCount = 0
+    currentWord = ''
+
+    for (let i = 0; i < parentFileName.length && wordCount < 3; i++) {
+      const char = parentFileName[i]
+      const lower = char.toLowerCase()
+      const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+
+      if (isAlphaNum || char === '-') {
+        currentWord += lower
+      } else if (currentWord.length > 0) {
+        if (parentName) parentName += '-'
+        parentName += currentWord
+        currentWord = ''
+        wordCount++
+      }
+    }
+    if (currentWord.length > 0 && wordCount < 3) {
+      if (parentName) parentName += '-'
+      parentName += currentWord
+    }
+
+    // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
+    // For text-line extractions, use range-based naming with parent name as fallback
+    if (rangeStart === 0 && rangeEnd === 0) {
+      return `0-0-${words || parentName || 'note'}`
+    } else {
+      return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+    }
+  } else {
+    // Flat structure: keep all parent layers, append new layer
+    const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
+    return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+  }
+}
+
 export class HTMLViewer extends LitElement {
   static properties = {
     isLoading: { type: Boolean },
@@ -358,6 +492,34 @@ export class HTMLViewer extends LitElement {
   }
 
   /**
+   * Load and lock extracted content from file
+   * @param {string} filePath - The file path to load ranges from
+   */
+  async loadAndLockExtractedContent(filePath) {
+    try {
+      if (!window.currentFileLibraryId) {
+        console.warn('No library ID set, cannot load extracted content')
+        this.clearLockedContent()
+        return
+      }
+
+      const rangesResult = await window.fileManager.getChildRanges(
+        filePath,
+        window.currentFileLibraryId
+      )
+
+      if (rangesResult && rangesResult.length > 0) {
+        this.lockContent(rangesResult)
+      } else {
+        this.clearLockedContent()
+      }
+    } catch (error) {
+      console.error('Error loading extracted content:', error)
+      this.clearLockedContent()
+    }
+  }
+
+  /**
    * Clear all locked content
    */
   clearLockedContent() {
@@ -384,8 +546,12 @@ export class HTMLViewer extends LitElement {
     const libraryId = window.currentFileLibraryId
 
     try {
-      // Preview mode: no line number info
-      await window.fileManager.extractNote(filePath, text, 0, 0, libraryId)
+      // Generate child note filename
+      // Preview mode: use rangeStart=0, rangeEnd=0 for semantic extractions
+      const childFileName = generateChildNoteName(filePath, 0, 0, text)
+
+      // Extract note with generated filename
+      await window.fileManager.extractNote(filePath, text, childFileName, 0, 0, libraryId)
       return { success: true }
     } catch (error) {
       console.error('Failed to extract note:', error)
