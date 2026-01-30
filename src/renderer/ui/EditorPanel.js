@@ -73,8 +73,8 @@ function processVideoExtractedRanges(ranges) {
 
 export class EditorPanel extends LitElement {
   static properties = {
-    currentOpenFile: { type: String, state: true },
     currentFilePath: { type: String, state: true },
+    displayText: { type: String, state: true },
     isEditMode: { type: Boolean, state: true },
     currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video' | 'flashcard'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
@@ -158,8 +158,8 @@ export class EditorPanel extends LitElement {
 
   constructor() {
     super()
-    this.currentOpenFile = null
-    this.currentFilePath = ''
+    this.currentFilePath = null
+    this.displayText = ''
     this.isEditMode = false
     this.currentViewerType = null
     this.currentDisplayMode = 'preview'
@@ -232,12 +232,12 @@ export class EditorPanel extends LitElement {
   }
 
   render() {
-    const showToolbar = this.currentOpenFile !== null
+    const showToolbar = this.currentFilePath !== null
 
     return html`
       <div class="editor-toolbar ${showToolbar ? '' : 'hidden'}">
         <div class="toolbar-left">
-          <span id="current-file-path">${this.currentFilePath}</span>
+          <span id="current-file-path">${this.displayText}</span>
         </div>
         <div class="toolbar-right">${this._renderToolbarButtons()}</div>
       </div>
@@ -476,10 +476,10 @@ export class EditorPanel extends LitElement {
     }
 
     // Update state
-    this.currentOpenFile = filePath
+    this.currentFilePath = filePath
     this.currentViewerType = 'pdf'
     this.currentDisplayMode = 'preview'
-    this.currentFilePath = displayText
+    this.displayText = displayText
 
     // Show PDF viewer, hide others
     this._showViewer('pdf')
@@ -529,10 +529,10 @@ export class EditorPanel extends LitElement {
    * @param {string} filePath
    */
   async _openRegularPdf(filePath) {
-    this.currentOpenFile = filePath
+    this.currentFilePath = filePath
     this.currentViewerType = 'pdf'
     this.currentDisplayMode = 'preview'
-    this.currentFilePath = filePath
+    this.displayText = filePath
 
     // Show PDF viewer, hide others
     this._showViewer('pdf')
@@ -579,10 +579,10 @@ export class EditorPanel extends LitElement {
     const displayText = 'Flashcard'
 
     // Update state
-    this.currentOpenFile = filePath
+    this.currentFilePath = filePath
     this.currentViewerType = 'flashcard'
     this.currentDisplayMode = 'preview'
-    this.currentFilePath = displayText
+    this.displayText = displayText
 
     console.log('[_openFlashcard] State updated, showing flashcard viewer')
 
@@ -625,10 +625,10 @@ export class EditorPanel extends LitElement {
     const displayText = `Video Clip (${this._formatTime(startTime)} - ${this._formatTime(endTime)})`
 
     // Update state
-    this.currentOpenFile = filePath
+    this.currentFilePath = filePath
     this.currentViewerType = 'video'
     this.currentDisplayMode = 'preview'
-    this.currentFilePath = displayText
+    this.displayText = displayText
 
     // Show video viewer, hide others
     this._showViewer('video')
@@ -666,10 +666,10 @@ export class EditorPanel extends LitElement {
    * @param {string} filePath
    */
   async _openRegularVideo(filePath) {
-    this.currentOpenFile = filePath
+    this.currentFilePath = filePath
     this.currentViewerType = 'video'
     this.currentDisplayMode = 'preview'
-    this.currentFilePath = filePath
+    this.displayText = filePath
 
     // Show video viewer, hide others
     this._showViewer('video')
@@ -704,8 +704,8 @@ export class EditorPanel extends LitElement {
    * @param {string} content
    */
   async _openTextFile(filePath, content) {
-    this.currentOpenFile = filePath
     this.currentFilePath = filePath
+    this.displayText = filePath
     this.isEditMode = false
     this.codeMirrorEditor.hasUnsavedChanges = false
 
@@ -747,7 +747,7 @@ export class EditorPanel extends LitElement {
         this.markdownViewer.setMarkdown(content)
       }
 
-      await this._loadAndLockExtractedContent(this.currentOpenFile, this.markdownViewer)
+      await this._loadAndLockExtractedContent(this.currentFilePath, this.markdownViewer)
     } else if (this.currentViewerType === 'html') {
       this._showViewer('html')
 
@@ -755,7 +755,7 @@ export class EditorPanel extends LitElement {
         this.htmlViewer.setHtml(content)
       }
 
-      await this._loadAndLockExtractedContent(this.currentOpenFile, this.htmlViewer)
+      await this._loadAndLockExtractedContent(this.currentFilePath, this.htmlViewer)
     }
   }
 
@@ -795,7 +795,7 @@ export class EditorPanel extends LitElement {
     }
 
     // Load and lock extracted ranges
-    await this._loadAndLockExtractedRanges(this.currentOpenFile)
+    await this._loadAndLockExtractedRanges(this.currentFilePath)
     this.codeMirrorEditor.clearHistory()
   }
 
@@ -890,7 +890,7 @@ export class EditorPanel extends LitElement {
    * Save file handler
    */
   async _handleSave() {
-    const saveResult = await this.codeMirrorEditor.saveFile(this.currentOpenFile)
+    const saveResult = await this.codeMirrorEditor.saveFile(this.currentFilePath)
     if (saveResult.success) {
       this._showToast('File saved')
       return
@@ -904,7 +904,7 @@ export class EditorPanel extends LitElement {
    * Toggle between preview and source mode
    */
   async _handleToggleEdit() {
-    if (!this.currentOpenFile) return
+    if (!this.currentFilePath) return
     if (this.currentViewerType === 'pdf') return
 
     if (this.currentDisplayMode === 'preview') {
@@ -931,7 +931,7 @@ export class EditorPanel extends LitElement {
    * Edit/Select button handler
    */
   async _handleEditSource() {
-    if (!this.currentOpenFile) return
+    if (!this.currentFilePath) return
     if (this.currentDisplayMode !== 'source') return
 
     if (this.isEditMode) {
@@ -943,10 +943,10 @@ export class EditorPanel extends LitElement {
       this.isEditMode = false
       this.codeMirrorEditor.disableEditing()
       // Reload content to discard unsaved changes
-      const result = await window.fileManager.readFile(this.currentOpenFile)
+      const result = await window.fileManager.readFile(this.currentFilePath)
       if (result.success) {
         this.codeMirrorEditor.setContent(result.content)
-        await this._loadAndLockExtractedRanges(this.currentOpenFile)
+        await this._loadAndLockExtractedRanges(this.currentFilePath)
         this.codeMirrorEditor.clearHistory()
       }
     } else {
@@ -962,19 +962,19 @@ export class EditorPanel extends LitElement {
    * Extract button handler
    */
   async _handleExtract() {
-    if (!this.currentOpenFile) {
+    if (!this.currentFilePath) {
       this._showToast('Please open a file first', true)
       return
     }
 
     // HTML viewer active
     if (!this.htmlViewer.classList.contains('hidden')) {
-      const result = await this.htmlViewer.extractSelection(this.currentOpenFile)
+      const result = await this.htmlViewer.extractSelection(this.currentFilePath)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
       } else {
         // Success: reload locked content, show toast, refresh file manager
-        await this._loadAndLockExtractedContent(this.currentOpenFile, this.htmlViewer)
+        await this._loadAndLockExtractedContent(this.currentFilePath, this.htmlViewer)
         this._showToast('Note extracted successfully')
         this._refreshFileManager()
       }
@@ -983,12 +983,12 @@ export class EditorPanel extends LitElement {
 
     // Markdown viewer active
     if (!this.markdownViewer.classList.contains('hidden')) {
-      const result = await this.markdownViewer.extractSelection(this.currentOpenFile)
+      const result = await this.markdownViewer.extractSelection(this.currentFilePath)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
       } else {
         // Success: reload locked content, show toast, refresh file manager
-        await this._loadAndLockExtractedContent(this.currentOpenFile, this.markdownViewer)
+        await this._loadAndLockExtractedContent(this.currentFilePath, this.markdownViewer)
         this._showToast('Note extracted successfully')
         this._refreshFileManager()
       }
@@ -1004,7 +1004,7 @@ export class EditorPanel extends LitElement {
     // Check if there are unsaved changes or line range changes
     if (this.codeMirrorEditor.hasUnsavedChanges || this.codeMirrorEditor.hasRangeChanges) {
       this._showToast('Saving changes before extraction...')
-      const saveResult = await this.codeMirrorEditor.saveFile(this.currentOpenFile)
+      const saveResult = await this.codeMirrorEditor.saveFile(this.currentFilePath)
       if (saveResult.success) {
         this._showToast('File saved')
         return
@@ -1015,11 +1015,11 @@ export class EditorPanel extends LitElement {
     }
 
     // Call CodeMirror extraction
-    const result = await this.codeMirrorEditor.extractSelection(this.currentOpenFile)
+    const result = await this.codeMirrorEditor.extractSelection(this.currentFilePath)
     if (!result.success) {
       this._showToast(result.error || 'Extraction failed', true)
     } else {
-      await this._loadAndLockExtractedRanges(this.currentOpenFile)
+      await this._loadAndLockExtractedRanges(this.currentFilePath)
       this.codeMirrorEditor.clearHistory()
       this._showToast('Note extracted successfully')
       this._refreshFileManager()
@@ -1151,7 +1151,7 @@ export class EditorPanel extends LitElement {
    * Handle Cloze button click - create flashcard from selection
    */
   async _handleCloze() {
-    if (!this.currentOpenFile) {
+    if (!this.currentFilePath) {
       this._showToast('Please open a file first', true)
       return
     }
@@ -1229,7 +1229,7 @@ export class EditorPanel extends LitElement {
 
     try {
       console.log('[Cloze] Calling extractFlashcard with:', {
-        file: this.currentOpenFile,
+        file: this.currentFilePath,
         textLength: selectedText.length,
         charStart,
         charEnd,
@@ -1237,7 +1237,7 @@ export class EditorPanel extends LitElement {
       })
 
       const result = await window.fileManager.extractFlashcard(
-        this.currentOpenFile,
+        this.currentFilePath,
         selectedText,
         charStart,
         charEnd,
