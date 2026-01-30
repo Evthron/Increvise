@@ -890,58 +890,13 @@ export class EditorPanel extends LitElement {
    * Save file handler
    */
   async _handleSave() {
-    await this._saveFile()
-  }
-
-  /**
-   * Save file with optional silent mode (no toast on success)
-   * @param {boolean} silent
-   */
-  async _saveFile(silent = false) {
-    if (!this.currentOpenFile) return { success: false, error: 'No file open' }
-
-    try {
-      // Check if there are line number changes that need updating
-      if (this.codeMirrorEditor.hasRangeChanges) {
-        const rangeUpdates = this.codeMirrorEditor.getRangeUpdates()
-
-        if (rangeUpdates.length > 0) {
-          const updateResult = await window.fileManager.updateLockedRanges(
-            this.currentOpenFile,
-            rangeUpdates,
-            window.currentFileLibraryId
-          )
-
-          if (!updateResult.success) {
-            this._showToast(`Error updating line numbers: ${updateResult.error}`, true)
-            return { success: false, error: updateResult.error }
-          }
-
-          this.codeMirrorEditor.confirmRangeUpdates()
-        }
-      }
-
-      // Save file content
-      const content = this.codeMirrorEditor.getOriginalContent
-        ? this.codeMirrorEditor.getOriginalContent()
-        : this.codeMirrorEditor.editorView.state.doc.toString()
-
-      const result = await window.fileManager.writeFile(this.currentOpenFile, content)
-      if (result.success) {
-        this.codeMirrorEditor.hasUnsavedChanges = false
-
-        if (!silent) {
-          this._showToast('File saved successfully!')
-        }
-        return { success: true }
-      } else {
-        this._showToast(`Error saving file: ${result.error}`, true)
-        return { success: false, error: result.error }
-      }
-    } catch (error) {
-      console.error('Error saving file:', error)
-      this._showToast(`Error saving file: ${error.message}`, true)
-      return { success: false, error: error.message }
+    const saveResult = await this.codeMirrorEditor.saveFile(this.currentOpenFile)
+    if (saveResult.success) {
+      this._showToast('File saved')
+      return
+    } else {
+      this._showToast(saveResult.error || 'Error saving file', true)
+      return
     }
   }
 
@@ -1013,7 +968,7 @@ export class EditorPanel extends LitElement {
     }
 
     // HTML viewer active
-    if (this.htmlViewer && !this.htmlViewer.classList.contains('hidden')) {
+    if (!this.htmlViewer.classList.contains('hidden')) {
       const result = await this.htmlViewer.extractSelection(this.currentOpenFile)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
@@ -1027,7 +982,7 @@ export class EditorPanel extends LitElement {
     }
 
     // Markdown viewer active
-    if (this.markdownViewer && !this.markdownViewer.classList.contains('hidden')) {
+    if (!this.markdownViewer.classList.contains('hidden')) {
       const result = await this.markdownViewer.extractSelection(this.currentOpenFile)
       if (!result.success) {
         this._showToast(result.error || 'Extraction failed', true)
@@ -1040,24 +995,21 @@ export class EditorPanel extends LitElement {
       return
     }
 
-    // CodeMirror viewer active
-    if (!this.codeMirrorEditor) {
-      this._showToast('CodeMirror editor not found', true)
-      return
-    }
-
     // Check edit mode
     if (this.isEditMode === true) {
-      this._showToast('Please switch to preview mode before extracting', true)
+      this._showToast('Please switch to extract mode before extracting', true)
       return
     }
 
     // Check if there are unsaved changes or line range changes
     if (this.codeMirrorEditor.hasUnsavedChanges || this.codeMirrorEditor.hasRangeChanges) {
       this._showToast('Saving changes before extraction...')
-      const saveResult = await this._saveFile(true)
-      if (!saveResult.success) {
-        this._showToast('Please save your changes before extracting', true)
+      const saveResult = await this.codeMirrorEditor.saveFile(this.currentOpenFile)
+      if (saveResult.success) {
+        this._showToast('File saved')
+        return
+      } else {
+        this._showToast(saveResult.error || 'Error saving file', true)
         return
       }
     }

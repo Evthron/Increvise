@@ -1031,7 +1031,7 @@ export class CodeMirrorViewer extends LitElement {
     })
   }
 
-  // Get original content without temporary expansion lines
+  // Get original content without temporary expansion lines. The expansion lines are used for dynamic rendering of child notes.
   getOriginalContent() {
     if (!this.editorView) return ''
 
@@ -1210,14 +1210,37 @@ export class CodeMirrorViewer extends LitElement {
     return updates
   }
 
-  // Confirm range updates after successful save
-  confirmRangeUpdates() {
-    // After saving, the originalStart/End have already been updated correctly
-    // in updateLockedRangesForChanges() to reflect the true position in parent file.
-    // For dynamic content mode, originalStart/End != currentStart/End due to expansion.
-    // For non-dynamic mode, they should be equal.
-    // We just need to reset the hasRangeChanges flag.
-    this.hasRangeChanges = false
+  async saveFile(filePath) {
+    try {
+      if (this.hasRangeChanges) {
+        const rangeUpdates = this.getRangeUpdates()
+        if (rangeUpdates.length > 0) {
+          await window.fileManager.updateLockedRangesInParentFile(
+            filePath,
+            rangeUpdates,
+            window.currentFileLibraryId
+          )
+        }
+
+        // After saving, the originalStart/End have already been updated correctly
+        // in updateLockedRangesForChanges() to reflect the true position in parent file.
+        // For dynamic content mode, originalStart/End != currentStart/End due to expansion.
+        // For non-dynamic mode, they should be equal.
+        // We just need to reset the hasRangeChanges flag.
+        this.hasRangeChanges = false
+      }
+      const content = this.getOriginalContent()
+      const result = await window.fileManager.writeFile(filePath, content)
+      if (result.success) {
+        this.hasUnsavedChanges = false
+        return { success: true }
+      } else {
+        return { success: false, error: result.error }
+      }
+    } catch (error) {
+      console.error('Error saving file:', error)
+      return { success: false, error: error.message }
+    }
   }
 
   disconnectedCallback() {
