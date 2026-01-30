@@ -184,6 +184,7 @@ export class CodeMirrorViewer extends LitElement {
     this.lockedRanges = [] // store LockedRange objects
     this.hasRangeChanges = false // flag to indicate if ranges need database update
     this.isEditable = false
+    this.hasUnsavedChanges = false
     this.editableCompartment = new Compartment()
     this.lineSelectionCompartment = new Compartment()
     this.themeCompartment = new Compartment() // for switching between preview/edit themes
@@ -598,18 +599,11 @@ export class CodeMirrorViewer extends LitElement {
     // Track document changes for line shift detection and unsaved changes
     const trackChangesExtension = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        // Track line number changes for locked ranges in edito mode
+        // Track line number changes for locked ranges in edit mode
         if (this.isEditable) {
           this.updateLockedRangesForChanges(update.changes, update.startState.doc, update.state.doc)
 
-          // Dispatch a custom event to notify that the document has changed
-          this.dispatchEvent(
-            new CustomEvent('content-changed', {
-              bubbles: true,
-              composed: true,
-              detail: { hasChanges: true },
-            })
-          )
+          this.hasUnsavedChanges = true
         }
       }
     })
@@ -1067,6 +1061,7 @@ export class CodeMirrorViewer extends LitElement {
         effects: [this.addLockedLineEffect.of([]), this.updateDynamicContentEffect.of([])],
       })
     }
+    this.hasUnsavedChanges = false
   }
 
   // Enable edit mode

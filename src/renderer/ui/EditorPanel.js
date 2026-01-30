@@ -76,7 +76,6 @@ export class EditorPanel extends LitElement {
     currentOpenFile: { type: String, state: true },
     currentFilePath: { type: String, state: true },
     isEditMode: { type: Boolean, state: true },
-    hasUnsavedChanges: { type: Boolean, state: true },
     currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video' | 'flashcard'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
     currentQueue: { type: String, state: true }, // Current file's queue name
@@ -162,7 +161,6 @@ export class EditorPanel extends LitElement {
     this.currentOpenFile = null
     this.currentFilePath = ''
     this.isEditMode = false
-    this.hasUnsavedChanges = false
     this.currentViewerType = null
     this.currentDisplayMode = 'preview'
     this.currentQueue = null
@@ -204,15 +202,6 @@ export class EditorPanel extends LitElement {
         console.log('Resolved absolute path:', absolutePath)
 
         await this.openFile(absolutePath)
-      })
-    }
-
-    // Listen for content changes in CodeMirror
-    if (this.codeMirrorEditor) {
-      this.codeMirrorEditor.addEventListener('content-changed', () => {
-        if (this.currentOpenFile && this.isEditMode) {
-          this.hasUnsavedChanges = true
-        }
       })
     }
 
@@ -316,7 +305,7 @@ export class EditorPanel extends LitElement {
    */
   async openFile(filePath) {
     try {
-      if (this.hasUnsavedChanges) {
+      if (this.codeMirrorEditor.hasUnsavedChanges) {
         const proceed = confirm('You have unsaved changes. Discard them?')
         if (!proceed) return
       }
@@ -718,7 +707,7 @@ export class EditorPanel extends LitElement {
     this.currentOpenFile = filePath
     this.currentFilePath = filePath
     this.isEditMode = false
-    this.hasUnsavedChanges = false
+    this.codeMirrorEditor.hasUnsavedChanges = false
 
     const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
 
@@ -939,7 +928,7 @@ export class EditorPanel extends LitElement {
 
       const result = await window.fileManager.writeFile(this.currentOpenFile, content)
       if (result.success) {
-        this.hasUnsavedChanges = false
+        this.codeMirrorEditor.hasUnsavedChanges = false
 
         if (!silent) {
           this._showToast('File saved successfully!')
@@ -969,7 +958,7 @@ export class EditorPanel extends LitElement {
     } else if (this.currentDisplayMode === 'source') {
       // Switch from source back to preview (for markdown/html)
       if (this.currentViewerType === 'markdown' || this.currentViewerType === 'html') {
-        if (this.isEditMode && this.hasUnsavedChanges) {
+        if (this.isEditMode && this.codeMirrorEditor.hasUnsavedChanges) {
           const confirmed = confirm('You have unsaved changes. Continue without saving?')
           if (!confirmed) return
         }
@@ -992,7 +981,7 @@ export class EditorPanel extends LitElement {
 
     if (this.isEditMode) {
       // Switch from editable to readonly (Select mode)
-      if (this.hasUnsavedChanges) {
+      if (this.codeMirrorEditor.hasUnsavedChanges) {
         const confirmed = confirm('You have unsaved changes. Discard changes?')
         if (!confirmed) return
       }
@@ -1004,7 +993,6 @@ export class EditorPanel extends LitElement {
         this.codeMirrorEditor.setContent(result.content)
         await this._loadAndLockExtractedRanges(this.currentOpenFile)
         this.codeMirrorEditor.clearHistory()
-        this.hasUnsavedChanges = false
       }
     } else {
       // Switch from readonly to editable (Edit mode)
@@ -1065,7 +1053,7 @@ export class EditorPanel extends LitElement {
     }
 
     // Check if there are unsaved changes or line range changes
-    if (this.hasUnsavedChanges || this.codeMirrorEditor.hasRangeChanges) {
+    if (this.codeMirrorEditor.hasUnsavedChanges || this.codeMirrorEditor.hasRangeChanges) {
       this._showToast('Saving changes before extraction...')
       const saveResult = await this._saveFile(true)
       if (!saveResult.success) {
