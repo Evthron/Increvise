@@ -145,6 +145,7 @@ export class HTMLViewer extends LitElement {
     content: { type: String },
     showLinkDialog: { type: Boolean },
     previewUrl: { type: String },
+    currentFilePath: { type: String },
   }
 
   static styles = css`
@@ -309,6 +310,7 @@ export class HTMLViewer extends LitElement {
     this.showLinkDialog = false
     this.previewUrl = ''
     this.extractedTexts = []
+    this.currentFilePath = ''
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -570,11 +572,56 @@ export class HTMLViewer extends LitElement {
   }
 
   /**
+   * Resolve relative paths in HTML content to absolute file:// URLs
+   * @param {string} html - HTML content with potentially relative paths
+   * @param {string} baseFilePath - Absolute path to the HTML file
+   * @returns {string} - HTML with resolved absolute paths
+   */
+  resolveRelativePaths(html, baseFilePath) {
+    if (!baseFilePath) return html
+
+    // Get the directory containing the HTML file
+    const baseDir = baseFilePath.substring(0, baseFilePath.lastIndexOf('/'))
+
+    // Replace relative paths in common attributes
+    let resolved = html
+
+    // Handle src attributes (img, script, etc.)
+    resolved = resolved.replace(/\bsrc=["']([^"':]+)["']/gi, (match, path) => {
+      // Skip absolute URLs and data URLs
+      if (/^(https?:|data:|file:)/i.test(path)) return match
+      // Skip absolute paths starting with /
+      if (path.startsWith('/')) return match
+
+      const absolutePath = `${baseDir}/${path}`
+      return `src="file://${absolutePath}"`
+    })
+
+    // Handle href attributes (link, a, etc.)
+    resolved = resolved.replace(/\bhref=["']([^"':]+)["']/gi, (match, path) => {
+      // Skip absolute URLs (http, https, mailto, etc.)
+      if (/^[a-z]+:/i.test(path)) return match
+      // Skip fragment identifiers
+      if (path.startsWith('#')) return match
+      // Skip absolute paths starting with /
+      if (path.startsWith('/')) return match
+
+      const absolutePath = `${baseDir}/${path}`
+      return `href="file://${absolutePath}"`
+    })
+
+    return resolved
+  }
+
+  /**
    * Set HTML content (rendered as-is; sanitize upstream if untrusted).
    * @param {string} content - raw HTML string
+   * @param {string} filePath - optional file path for resolving relative URLs
    */
-  setHtml(content) {
-    this.content = content
+  setHtml(content, filePath = '') {
+    this.currentFilePath = filePath
+    // Resolve relative paths if file path is provided
+    this.content = filePath ? this.resolveRelativePaths(content, filePath) : content
     this.requestUpdate()
   }
 

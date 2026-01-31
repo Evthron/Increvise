@@ -751,7 +751,7 @@ export class EditorPanel extends LitElement {
       this._showViewer('html')
 
       if (content !== undefined) {
-        this.htmlViewer.setHtml(content)
+        this.htmlViewer.setHtml(content, this.currentFilePath)
       }
 
       await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
