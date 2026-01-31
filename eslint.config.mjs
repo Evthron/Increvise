@@ -27,6 +27,7 @@ export default [
         cancelAnimationFrame: 'readonly',
         setTimeout: 'readonly',
         getComputedStyle: 'readonly',
+        DOMParser: 'readonly',
       },
     },
     rules: {

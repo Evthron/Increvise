@@ -147,6 +147,7 @@ export class HTMLViewer extends LitElement {
     showLinkDialog: { type: Boolean },
     previewUrl: { type: String },
     currentFilePath: { type: String },
+    rawHtml: { type: String, state: true },
   }
 
   static styles = css`
@@ -544,15 +545,66 @@ export class HTMLViewer extends LitElement {
     if (!filePath) {
       return { success: false, error: 'File path not provided' }
     }
+    let text = selection.html || selection.text
+    // Generate child note filename
+    // Preview mode: use rangeStart=0, rangeEnd=0 for semantic extractions
+    const childFileName = generateChildNoteName(filePath, 0, 0, text)
 
-    const text = selection.html || selection.text
+    // For HTML files, prepend inherited styles to extracted content
+    if (this.rawHtml) {
+      // Parse HTML using DOMParser (reliable, handles edge cases)
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(this.rawHtml, 'text/html')
+
+      // Extract all <link rel="stylesheet"> tags from <head>
+      const linkElements = doc.head.querySelectorAll('link[rel="stylesheet"]')
+      const adjustedLinks = []
+
+      for (let i = 0; i < linkElements.length; i++) {
+        const link = linkElements[i]
+        const hrefAttr = link.getAttribute('href')
+
+        // Skip absolute URLs (http, https, file, etc.)
+        if (hrefAttr && /^[a-z]+:/i.test(hrefAttr)) {
+          adjustedLinks.push(link.outerHTML)
+          continue
+        }
+
+        // Skip absolute paths
+        if (hrefAttr && hrefAttr.startsWith('/')) {
+          adjustedLinks.push(link.outerHTML)
+          continue
+        }
+
+        // For relative paths, prepend ../ since child note will be in _notes/ subdirectory
+        if (hrefAttr) {
+          // Clone the link element to modify it
+          const clonedLink = link.cloneNode(true)
+          const adjustedHref = '../' + hrefAttr
+          clonedLink.setAttribute('href', adjustedHref)
+          adjustedLinks.push(clonedLink.outerHTML)
+        } else {
+          adjustedLinks.push(link.outerHTML)
+        }
+      }
+
+      // Extract all <style> tags from <head>
+      const styleElements = doc.head.querySelectorAll('style')
+      const styles = []
+      for (let i = 0; i < styleElements.length; i++) {
+        styles.push(styleElements[i].outerHTML)
+      }
+
+      // Prepend styles to selected text (paths adjusted for _notes/ subdirectory)
+      if (adjustedLinks.length > 0 || styles.length > 0) {
+        const allStyles = adjustedLinks.join('\n') + '\n' + styles.join('\n')
+        text = allStyles + '\n' + text
+      }
+    }
+
     const libraryId = window.currentFileLibraryId
 
     try {
-      // Generate child note filename
-      // Preview mode: use rangeStart=0, rangeEnd=0 for semantic extractions
-      const childFileName = generateChildNoteName(filePath, 0, 0, text)
-
       // Extract note with generated filename
       const result = await window.fileManager.extractNote(
         filePath,
@@ -666,16 +718,25 @@ export class HTMLViewer extends LitElement {
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
 
+      // Decode path first since it's already URI-encoded in HTML
+      const decodedPath = decodeURIComponent(path)
+
       // Resolve relative path to absolute path
-      const absolutePath = resolvePath(baseDir, path)
+      const absolutePath = resolvePath(baseDir, decodedPath)
 
       // Validate safety
-      if (!isPathSafe(path, absolutePath)) {
+      if (!isPathSafe(decodedPath, absolutePath)) {
         console.warn(`Unsafe path detected and skipped: ${path}`)
         return match
       }
 
-      return `src="file://${absolutePath}"`
+      // Encode path components (but not the path separators)
+      const encodedPath = absolutePath
+        .split('/')
+        .map((part) => encodeURIComponent(part))
+        .join('/')
+
+      return `src="file://${encodedPath}"`
     })
 
     // Handle href attributes (link, a, etc.)
@@ -687,16 +748,25 @@ export class HTMLViewer extends LitElement {
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
 
+      // Decode path first (in case it's already URI-encoded in HTML)
+      const decodedPath = decodeURIComponent(path)
+
       // Resolve relative path to absolute path
-      const absolutePath = resolvePath(baseDir, path)
+      const absolutePath = resolvePath(baseDir, decodedPath)
 
       // Validate safety
-      if (!isPathSafe(path, absolutePath)) {
+      if (!isPathSafe(decodedPath, absolutePath)) {
         console.warn(`Unsafe path detected and skipped: ${path}`)
         return match
       }
 
-      return `href="file://${absolutePath}"`
+      // Encode path components (but not the path separators)
+      const encodedPath = absolutePath
+        .split('/')
+        .map((part) => encodeURIComponent(part))
+        .join('/')
+
+      return `href="file://${encodedPath}"`
     })
 
     return resolved
@@ -709,6 +779,9 @@ export class HTMLViewer extends LitElement {
    */
   setHtml(content, filePath = '') {
     this.currentFilePath = filePath
+
+    // Store raw HTML for style extraction during note extraction
+    this.rawHtml = content
 
     // Resolve relative paths if file path is provided
     const resolved = filePath ? this.resolveRelativePaths(content, filePath) : content
