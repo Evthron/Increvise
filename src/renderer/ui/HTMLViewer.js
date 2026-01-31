@@ -554,7 +554,20 @@ export class HTMLViewer extends LitElement {
       const childFileName = generateChildNoteName(filePath, 0, 0, text)
 
       // Extract note with generated filename
-      await window.fileManager.extractNote(filePath, text, childFileName, 0, 0, libraryId)
+      const result = await window.fileManager.extractNote(
+        filePath,
+        text,
+        childFileName,
+        0,
+        0,
+        libraryId
+      )
+
+      // Check if extraction was successful
+      if (!result.success) {
+        return { success: false, error: result.error || 'Unknown extraction error' }
+      }
+
       return { success: true }
     } catch (error) {
       console.error('Failed to extract note:', error)
@@ -586,17 +599,60 @@ export class HTMLViewer extends LitElement {
     const baseDir = baseFilePath.substring(0, baseFilePath.lastIndexOf('/'))
 
     /**
-     * Validate that a relative path is safe (no path traversal)
-     * @param {string} path - Relative path to validate
+     * Simple path resolution function (mimics path.resolve behavior)
+     * @param {string} base - Base directory path
+     * @param {string} relative - Relative path to resolve
+     * @returns {string} - Resolved absolute path
+     */
+    const resolvePath = (base, relative) => {
+      // Split base path into parts, filter out empty strings
+      const parts = base.split('/').filter((p) => p)
+      const relativeParts = relative.split('/')
+
+      // Process each part of the relative path
+      for (let i = 0; i < relativeParts.length; i++) {
+        const part = relativeParts[i]
+        if (part === '..') {
+          // Go up one directory
+          if (parts.length > 0) {
+            parts.pop()
+          }
+        } else if (part !== '.' && part !== '') {
+          // Normal directory or file name
+          parts.push(part)
+        }
+        // Skip '.' and empty parts
+      }
+
+      return '/' + parts.join('/')
+    }
+
+    /**
+     * Validate that a relative path is safe
+     * @param {string} relativePath - Relative path to validate
+     * @param {string} resolvedPath - Resolved absolute path
      * @returns {boolean} - True if path is safe
      */
-    const isPathSafe = (path) => {
-      // Reject paths with parent directory references
-      if (path.includes('..')) return false
-      // Reject absolute paths (should be relative)
-      if (path.startsWith('/')) return false
+    const isPathSafe = (relativePath, resolvedPath) => {
       // Reject paths with null bytes
-      if (path.includes('\0')) return false
+      if (relativePath.includes('\0')) return false
+
+      // Reject absolute paths (should be relative)
+      if (relativePath.startsWith('/')) return false
+
+      // Reject excessive path traversal (more than 10 levels up)
+      const upLevels = (relativePath.match(/\.\./g) || []).length
+      if (upLevels > 10) {
+        console.warn(`Suspicious path with too many ..: ${relativePath}`)
+        return false
+      }
+
+      // Basic sanity check: resolved path should be valid
+      if (!resolvedPath || resolvedPath === '/') {
+        console.warn(`Invalid resolved path: ${resolvedPath}`)
+        return false
+      }
+
       return true
     }
 
@@ -609,13 +665,16 @@ export class HTMLViewer extends LitElement {
       if (/^(https?:|data:|file:)/i.test(path)) return match
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
-      // Skip unsafe paths
-      if (!isPathSafe(path)) {
+
+      // Resolve relative path to absolute path
+      const absolutePath = resolvePath(baseDir, path)
+
+      // Validate safety
+      if (!isPathSafe(path, absolutePath)) {
         console.warn(`Unsafe path detected and skipped: ${path}`)
         return match
       }
 
-      const absolutePath = `${baseDir}/${path}`
       return `src="file://${absolutePath}"`
     })
 
@@ -627,13 +686,16 @@ export class HTMLViewer extends LitElement {
       if (path.startsWith('#')) return match
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
-      // Skip unsafe paths
-      if (!isPathSafe(path)) {
+
+      // Resolve relative path to absolute path
+      const absolutePath = resolvePath(baseDir, path)
+
+      // Validate safety
+      if (!isPathSafe(path, absolutePath)) {
         console.warn(`Unsafe path detected and skipped: ${path}`)
         return match
       }
 
-      const absolutePath = `${baseDir}/${path}`
       return `href="file://${absolutePath}"`
     })
 
@@ -656,7 +718,7 @@ export class HTMLViewer extends LitElement {
       // Use FORCE_BODY to keep all elements including <link>
       FORCE_BODY: true,
       // Only allow file protocol to load local resources
-      ALLOWED_URI_REGEXP: /^(?:file:|#|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      ALLOWED_URI_REGEXP: /^(?:file:|#|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
       // Allow common HTML tags including style and link for CSS
       ADD_TAGS: ['link', 'style'],
       // Forbid interactive and form-related tags

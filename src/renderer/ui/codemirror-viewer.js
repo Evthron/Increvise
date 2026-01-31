@@ -944,7 +944,7 @@ export class CodeMirrorViewer extends LitElement {
       const childFileName = generateChildNoteName(filePath, rangeStart, rangeEnd, selectedText)
 
       // Call extraction API with generated filename
-      await window.fileManager.extractNote(
+      const result = await window.fileManager.extractNote(
         filePath,
         selectedText,
         childFileName,
@@ -952,6 +952,12 @@ export class CodeMirrorViewer extends LitElement {
         rangeEnd,
         libraryId
       )
+
+      // Check if extraction was successful
+      if (!result.success) {
+        return { success: false, error: result.error || 'Unknown extraction error' }
+      }
+
       await this.lockLineRanges(filePath)
       this.clearHistory()
       return { success: true }

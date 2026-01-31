@@ -787,7 +787,20 @@ export class MarkdownViewer extends LitElement {
       const childFileName = generateChildNoteName(filePath, 0, 0, text)
 
       // Extract note with generated filename
-      await window.fileManager.extractNote(filePath, text, childFileName, 0, 0, libraryId)
+      const result = await window.fileManager.extractNote(
+        filePath,
+        text,
+        childFileName,
+        0,
+        0,
+        libraryId
+      )
+
+      // Check if extraction was successful
+      if (!result.success) {
+        return { success: false, error: result.error || 'Unknown extraction error' }
+      }
+
       return { success: true }
     } catch (error) {
       console.error('Failed to extract note:', error)
