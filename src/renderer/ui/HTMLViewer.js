@@ -574,6 +574,7 @@ export class HTMLViewer extends LitElement {
 
   /**
    * Resolve relative paths in HTML content to absolute file:// URLs
+   * Otherwise electron would think the path is relative to the out/renderer/ directory, where the index.html is located
    * @param {string} html - HTML content with potentially relative paths
    * @param {string} baseFilePath - Absolute path to the HTML file
    * @returns {string} - HTML with resolved absolute paths
@@ -650,143 +651,35 @@ export class HTMLViewer extends LitElement {
     // Resolve relative paths if file path is provided
     const resolved = filePath ? this.resolveRelativePaths(content, filePath) : content
 
-    // Add custom hook to allow file:// protocol URLs
-    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-      // Allow file:// URLs in href and src attributes
-      if (node.hasAttribute('href')) {
-        const href = node.getAttribute('href')
-        if (href && href.startsWith('file://')) {
-          node.setAttribute('href', href)
-        }
-      }
-      if (node.hasAttribute('src')) {
-        const src = node.getAttribute('src')
-        if (src && src.startsWith('file://')) {
-          node.setAttribute('src', src)
-        }
-      }
-    })
-
     // Sanitize HTML using DOMPurify to prevent XSS attacks
-    // Note: We use FORCE_BODY to prevent DOMPurify from removing <link> tags
     this.content = DOMPurify.sanitize(resolved, {
       // Use FORCE_BODY to keep all elements including <link>
       FORCE_BODY: true,
+      // Only allow file protocol to load local resources
+      ALLOWED_URI_REGEXP: /^(?:file:|#|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
       // Allow common HTML tags including style and link for CSS
-      ADD_TAGS: ['link', 'style'], // Explicitly add link and style tags
-      // Allow file:// protocol for local resources
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|file):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-      ALLOWED_TAGS: [
-        'a',
-        'abbr',
-        'article',
-        'aside',
-        'b',
-        'blockquote',
-        'br',
-        'caption',
-        'code',
-        'dd',
-        'del',
-        'details',
-        'div',
-        'dl',
-        'dt',
-        'em',
-        'figcaption',
-        'figure',
-        'h1',
-        'h2',
-        'h3',
-        'h4',
-        'h5',
-        'h6',
-        'hr',
-        'i',
-        'img',
-        'ins',
-        'kbd',
-        'li',
-        'link', // Allow <link> for external stylesheets
-        'main',
-        'mark',
-        'nav',
-        'ol',
-        'p',
-        'pre',
-        'q',
-        's',
-        'section',
-        'small',
-        'span',
-        'strong',
-        'style', // Allow <style> for inline styles
-        'sub',
-        'summary',
-        'sup',
-        'table',
-        'tbody',
-        'td',
-        'tfoot',
-        'th',
-        'thead',
-        'time',
-        'tr',
-        'u',
-        'ul',
+      ADD_TAGS: ['link', 'style'],
+      // Forbid interactive and form-related tags
+      FORBID_TAGS: [
+        'form',
+        'input',
+        'button',
+        'textarea',
+        'select',
+        'option',
+        'optgroup',
+        'datalist',
+        'dialog',
+        'menu',
+        'menuitem',
+        'source',
+        'track',
+        'area',
+        'map',
       ],
-      // Allow common attributes including rel and type for stylesheets
-      ADD_ATTR: ['rel', 'type', 'media'], // Explicitly add stylesheet attributes
-      ALLOWED_ATTR: [
-        'alt',
-        'class',
-        'colspan',
-        'dir',
-        'height',
-        'href',
-        'id',
-        'lang',
-        'media', // Allow media queries
-        'rel', // Allow rel for <link rel="stylesheet">
-        'rowspan',
-        'src',
-        'start',
-        'title',
-        'type', // Allow type for <link type="text/css">
-        'width',
-      ],
-      // Forbid script execution and dangerous tags
-      FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea'],
-      // Forbid event handlers to prevent XSS
-      FORBID_ATTR: [
-        'onerror',
-        'onload',
-        'onclick',
-        'onmouseover',
-        'onmouseout',
-        'onmousemove',
-        'onmouseenter',
-        'onmouseleave',
-        'onfocus',
-        'onblur',
-        'onchange',
-        'onsubmit',
-        'onkeydown',
-        'onkeyup',
-        'onkeypress',
-      ],
-      // Allow CSS content in style tags
-      ALLOW_DATA_ATTR: false,
-      // Keep comments for debugging
-      KEEP_CONTENT: true,
-      // Return DOM instead of string for better performance
-      RETURN_DOM: false,
-      RETURN_DOM_FRAGMENT: false,
+      // Forbid dangerous attributes
+      FORBID_ATTR: ['contenteditable', 'crossorigin', 'ping'],
     })
-
-    // Remove hook after sanitization
-    DOMPurify.removeHook('afterSanitizeAttributes')
 
     this.requestUpdate()
   }
