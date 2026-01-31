@@ -8,6 +8,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "VITE_DEV_MODE=true electron-vite build && electron-rebuild -f -w better-sqlite3 && electron-vite dev",
+    "dev:noserver": "VITE_DEV_MODE=true electron-vite build && electron-rebuild -f -w better-sqlite3 && electron .",
     "build": "electron-vite build && electron-rebuild -f -w better-sqlite3 ",
     "preview": "electron-vite preview",
     "prestart": "electron-rebuild -f -w better-sqlite3",
@@ -41,6 +42,7 @@
     "@codemirror/view": "^6.38.8",
     "better-sqlite3": "^12.4.1",
     "codemirror": "^6.0.2",
+    "dompurify": "^3.3.1",
     "lit": "^3.3.1",
     "marked": "^17.0.1",
     "node-fetch": "^3.3.2",
