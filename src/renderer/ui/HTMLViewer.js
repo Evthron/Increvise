@@ -3,6 +3,7 @@
 
 // HTMLViewer.js
 import { LitElement, html, css } from 'lit'
+import DOMPurify from 'dompurify'
 
 /**
  * Helper: Get basename of a file path
@@ -583,6 +584,21 @@ export class HTMLViewer extends LitElement {
     // Get the directory containing the HTML file
     const baseDir = baseFilePath.substring(0, baseFilePath.lastIndexOf('/'))
 
+    /**
+     * Validate that a relative path is safe (no path traversal)
+     * @param {string} path - Relative path to validate
+     * @returns {boolean} - True if path is safe
+     */
+    const isPathSafe = (path) => {
+      // Reject paths with parent directory references
+      if (path.includes('..')) return false
+      // Reject absolute paths (should be relative)
+      if (path.startsWith('/')) return false
+      // Reject paths with null bytes
+      if (path.includes('\0')) return false
+      return true
+    }
+
     // Replace relative paths in common attributes
     let resolved = html
 
@@ -592,6 +608,11 @@ export class HTMLViewer extends LitElement {
       if (/^(https?:|data:|file:)/i.test(path)) return match
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
+      // Skip unsafe paths
+      if (!isPathSafe(path)) {
+        console.warn(`Unsafe path detected and skipped: ${path}`)
+        return match
+      }
 
       const absolutePath = `${baseDir}/${path}`
       return `src="file://${absolutePath}"`
@@ -605,6 +626,11 @@ export class HTMLViewer extends LitElement {
       if (path.startsWith('#')) return match
       // Skip absolute paths starting with /
       if (path.startsWith('/')) return match
+      // Skip unsafe paths
+      if (!isPathSafe(path)) {
+        console.warn(`Unsafe path detected and skipped: ${path}`)
+        return match
+      }
 
       const absolutePath = `${baseDir}/${path}`
       return `href="file://${absolutePath}"`
@@ -620,8 +646,148 @@ export class HTMLViewer extends LitElement {
    */
   setHtml(content, filePath = '') {
     this.currentFilePath = filePath
+
     // Resolve relative paths if file path is provided
-    this.content = filePath ? this.resolveRelativePaths(content, filePath) : content
+    const resolved = filePath ? this.resolveRelativePaths(content, filePath) : content
+
+    // Add custom hook to allow file:// protocol URLs
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      // Allow file:// URLs in href and src attributes
+      if (node.hasAttribute('href')) {
+        const href = node.getAttribute('href')
+        if (href && href.startsWith('file://')) {
+          node.setAttribute('href', href)
+        }
+      }
+      if (node.hasAttribute('src')) {
+        const src = node.getAttribute('src')
+        if (src && src.startsWith('file://')) {
+          node.setAttribute('src', src)
+        }
+      }
+    })
+
+    // Sanitize HTML using DOMPurify to prevent XSS attacks
+    // Note: We use FORCE_BODY to prevent DOMPurify from removing <link> tags
+    this.content = DOMPurify.sanitize(resolved, {
+      // Use FORCE_BODY to keep all elements including <link>
+      FORCE_BODY: true,
+      // Allow common HTML tags including style and link for CSS
+      ADD_TAGS: ['link', 'style'], // Explicitly add link and style tags
+      // Allow file:// protocol for local resources
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|file):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      ALLOWED_TAGS: [
+        'a',
+        'abbr',
+        'article',
+        'aside',
+        'b',
+        'blockquote',
+        'br',
+        'caption',
+        'code',
+        'dd',
+        'del',
+        'details',
+        'div',
+        'dl',
+        'dt',
+        'em',
+        'figcaption',
+        'figure',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'hr',
+        'i',
+        'img',
+        'ins',
+        'kbd',
+        'li',
+        'link', // Allow <link> for external stylesheets
+        'main',
+        'mark',
+        'nav',
+        'ol',
+        'p',
+        'pre',
+        'q',
+        's',
+        'section',
+        'small',
+        'span',
+        'strong',
+        'style', // Allow <style> for inline styles
+        'sub',
+        'summary',
+        'sup',
+        'table',
+        'tbody',
+        'td',
+        'tfoot',
+        'th',
+        'thead',
+        'time',
+        'tr',
+        'u',
+        'ul',
+      ],
+      // Allow common attributes including rel and type for stylesheets
+      ADD_ATTR: ['rel', 'type', 'media'], // Explicitly add stylesheet attributes
+      ALLOWED_ATTR: [
+        'alt',
+        'class',
+        'colspan',
+        'dir',
+        'height',
+        'href',
+        'id',
+        'lang',
+        'media', // Allow media queries
+        'rel', // Allow rel for <link rel="stylesheet">
+        'rowspan',
+        'src',
+        'start',
+        'title',
+        'type', // Allow type for <link type="text/css">
+        'width',
+      ],
+      // Forbid script execution and dangerous tags
+      FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea'],
+      // Forbid event handlers to prevent XSS
+      FORBID_ATTR: [
+        'onerror',
+        'onload',
+        'onclick',
+        'onmouseover',
+        'onmouseout',
+        'onmousemove',
+        'onmouseenter',
+        'onmouseleave',
+        'onfocus',
+        'onblur',
+        'onchange',
+        'onsubmit',
+        'onkeydown',
+        'onkeyup',
+        'onkeypress',
+      ],
+      // Allow CSS content in style tags
+      ALLOW_DATA_ATTR: false,
+      // Keep comments for debugging
+      KEEP_CONTENT: true,
+      // Return DOM instead of string for better performance
+      RETURN_DOM: false,
+      RETURN_DOM_FRAGMENT: false,
+    })
+
+    // Remove hook after sanitization
+    DOMPurify.removeHook('afterSanitizeAttributes')
+
     this.requestUpdate()
   }
 
