@@ -286,20 +286,26 @@ test('HTML DOM Matching Algorithm', async (t) => {
     assert.strictEqual(matched.tagName, 'P', 'Should match paragraph')
   })
 
-  await t.test('Empty content', () => {
+  await t.test('Empty elements should not interfere with matching', () => {
+    // Simulates: user accidentally creates <p></p><p>Content</p> during selection
     const parentHTML = `
       <html><body>
-        <div></div>
+        <p></p>
+        <p>The same is true for programming languages.</p>
       </body></html>
     `
 
-    const childHTML = `<div></div>`
+    const childHTML = `<p></p><p>The same is true for programming languages.</p>`
 
     const parentDOM = new JSDOM(parentHTML)
     const matched = findMatchingNode(parentDOM.window.document, childHTML)
 
-    assert.ok(matched, 'Should match empty elements')
-    assert.strictEqual(matched.tagName, 'DIV', 'Should match empty div')
+    assert.ok(matched, 'Should match despite leading empty element')
+    assert.strictEqual(matched.tagName, 'P', 'Should match the paragraph with content')
+    assert.ok(
+      matched.textContent.includes('programming languages'),
+      'Should match the correct paragraph'
+    )
   })
 
   await t.test('Strategy 3: Partial text selection with auto-completed tags', () => {

@@ -22,21 +22,45 @@ export function normalizeHTML(html) {
 }
 
 /**
- * Remove href and src attributes from HTML using DOM manipulation
- * This handles cases where parent has URLs but child doesn't (partial selection)
+ * Remove all attributes from HTML (except id) using DOM manipulation
+ * Also removes empty elements (elements with no text content)
+ * This handles cases where parent has attributes but child doesn't (partial selection)
+ * Strategy: Only match by tagName + textContent + id, ignore all other attributes
  * @param {string} html - HTML string
  * @param {Document} doc - Document object for DOM manipulation
- * @returns {string} - HTML with href/src attributes removed
+ * @returns {string} - HTML with all attributes removed except id and empty elements removed
  */
 export function removeAttributesFromHTML(html, doc) {
   const tempDiv = doc.createElement('div')
   tempDiv.innerHTML = html
 
-  // Remove href and src attributes from all elements
-  tempDiv.querySelectorAll('[href], [src]').forEach((el) => {
-    el.removeAttribute('href')
-    el.removeAttribute('src')
-  })
+  // First pass: Remove all attributes except 'id' from all elements
+  const allElements = Array.from(tempDiv.querySelectorAll('*'))
+  for (const el of allElements) {
+    const attrs = Array.from(el.attributes)
+    for (const attr of attrs) {
+      if (attr.name !== 'id') {
+        el.removeAttribute(attr.name)
+      }
+    }
+  }
+
+  // Second pass: Remove empty elements (bottom-up to handle nested empty elements)
+  // Get elements in reverse order (deepest first)
+  const elementsToCheck = Array.from(tempDiv.querySelectorAll('*')).reverse()
+
+  for (const el of elementsToCheck) {
+    // Check if element is empty (no text content and no non-empty children)
+    const text = el.textContent.trim()
+    const hasNonEmptyChildren = Array.from(el.children).some((child) => {
+      return child.textContent.trim() !== ''
+    })
+
+    // Remove if completely empty and not a structural element
+    if (text === '' && !hasNonEmptyChildren) {
+      el.remove()
+    }
+  }
 
   return tempDiv.innerHTML
 }
@@ -65,9 +89,47 @@ export function removeNonVisibleElements(html, doc) {
 }
 
 /**
- * Get clean HTML from an element (removing non-visible children and URL attributes)
+ * Remove all attributes from an element and its descendants (except id)
+ * Also removes empty elements (elements with no text content)
+ * Helps with matching when browser auto-completes tags but loses attributes
+ * @param {Element} element - DOM element to strip
+ */
+function stripAllAttributes(element) {
+  // First pass: remove all attributes except 'id'
+  const allElements = [element, ...element.querySelectorAll('*')]
+
+  for (const el of allElements) {
+    const attrs = Array.from(el.attributes)
+    for (const attr of attrs) {
+      // Keep 'id' for anchor matching, remove everything else
+      if (attr.name !== 'id') {
+        el.removeAttribute(attr.name)
+      }
+    }
+  }
+
+  // Second pass: remove empty elements (bottom-up to handle nested empty elements)
+  // Get elements in reverse order (deepest first)
+  const elementsToCheck = Array.from(element.querySelectorAll('*')).reverse()
+
+  for (const el of elementsToCheck) {
+    // Check if element is empty (no text content and no non-empty children)
+    const text = el.textContent.trim()
+    const hasNonEmptyChildren = Array.from(el.children).some((child) => {
+      return child.textContent.trim() !== ''
+    })
+
+    // Remove if completely empty and not a structural element
+    if (text === '' && !hasNonEmptyChildren) {
+      el.remove()
+    }
+  }
+}
+
+/**
+ * Get clean HTML from an element (removing non-visible children and all attributes)
  * @param {Element} element - DOM element
- * @returns {string} - Cleaned HTML
+ * @returns {string} - Cleaned HTML with only structure (tagName + id + textContent)
  */
 export function getCleanHTML(element) {
   const clone = element.cloneNode(true)
@@ -77,19 +139,16 @@ export function getCleanHTML(element) {
     .querySelectorAll('style, link, script, meta, title, base, noscript')
     .forEach((el) => el.remove())
 
-  // Remove href and src attributes (handles partial selections)
-  clone.querySelectorAll('[href], [src]').forEach((el) => {
-    el.removeAttribute('href')
-    el.removeAttribute('src')
-  })
+  // Remove all attributes except id (for tagName + textContent matching)
+  stripAllAttributes(clone)
 
   return clone.outerHTML
 }
 
 /**
- * Get clean innerHTML from an element (removing non-visible children and URL attributes)
+ * Get clean innerHTML from an element (removing non-visible children and all attributes)
  * @param {Element} element - DOM element
- * @returns {string} - Cleaned innerHTML
+ * @returns {string} - Cleaned innerHTML with only structure (tagName + id + textContent)
  */
 export function getCleanInnerHTML(element) {
   const clone = element.cloneNode(true)
@@ -99,11 +158,8 @@ export function getCleanInnerHTML(element) {
     .querySelectorAll('style, link, script, meta, title, base, noscript')
     .forEach((el) => el.remove())
 
-  // Remove href and src attributes (handles partial selections)
-  clone.querySelectorAll('[href], [src]').forEach((el) => {
-    el.removeAttribute('href')
-    el.removeAttribute('src')
-  })
+  // Remove all attributes except id (for tagName + textContent matching)
+  stripAllAttributes(clone)
 
   return clone.innerHTML
 }
@@ -138,83 +194,24 @@ export function findMatchingNode(parentDoc, targetHTML) {
   const targetElementCount = tempDiv.children.length
   const targetText = normalizeHTML(tempDiv.textContent)
 
-  // Strategy 0: Skip leading empty elements and match by first non-empty element
-  // Handles cases where user selection accidentally includes empty elements
-  // Example: <p></p><p>The same is true...</p> where first <p> is empty
+  // Strategy 0: Handle partial text content in first element
+  // Case: First element has partial text (e.g., missing <span> child elements)
+  // Example: <h4 id="data-types">Data Types</h4> vs <h4 id="data-types"><span>1.3.3.2</span> Data Types</h4>
+  // Note: Empty elements have already been removed by removeAttributesFromHTML()
   if (targetElementCount > 1) {
-    // Find first non-empty element in target
-    let firstNonEmptyIndex = -1
-    for (let i = 0; i < targetElementCount; i++) {
-      if (normalizeHTML(tempDiv.children[i].textContent) !== '') {
-        firstNonEmptyIndex = i
-        break
-      }
-    }
+    const firstTarget = tempDiv.children[0]
+    const firstTargetText = normalizeHTML(firstTarget.textContent)
 
-    if (firstNonEmptyIndex > 0) {
-      // There are leading empty elements to skip
-      const firstNonEmpty = tempDiv.children[firstNonEmptyIndex]
-      const firstNonEmptyText = normalizeHTML(firstNonEmpty.textContent)
-      const firstNonEmptyTag = firstNonEmpty.tagName
+    // Only proceed if first element has an ID (for anchor matching)
+    if (firstTarget.id && firstTargetText !== '') {
+      const anchorInParent = parentDoc.getElementById(firstTarget.id)
 
-      // Find matching element in parent
-      for (const el of allElements) {
-        if (el.tagName !== firstNonEmptyTag) continue
-        if (normalizeHTML(el.textContent) !== firstNonEmptyText) continue
+      if (anchorInParent && anchorInParent.parentElement) {
+        const anchorText = normalizeHTML(anchorInParent.textContent)
 
-        // Found matching first non-empty element
-        // Now check if we can match remaining elements as consecutive siblings
-        const parent = el.parentElement
-        if (!parent) continue
-
-        const siblings = Array.from(parent.children)
-        const startIndex = siblings.indexOf(el)
-        const remainingCount = targetElementCount - firstNonEmptyIndex
-
-        if (startIndex + remainingCount > siblings.length) continue
-
-        const candidateSiblings = siblings.slice(startIndex, startIndex + remainingCount)
-
-        // Check if all remaining elements match
-        let allMatch = true
-        for (let i = 0; i < remainingCount; i++) {
-          const targetChild = tempDiv.children[firstNonEmptyIndex + i]
-          const candidateChild = candidateSiblings[i]
-          const targetChildText = normalizeHTML(targetChild.textContent)
-          const candidateChildText = normalizeHTML(candidateChild.textContent)
-
-          // Allow partial match for last element (might be truncated)
-          if (i === remainingCount - 1) {
-            if (!candidateChildText.startsWith(targetChildText)) {
-              allMatch = false
-              break
-            }
-          } else {
-            if (candidateChildText !== targetChildText) {
-              allMatch = false
-              break
-            }
-          }
-        }
-
-        if (allMatch) {
-          // Return siblings including the leading empty elements from target
-          // But map to parent's position (which might not have those empty elements)
-          // Actually, return the matched siblings from parent
-          return candidateSiblings
-        }
-      }
-    } else if (firstNonEmptyIndex === 0) {
-      // First element is non-empty
-      const firstTarget = tempDiv.children[0]
-      const firstTargetText = normalizeHTML(firstTarget.textContent)
-
-      // Case 1: First element is empty in text but has an ID
-      // (handles <h2 id="intro"></h2> case)
-      if (firstTargetText === '' && firstTarget.id) {
-        const anchorInParent = parentDoc.getElementById(firstTarget.id)
-
-        if (anchorInParent && anchorInParent.parentElement) {
+        // Check if parent's text contains target's text (partial match)
+        // This handles cases where child is missing inner elements like <span>
+        if (anchorText.includes(firstTargetText) && anchorText !== firstTargetText) {
           const parent = anchorInParent.parentElement
           const siblings = Array.from(parent.children)
           const startIndex = siblings.indexOf(anchorInParent)
@@ -222,7 +219,7 @@ export function findMatchingNode(parentDoc, targetHTML) {
           if (startIndex !== -1 && startIndex + targetElementCount <= siblings.length) {
             const candidateSiblings = siblings.slice(startIndex, startIndex + targetElementCount)
 
-            // Check if remaining elements match (skip first empty element)
+            // Check if remaining elements match (starting from index 1, since index 0 is partial match)
             let allMatch = true
             for (let i = 1; i < targetElementCount; i++) {
               const targetChildText = normalizeHTML(tempDiv.children[i].textContent)
@@ -244,50 +241,6 @@ export function findMatchingNode(parentDoc, targetHTML) {
 
             if (allMatch) {
               return candidateSiblings
-            }
-          }
-        }
-      }
-      // Case 2: First element has partial text content (e.g., missing <span> with number)
-      // Example: <h4 id="data-types">Data Types</h4> vs <h4 id="data-types"><span>1.3.3.2</span> Data Types</h4>
-      else if (firstTarget.id) {
-        const anchorInParent = parentDoc.getElementById(firstTarget.id)
-
-        if (anchorInParent && anchorInParent.parentElement) {
-          const anchorText = normalizeHTML(anchorInParent.textContent)
-
-          // Check if parent's text contains target's text (partial match)
-          if (anchorText.includes(firstTargetText) && anchorText !== firstTargetText) {
-            const parent = anchorInParent.parentElement
-            const siblings = Array.from(parent.children)
-            const startIndex = siblings.indexOf(anchorInParent)
-
-            if (startIndex !== -1 && startIndex + targetElementCount <= siblings.length) {
-              const candidateSiblings = siblings.slice(startIndex, startIndex + targetElementCount)
-
-              // Check if remaining elements match
-              let allMatch = true
-              for (let i = 1; i < targetElementCount; i++) {
-                const targetChildText = normalizeHTML(tempDiv.children[i].textContent)
-                const candidateText = normalizeHTML(candidateSiblings[i].textContent)
-
-                // Allow partial match for last element (might be truncated)
-                if (i === targetElementCount - 1) {
-                  if (!candidateText.startsWith(targetChildText)) {
-                    allMatch = false
-                    break
-                  }
-                } else {
-                  if (candidateText !== targetChildText) {
-                    allMatch = false
-                    break
-                  }
-                }
-              }
-
-              if (allMatch) {
-                return candidateSiblings
-              }
             }
           }
         }
