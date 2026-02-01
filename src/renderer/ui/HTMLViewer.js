@@ -4,6 +4,7 @@
 // HTMLViewer.js
 import { LitElement, html, css } from 'lit'
 import DOMPurify from 'dompurify'
+import { normalizeHTML, findMatchingNode } from './html-matching.js'
 
 /**
  * Helper: Get basename of a file path
@@ -239,7 +240,7 @@ export class HTMLViewer extends LitElement {
 
     /* Locked/extracted content styles */
     .extracted-content {
-      background-color: rgba(100, 100, 100, 0.1);
+      background-color: rgba(100, 200, 100, 1);
       border-left: 3px solid #999;
       padding-left: 0.5rem;
       opacity: 0.6;
@@ -311,7 +312,6 @@ export class HTMLViewer extends LitElement {
     this.content = ''
     this.showLinkDialog = false
     this.previewUrl = ''
-    this.extractedTexts = []
     this.currentFilePath = ''
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
@@ -487,23 +487,31 @@ export class HTMLViewer extends LitElement {
   }
 
   /**
-   * Lock/highlight already extracted content
-   * @param {Array<Object>} ranges, array of objects with extracted_text property
+   * Clean child note HTML by removing style inheritance tags
+   * @param {string} childHTML - Raw child note HTML content
+   * @returns {string} - Cleaned HTML content
    */
-  lockContent(ranges) {
-    this.extractedTexts = ranges.map((r) => r.extracted_text || r.text).filter(Boolean)
-    this.requestUpdate() // Re-render with locked styling
+  cleanChildHTML(childHTML) {
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = childHTML
+
+    // Remove style inheritance tags (added during extraction)
+    tempDiv.querySelectorAll('link[rel="stylesheet"]').forEach((l) => l.remove())
+    tempDiv.querySelectorAll('style').forEach((s) => s.remove())
+
+    // Return cleaned HTML (may contain multiple top-level elements)
+    return tempDiv.innerHTML
   }
 
   /**
    * Load and lock extracted content from file
+   * Uses DOM matching to mark already-extracted sections
    * @param {string} filePath - The file path to load ranges from
    */
   async loadAndLockExtractedContent(filePath) {
     try {
       if (!window.currentFileLibraryId) {
         console.warn('No library ID set, cannot load extracted content')
-        this.clearLockedContent()
         return
       }
 
@@ -512,25 +520,49 @@ export class HTMLViewer extends LitElement {
         window.currentFileLibraryId
       )
 
-      if (rangesResult && rangesResult.length > 0) {
-        this.lockContent(rangesResult)
-      } else {
-        this.clearLockedContent()
+      if (!rangesResult || rangesResult.length === 0) {
+        return
+      }
+
+      // Mark each extracted section in the DOM
+      for (const childData of rangesResult) {
+        // Skip if no content (backend didn't provide it)
+        if (!childData.content) {
+          continue
+        }
+
+        // Clean child note HTML (remove style inheritance)
+        const cleanedHTML = this.cleanChildHTML(childData.content)
+        if (!cleanedHTML || !cleanedHTML.trim()) {
+          continue
+        }
+
+        // Find matching node(s) in parent using normalized comparison
+        const matchedNode = findMatchingNode(this.shadowRoot, cleanedHTML)
+
+        // Mark matched node(s) with extracted-content class
+        if (matchedNode) {
+          console.log('Marking extracted content in HTMLViewer:', matchedNode)
+          if (Array.isArray(matchedNode)) {
+            // Multiple consecutive siblings matched
+            matchedNode.forEach((node) => {
+              node.classList.add('extracted-content')
+            })
+          } else {
+            // Single node matched
+            matchedNode.classList.add('extracted-content')
+          }
+        }
+        // Silent failure if not found (content may have been deleted/modified)
       }
     } catch (error) {
-      console.error('Error loading extracted content:', error)
-      this.clearLockedContent()
+      console.error('Error marking extracted content:', error)
     }
   }
 
   /**
    * Clear all locked content
    */
-  clearLockedContent() {
-    this.extractedTexts = []
-    this.requestUpdate()
-  }
-
   /**
    * Extract selected content
    * @param {string} filePath - The file path for extraction
@@ -848,24 +880,11 @@ export class HTMLViewer extends LitElement {
       return html`<div class="empty-message">No content</div>`
     }
 
-    // Apply locked styling to extracted content
-    let renderedContent = this.content
-    if (this.extractedTexts.length > 0) {
-      this.extractedTexts.forEach((extractedText) => {
-        if (extractedText) {
-          // Escape special regex characters
-          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const regex = new RegExp(`(${escapedText})`, 'gi')
-          renderedContent = renderedContent.replace(
-            regex,
-            '<span class="extracted-content">$1</span>'
-          )
-        }
-      })
-    }
+    // Note: Extracted content marking is now done via DOM manipulation
+    // in loadAndLockExtractedContent(), not string replacement
 
     return html`
-      <div class="html-viewer" .innerHTML=${renderedContent}></div>
+      <div class="html-viewer" .innerHTML=${this.content}></div>
       ${this.showLinkDialog
         ? html`
             <div class="link-dialog-backdrop" @click=${this.closeLinkDialog}>

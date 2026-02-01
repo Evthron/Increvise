@@ -379,8 +379,10 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
     const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
 
-    // Check if parent is a text-like file (markdown)
-    const isMarkdown = path.extname(parentPath).toLowerCase() === '.md'
+    // Check if parent is a text-like file (markdown or HTML)
+    const parentExt = path.extname(parentPath).toLowerCase()
+    const isMarkdown = parentExt === '.md'
+    const isHTML = parentExt === '.html' || parentExt === '.htm'
 
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
@@ -405,8 +407,8 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
         )
         .all(libraryId, parentRelativePath)
 
-      // Read direct children content (skip if parent is not markdown)
-      if (isMarkdown) {
+      // Read direct children content (for markdown and HTML files)
+      if (isMarkdown || isHTML) {
         for (const child of children) {
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
           try {
@@ -490,8 +492,8 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
       )
       .all(libraryId, parentRelativePath, libraryId)
 
-    if (isMarkdown) {
-      // Read all children content
+    if (isMarkdown || isHTML) {
+      // Read all children content (for markdown and HTML files)
       for (let i = 0; i < children.length; i++) {
         const child = children[i]
         const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
