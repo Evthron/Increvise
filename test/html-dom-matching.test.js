@@ -12,6 +12,10 @@ import assert from 'node:assert'
 import { JSDOM } from 'jsdom'
 import { normalizeHTML, findMatchingNode } from '../src/renderer/ui/html-matching.js'
 
+// Setup global document for JSDOM (so functions can use default `document` parameter)
+const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>')
+globalThis.document = dom.window.document
+
 test('HTML DOM Matching Algorithm', async (t) => {
   await t.test('Strategy 1: outerHTML exact match (complete node extraction)', () => {
     const parentHTML = `
