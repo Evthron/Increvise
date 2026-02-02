@@ -13,6 +13,7 @@
 - `npm test` - Run all tests (auto-rebuilds better-sqlite3)
 - `npm run test:validation` / `test:incremental` / `test:spaced` / `test:workspace` - Run specific test suites
 - `npm run test:clean` - Remove test artifacts
+- `npm run dev:noserver` - Start Electron without dev server (for testing HTML functions)
 
 ### Code Quality
 
@@ -58,3 +59,5 @@ Electron app with:
   // SPDX-License-Identifier: GPL-3.0-or-later
   ```
 - **Import Order**: Node built-ins → third-party → local modules
+- **Test Files**: Add test files to `test/` directory
+- **HTML Parsing**: Do not use regex to match HTML nodes; use specific tools instead (e.g., DOM parsers, JSDOM, etc.)
