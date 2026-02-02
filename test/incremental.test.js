@@ -56,7 +56,9 @@ async function test0_Setup() {
   try {
     await fs.rm(TEST_WORKSPACE, { recursive: true, force: true })
     await fs.unlink(CENTRAL_DB_PATH)
-  } catch {}
+  } catch {
+    // Ignore cleanup errors
+  }
 
   // Create central database
   const centralDb = new Database(CENTRAL_DB_PATH)
@@ -100,52 +102,74 @@ async function test1_ParseNoteFileName_Valid() {
   printSeparator('Test 1: parseNoteFileName - Valid formats')
 
   // Test single layer
-  const result1 = parseNoteFileName('10-20-intro')
-  console.log(`  ✓ Single layer: "10-20-intro" → ${result1.length} layer`)
+  const result1 = parseNoteFileName('10-20_intro')
+  console.log(`  ✓ Single layer: "10-20_intro" → ${result1.length} layer`)
   if (result1[0].rangeStart !== 10 || result1[0].rangeEnd !== 20 || result1[0].name !== 'intro') {
     throw new Error('Single layer parsing failed')
   }
 
   // Test two layers
-  const result2 = parseNoteFileName('10-20-intro.15-18-core')
-  console.log(`  ✓ Two layers: "10-20-intro.15-18-core" → ${result2.length} layers`)
+  const result2 = parseNoteFileName('10-20_intro.15-18_core')
+  console.log(`  ✓ Two layers: "10-20_intro.15-18_core" → ${result2.length} layers`)
   if (result2.length !== 2 || result2[1].name !== 'core') {
     throw new Error('Two layer parsing failed')
   }
 
   // Test three layers
-  const result3 = parseNoteFileName('10-20-intro.15-18-core.16-17-detail')
-  console.log(`  ✓ Three layers: "10-20-intro.15-18-core.16-17-detail" → ${result3.length} layers`)
+  const result3 = parseNoteFileName('10-20_intro.15-18_core.16-17_detail')
+  console.log(`  ✓ Three layers: "10-20_intro.15-18_core.16-17_detail" → ${result3.length} layers`)
   if (result3.length !== 3 || result3[2].name !== 'detail') {
     throw new Error('Three layer parsing failed')
   }
 }
 
 // ========================================
-// Test 2: parseNoteFileName - Invalid formats
+// Test 2: parseNoteFileName - Files without ranges
 // ========================================
 async function test2_ParseNoteFileName_Invalid() {
-  printSeparator('Test 2: parseNoteFileName - Invalid formats')
+  printSeparator('Test 2: parseNoteFileName - Files without ranges')
 
-  // Test invalid format (no range)
+  // Test file without range (should parse as null range)
   const result1 = parseNoteFileName('invalid-format')
-  console.log(`  ✓ "invalid-format" → ${result1 === null ? 'null' : 'unexpected'}`)
-  if (result1 !== null) {
-    throw new Error('Should return null for invalid format')
+  console.log(
+    `  ✓ "invalid-format" → ${result1 ? `parsed with null range, name="${result1[0].name}"` : 'null'}`
+  )
+  if (
+    !result1 ||
+    result1.length !== 1 ||
+    result1[0].rangeStart !== null ||
+    result1[0].rangeEnd !== null ||
+    result1[0].name !== 'invalid-format'
+  ) {
+    throw new Error('Should parse as null range with name "invalid-format"')
   }
 
-  // Test missing end range
+  // Test partial range format (should parse as null range)
   const result2 = parseNoteFileName('10-intro')
-  console.log(`  ✓ "10-intro" → ${result2 === null ? 'null' : 'unexpected'}`)
-  if (result2 !== null) {
-    throw new Error('Should return null for missing end range')
+  console.log(
+    `  ✓ "10-intro" → ${result2 ? `parsed with null range, name="${result2[0].name}"` : 'null'}`
+  )
+  if (
+    !result2 ||
+    result2.length !== 1 ||
+    result2[0].rangeStart !== null ||
+    result2[0].rangeEnd !== null ||
+    result2[0].name !== '10-intro'
+  ) {
+    throw new Error('Should parse as null range with name "10-intro"')
   }
 
-  // Test empty string
+  // Test empty string (should parse as null range with empty name)
   const result3 = parseNoteFileName('')
-  console.log(`  ✓ "" → ${result3 === null ? 'null' : 'unexpected'}`)
-  if (result3 !== null) {
-    throw new Error('Should return null for empty string')
+  console.log(`  ✓ "" → ${result3 ? `parsed with null range, name="${result3[0].name}"` : 'null'}`)
+  if (
+    !result3 ||
+    result3.length !== 1 ||
+    result3[0].rangeStart !== null ||
+    result3[0].rangeEnd !== null ||
+    result3[0].name !== ''
+  ) {
+    throw new Error('Should parse as null range with empty name')
   }
 }
 
@@ -266,8 +290,8 @@ async function test7_GenerateChildNoteName_TopLevel() {
   console.log(`  Range: ${rangeStart}-${rangeEnd}, Text: "${text}"`)
   console.log(`  ✓ Generated: "${result}"`)
 
-  if (result !== '10-20-my-research-paper') {
-    throw new Error(`Expected "10-20-my-research-paper", got "${result}"`)
+  if (result !== '10-20_introduction-to-quantum') {
+    throw new Error(`Expected "10-20_introduction-to-quantum", got "${result}"`)
   }
 }
 
@@ -277,20 +301,20 @@ async function test7_GenerateChildNoteName_TopLevel() {
 async function test8_GenerateChildNoteName_OneLayer() {
   printSeparator('Test 8: generateChildNoteName - From 1-layer note')
 
-  const parentFilePath = path.join(TEST_WORKSPACE, 'notes', '10-20-introduction.md')
+  const parentFilePath = path.join(TEST_WORKSPACE, 'notes', '10-20_introduction.md')
   const rangeStart = 15
   const rangeEnd = 18
   const text = 'Core concepts of the theory'
 
   const result = generateChildNoteName(parentFilePath, rangeStart, rangeEnd, text)
 
-  console.log(`  Parent: "10-20-introduction.md"`)
+  console.log(`  Parent: "10-20_introduction.md"`)
   console.log(`  Range: ${rangeStart}-${rangeEnd}, Text: "${text}"`)
   console.log(`  ✓ Generated: "${result}"`)
   console.log('  ✓ Flat structure: keeps all parent layers')
 
-  if (result !== '10-20-introduction.15-18-core-concepts-of') {
-    throw new Error(`Expected "10-20-introduction.15-18-core-concepts-of", got "${result}"`)
+  if (result !== '10-20_introduction.15-18_core-concepts-of-the') {
+    throw new Error(`Expected "10-20_introduction.15-18_core-concepts-of-the", got "${result}"`)
   }
 }
 
@@ -303,7 +327,7 @@ async function test9_GenerateChildNoteName_ThreeLayers() {
   const parentFilePath = path.join(
     TEST_WORKSPACE,
     'notes',
-    '10-20-intro.15-20-core.16-18-detail.md'
+    '10-20_intro.15-20_core.16-18_detail.md'
   )
   const rangeStart = 17
   const rangeEnd = 17
@@ -311,14 +335,14 @@ async function test9_GenerateChildNoteName_ThreeLayers() {
 
   const result = generateChildNoteName(parentFilePath, rangeStart, rangeEnd, text)
 
-  console.log(`  Parent: "10-20-intro.15-20-core.16-18-detail.md"`)
+  console.log(`  Parent: "10-20_intro.15-20_core.16-18_detail.md"`)
   console.log(`  Range: ${rangeStart}-${rangeEnd}, Text: "${text}"`)
   console.log(`  ✓ Generated: "${result}"`)
   console.log('  ✓ Flat structure: keeps all 3 parent layers')
 
-  if (result !== '10-20-intro.15-20-core.16-18-detail.17-17-important-note-here') {
+  if (result !== '10-20_intro.15-20_core.16-18_detail.17-17_important-note-here') {
     throw new Error(
-      `Expected "10-20-intro.15-20-core.16-18-detail.17-17-important-note-here", got "${result}"`
+      `Expected "10-20_intro.15-20_core.16-18_detail.17-17_important-note-here", got "${result}"`
     )
   }
 }
@@ -872,7 +896,9 @@ async function runAllTests() {
     try {
       await fs.rm(TEST_WORKSPACE, { recursive: true, force: true })
       await fs.rm(CENTRAL_DB_PATH, { force: true })
-    } catch {}
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }
 

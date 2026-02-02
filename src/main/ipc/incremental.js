@@ -30,15 +30,23 @@ function parseNoteFileName(fileName) {
   const parsed = []
 
   for (const layer of layers) {
-    // Match pattern: rangeStart-rangeEnd-name
-    const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
-    if (!match) return null
-
-    parsed.push({
-      rangeStart: parseInt(match[1]),
-      rangeEnd: parseInt(match[2]),
-      name: match[3],
-    })
+    // Match pattern: [optional p/l prefix]start-end[_ or end]name
+    // Examples: "10-20_intro" (with underscore), "10-20" (range only, ends here), "notes" (no range)
+    const match = layer.match(/^[pl]?(\d+)-(\d+)(?:_|$)(.*)/)
+    if (!match) {
+      // No range found - treat as null range with name
+      parsed.push({
+        rangeStart: null,
+        rangeEnd: null,
+        name: layer,
+      })
+    } else {
+      parsed.push({
+        rangeStart: parseInt(match[1]),
+        rangeEnd: parseInt(match[2]),
+        name: match[3],
+      })
+    }
   }
 
   return parsed.length > 0 ? parsed : null
@@ -57,71 +65,164 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
   const parentLayers = parseNoteFileName(parentFileName)
 
   // Strip HTML tags to get plain text for naming
-  // This regex removes all HTML tags including their attributes
   const plainText = extractedText.replace(/<[^>]*>/g, '').trim()
 
-  // Generate name from first 3 words of extracted text - optimized
-  let words = ''
-  const text = plainText
-  let wordCount = 0
-  let currentWord = ''
+  // Configuration for name generation
+  const MIN_LENGTH = 10 // Minimum character count (strict)
+  const SOFT_MAX_LENGTH = 20 // Soft maximum - can exceed to complete a word
+  const HARD_MAX_LENGTH = 30 // Hard maximum - never exceed
 
-  for (let i = 0; i < text.length && wordCount < 3; i++) {
-    const char = text[i]
-    const lower = char.toLowerCase()
-    const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+  /**
+   * Generate a clean, multi-language compatible name from text
+   * Supports: Latin, CJK (Chinese/Japanese/Korean), Cyrillic, etc.
+   *
+   * Strategy for CJK:
+   * - Use punctuation as phrase boundaries
+   * - After MIN_LENGTH characters, stop at next punctuation mark
+   * - Don't add hyphens between CJK characters
+   *
+   * Strategy for Latin:
+   * - Use spaces as word boundaries
+   * - Add hyphens between words
+   */
+  function generateNameFromText(text) {
+    if (!text || text.length === 0) return ''
 
-    if (isAlphaNum) {
-      currentWord += lower
-    } else if (currentWord.length > 0) {
-      if (words) words += '-'
-      words += currentWord
-      currentWord = ''
-      wordCount++
+    // Helper function to check if character is CJK
+    function isCJKChar(code) {
+      return (
+        (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified Ideographs
+        (code >= 0x3400 && code <= 0x4dbf) || // CJK Extension A
+        (code >= 0x20000 && code <= 0x2a6df) || // CJK Extension B
+        (code >= 0xf900 && code <= 0xfaff) || // CJK Compatibility Ideographs
+        (code >= 0x3040 && code <= 0x309f) || // Hiragana
+        (code >= 0x30a0 && code <= 0x30ff) || // Katakana
+        (code >= 0xac00 && code <= 0xd7af) // Hangul
+      )
     }
-  }
-  // Add last word if exists
-  if (currentWord.length > 0 && wordCount < 3) {
-    if (words) words += '-'
-    words += currentWord
-  }
 
-  if (!parentLayers) {
-    // Parent is a top-level file - extract name from filename (as fallback)
-    let parentName = ''
-    wordCount = 0
-    currentWord = ''
+    // Helper function to check if character is CJK punctuation
+    function isCJKPunct(char) {
+      return /[。，、；：！？]/.test(char)
+    }
 
-    for (let i = 0; i < parentFileName.length && wordCount < 3; i++) {
-      const char = parentFileName[i]
-      const lower = char.toLowerCase()
-      const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+    // First pass: clean the text
+    let cleaned = text
+      .replace(/["""''`]/g, '') // Remove quotes
+      .replace(/[<>{}[\]()]/g, '') // Remove brackets
+      .replace(/[*_~`|\\#]/g, '') // Remove markdown/special chars (including #)
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim()
 
-      if (isAlphaNum || char === '-') {
-        currentWord += lower
-      } else if (currentWord.length > 0) {
-        if (parentName) parentName += '-'
-        parentName += currentWord
-        currentWord = ''
-        wordCount++
+    if (cleaned.length === 0) return ''
+
+    // Build the filename character by character
+    let result = ''
+    let lastWasCJK = false
+    let lastWasSpace = false
+    let reachedMin = false
+    let reachedSoftMax = false
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const char = cleaned[i]
+      const code = char.charCodeAt(0)
+      const isCJK = isCJKChar(code)
+      const isPunct = isCJKPunct(char) || /[.,;:!?]/.test(char)
+
+      // If we've reached minimum length and hit punctuation, stop
+      if (reachedMin && isPunct) {
+        break
+      }
+
+      // If we've exceeded soft max and hit a word boundary (space/punct), stop
+      if (reachedSoftMax && (isPunct || char === ' ')) {
+        break
+      }
+
+      // Skip punctuation (don't add to filename)
+      if (isPunct) {
+        lastWasSpace = true // Treat punctuation as word boundary
+        continue
+      }
+
+      // Handle spaces
+      if (char === ' ') {
+        lastWasSpace = true
+        continue
+      }
+
+      // Check if we would exceed hard maximum
+      if (result.length >= HARD_MAX_LENGTH) {
+        break
+      }
+
+      // Add separator if needed
+      if (result.length > 0 && lastWasSpace) {
+        // Only add hyphen between non-CJK words
+        if (!isCJK && !lastWasCJK) {
+          result += '-'
+        }
+        lastWasSpace = false
+      }
+
+      // Add the character (lowercase for Latin, keep CJK as-is)
+      if (isCJK) {
+        result += char
+      } else {
+        result += char.toLowerCase()
+      }
+
+      lastWasCJK = isCJK
+
+      // Check if we've reached minimum length (count actual characters, not hyphens)
+      const contentLength = result.replace(/-/g, '').length
+
+      if (contentLength >= MIN_LENGTH) {
+        reachedMin = true
+      }
+
+      // Check if we've exceeded soft max (including hyphens)
+      if (result.length >= SOFT_MAX_LENGTH) {
+        reachedSoftMax = true
       }
     }
-    if (currentWord.length > 0 && wordCount < 3) {
-      if (parentName) parentName += '-'
-      parentName += currentWord
-    }
+
+    return result
+  }
+
+  const words = generateNameFromText(plainText)
+
+  // Check if parent is truly a top-level file (no layers with ranges, or only null range)
+  const isTopLevel =
+    !parentLayers ||
+    (parentLayers.length === 1 &&
+      parentLayers[0].rangeStart === null &&
+      parentLayers[0].rangeEnd === null)
+
+  if (isTopLevel) {
+    // Parent is a top-level file - extract name from filename (as fallback)
+    const parentName = generateNameFromText(parentFileName) || parentFileName.substring(0, 20)
 
     // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
     // For text-line extractions, use range-based naming with parent name as fallback
-    if (rangeStart === 0 && rangeEnd === 0) {
-      return `0-0-${words || parentName || 'note'}`
+    // For null ranges, omit the range prefix entirely
+    if (rangeStart === null && rangeEnd === null) {
+      return words || parentName || 'note'
     } else {
-      return `${rangeStart}-${rangeEnd}-${parentName || words || 'note'}`
+      return `${rangeStart}-${rangeEnd}_${words || parentName || 'note'}`
     }
   } else {
     // Flat structure: keep all parent layers, append new layer
     const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
-    return allLayers.map((l) => `${l.rangeStart}-${l.rangeEnd}-${l.name}`).join('.')
+    return allLayers
+      .map((l) => {
+        // Omit range prefix for null values
+        if (l.rangeStart === null && l.rangeEnd === null) {
+          return l.name
+        }
+        return `${l.rangeStart}-${l.rangeEnd}_${l.name}`
+      })
+      .join('.')
   }
 }
 
@@ -722,7 +823,7 @@ async function extractNote(
       ).run(libraryId, relativePath)
 
       // Insert note_source record with parent_path
-      // Note: For HTML/semantic extractions, rangeStart and rangeEnd are both 0
+      // Note: For HTML/semantic extractions, rangeStart and rangeEnd can be null or 0
       if (rangeStart !== undefined && rangeEnd !== undefined) {
         const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
         try {
@@ -736,8 +837,8 @@ async function extractNote(
             relativePath,
             parentRelativePath,
             'text-lines',
-            String(rangeStart),
-            String(rangeEnd),
+            rangeStart !== null ? String(rangeStart) : null,
+            rangeEnd !== null ? String(rangeEnd) : null,
             sourceHash
           )
         } catch (err) {
@@ -1183,8 +1284,12 @@ async function getNoteExtractInfo(notePath, libraryId, getCentralDbPath) {
         found: true,
         extractType: info.extract_type,
         parentPath: absoluteParentPath,
-        rangeStart: info.range_start ? parseInt(info.range_start) : null,
-        rangeEnd: info.range_end ? parseInt(info.range_end) : null,
+        rangeStart:
+          info.range_start !== null && info.range_start !== 'null'
+            ? parseInt(info.range_start)
+            : null,
+        rangeEnd:
+          info.range_end !== null && info.range_end !== 'null' ? parseInt(info.range_end) : null,
       }
     } finally {
       db.close()

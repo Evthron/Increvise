@@ -37,14 +37,22 @@ async function getDirectoryTree(dirPath, libraryId = null) {
 
     const parsed = []
     for (const layer of layers) {
-      // Get all the parts that fits the format
-      const match = layer.match(/^(\d+)-(\d+)-(.+)$/)
-      if (!match) return null
-      parsed.push({
-        rangeStart: parseInt(match[1]),
-        rangeEnd: parseInt(match[2]),
-        name: match[3],
-      })
+      // Match pattern: [optional p/l prefix]start-end[_ or end]name
+      // If there's no underscore, the range must be at the end of the string
+      const match = layer.match(/^[pl]?(\d+)-(\d+)(?:_|$)(.*)/)
+      if (!match) {
+        parsed.push({
+          rangeStart: null,
+          rangeEnd: null,
+          name: layer,
+        })
+      } else {
+        parsed.push({
+          rangeStart: parseInt(match[1]),
+          rangeEnd: parseInt(match[2]),
+          name: match[3],
+        })
+      }
     }
     return parsed.length > 0 ? parsed : null
   }
@@ -84,12 +92,33 @@ async function getDirectoryTree(dirPath, libraryId = null) {
       if (noteFiles.length === 0) return []
 
       // Sort by depth first, then by range
-      // Ensure parent nodes get added to the tree eariler than their child
+      // Ensure parent nodes get added to the tree earlier than their children
       noteFiles.sort((a, b) => {
+        // Sort by depth first (parent before children)
         if (a.depth !== b.depth) return a.depth - b.depth
-        const aRange = a.layers[0].rangeStart
-        const bRange = b.layers[0].rangeStart
-        return aRange - bRange
+
+        // For same depth, use the LAST layer (current node's range position)
+        const aLastLayer = a.layers[a.layers.length - 1]
+        const bLastLayer = b.layers[b.layers.length - 1]
+
+        const aStart = aLastLayer.rangeStart
+        const bStart = bLastLayer.rangeStart
+        const aEnd = aLastLayer.rangeEnd
+        const bEnd = bLastLayer.rangeEnd
+
+        // Handle null values: non-null comes before null
+        // Note: both rangeStart and rangeEnd are either both null or both non-null
+        if (aStart !== null && bStart !== null) {
+          if (aStart === null) return 1 // a after b (b has valid range)
+          if (bStart === null) return -1 // a before b (a has valid range)
+
+          // Both have valid ranges, compare numerically
+          // Compare rangeStart first, then rangeEnd (smaller values first)
+          if (aStart !== bStart) {
+            return aStart - bStart
+          }
+          return aEnd - bEnd
+        }
       })
 
       // Build tree structure - use filename as key for O(1) parent lookup
@@ -97,12 +126,18 @@ async function getDirectoryTree(dirPath, libraryId = null) {
       const roots = []
 
       for (const note of noteFiles) {
+        const lastLayer = note.layers[note.layers.length - 1]
+
+        // Build display name: omit range prefix if null
+        let displayName
+        if (lastLayer.rangeStart === null && lastLayer.rangeEnd === null) {
+          displayName = lastLayer.name
+        } else {
+          displayName = `${lastLayer.rangeStart}-${lastLayer.rangeEnd}_${lastLayer.name}`
+        }
+
         const noteNode = {
-          name: [
-            note.layers[note.layers.length - 1].rangeStart,
-            note.layers[note.layers.length - 1].rangeEnd,
-            note.layers[note.layers.length - 1].name,
-          ].join('-'),
+          name: displayName,
           path: note.path,
           layers: note.layers,
           children: [],
