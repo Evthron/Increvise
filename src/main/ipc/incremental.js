@@ -524,6 +524,9 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
       const ranges = children.map((child) => {
         // Parse range_start and range_end to handle line numbers
         const parseRange = (rangeStr) => {
+          if (!rangeStr) {
+            return { page: null, line: null }
+          }
           if (rangeStr.includes(':')) {
             const [page, line] = rangeStr.split(':')
             return { page: parseInt(page), line: parseInt(line) }
@@ -647,6 +650,9 @@ async function getChildRanges(parentPath, libraryId, getCentralDbPath, useDynami
       // Parse range_start and range_end to handle line numbers
       // Format: "pageNum:lineNum" or just "pageNum"
       const parseRange = (rangeStr) => {
+        if (!rangeStr) {
+          return { page: null, line: null }
+        }
         if (rangeStr.includes(':')) {
           const [page, line] = rangeStr.split(':')
           return { page: parseInt(page), line: parseInt(line) }
