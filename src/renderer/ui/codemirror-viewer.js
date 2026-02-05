@@ -1483,7 +1483,7 @@ export class CodeMirrorViewer extends LitElement {
       if (this.hasRangeChanges) {
         const rangeUpdates = this.getRangeUpdates()
         if (rangeUpdates.length > 0) {
-          await window.fileManager.updateLockedRangesInParentFile(
+          await window.fileManager.updateLockedRanges(
             filePath,
             rangeUpdates,
             window.currentFileLibraryId
