@@ -1,6 +1,6 @@
 {
   "name": "Increvise",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Revise your local files with spaced repetition.",
   "license": "GPL-3.0-or-later",
   "author": "",
@@ -21,12 +21,18 @@
     "test:incremental": "npm run rebuild:node && node --test test/incremental.test.js",
     "test:spaced": "npm run rebuild:node && node --test test/spaced.test.js",
     "test:workspace": "npm run rebuild:node && node --test test/workspace.test.js",
-    "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace"
+    "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace",
+    "dist": "npm run build && electron-builder",
+    "dist:appimage": "npm run build && electron-builder --linux AppImage",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
     "@eslint/js": "^9.39.1",
     "electron": "^38.2.1",
+    "electron-builder": "^26.7.0",
     "electron-vite": "^4.0.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
@@ -49,5 +55,56 @@
     "node-fetch": "^3.3.2",
     "node-html-markdown": "^2.0.0",
     "pdfjs-dist": "^5.4.449"
+  },
+  "build": {
+    "appId": "com.increvise.app",
+    "productName": "Increvise",
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "index.html",
+      "style.css",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Education",
+      "icon": "resources/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.education",
+      "icon": "resources/icon.icns"
+    },
+    "dmg": {
+      "title": "Increvise ${version}",
+      "icon": "resources/icon.icns"
+    },
+    "appImage": {},
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ]
   }
 }
