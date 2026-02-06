@@ -1055,7 +1055,7 @@ async function extractPdfText(
 
       if (!words) words = 'text'
 
-      const fileName = `${pageNum}-${pageNum}-${words}.md`
+      const fileName = `${pageNum}-${pageNum}_${words}.md`
       const textFilePath = path.join(containerFolder, fileName)
       console.log('[extractPdfText] Will create text file:', textFilePath)
       const relativePath = path.relative(rootPath, textFilePath)
@@ -1179,7 +1179,7 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       }
 
       // Generate filename: {startTime}-{endTime}-clip.md
-      const fileName = `${startTime}-${endTime}-clip.md`
+      const fileName = `${startTime}-${endTime}_clip.md`
       const metadataFilePath = path.join(containerFolder, fileName)
       console.log('[extractVideoClip] Will create metadata file:', metadataFilePath)
       const relativePath = path.relative(rootPath, metadataFilePath)
