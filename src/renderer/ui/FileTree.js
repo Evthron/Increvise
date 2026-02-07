@@ -286,10 +286,18 @@ export class FileTree extends LitElement {
       // Load children if not loaded (for directories)
       if (item.type === 'directory' && (!item.children || item.children.length === 0)) {
         try {
-          const children = await window.fileManager.getDirectoryTree(item.path, item.library_id)
-          item.children = children
+          const result = await window.fileManager.getDirectoryTree(item.path, item.library_id)
+
+          if (!result.success) {
+            console.error('Failed to load directory:', result.error)
+            alert(`Failed to load directory: ${result.error}`)
+            return
+          }
+
+          item.children = result.data
         } catch (error) {
           console.error('Error loading children:', error)
+          alert(`Error loading children: ${error.message}`)
           return
         }
       }

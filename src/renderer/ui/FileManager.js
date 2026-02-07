@@ -304,11 +304,18 @@ export class FileManager extends LitElement {
         await this._openAllWorkspaces()
       } else {
         // Refresh the directory tree for single workspace
-        const tree = await window.fileManager.getDirectoryTree(
+        const result = await window.fileManager.getDirectoryTree(
           this.currentRootPath,
           window.currentWorkspaceLibraryId
         )
-        this.treeData = tree
+
+        if (!result.success) {
+          console.error('Failed to refresh directory tree:', result.error)
+          alert(`Failed to refresh dir：${result.error}`)
+          return
+        }
+
+        this.treeData = result.data
 
         // Also refresh the revision list
         const revisionList = document.querySelector('revision-list')
@@ -328,11 +335,17 @@ export class FileManager extends LitElement {
 
       // Loop through each workspace and get its directory tree
       for (const ws of workspaces) {
-        const treeData = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
-        const nodes = Array.isArray(treeData)
-          ? treeData
-          : Array.isArray(treeData?.children)
-            ? treeData.children
+        const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
+
+        if (!result.success) {
+          console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
+          continue // Skip this workspace but continue with others
+        }
+
+        const nodes = Array.isArray(result.data)
+          ? result.data
+          : Array.isArray(result.data?.children)
+            ? result.data.children
             : []
         combined.push(...nodes)
       }
@@ -377,12 +390,25 @@ export class FileManager extends LitElement {
     await window.fileManager.recordWorkspace(folderPath)
     console.log('Workspace recorded in central database')
 
-    const tree = await window.fileManager.getDirectoryTree(
-      folderPath,
-      window.currentWorkspaceLibraryId
-    )
-    console.log('Directory tree received:', tree)
-    this.treeData = tree
+    try {
+      const result = await window.fileManager.getDirectoryTree(
+        folderPath,
+        window.currentWorkspaceLibraryId
+      )
+
+      if (!result.success) {
+        console.error('Failed to load directory tree:', result.error)
+        alert(`Failed to load directory tree: ${result.error}`)
+        this.treeData = []
+      } else {
+        console.log('Directory tree received:', result.data)
+        this.treeData = result.data
+      }
+    } catch (error) {
+      console.error('Error fetching directory tree:', error)
+      alert(`Error fetching directory tree:：${error.message}`)
+      this.treeData = []
+    }
 
     // Load recent workspaces and update revision list
     await this._loadRecentWorkspaces()
