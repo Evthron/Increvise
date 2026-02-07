@@ -358,6 +358,38 @@ test('HTML DOM Matching Algorithm', async (t) => {
     assert.strictEqual(matched.tagName, 'H2', 'Should match h2 element')
     assert.ok(matched.textContent.includes('Introduction'), 'Should contain selected text')
   })
+
+  await t.test('Modified real world examples', async (rt) => {
+    // Test that all extracted child notes can be matched in parent file
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+
+    // Read parent file once
+    const parentPath = 'test/dom-match/site.html'
+    const parentHTML = await fs.readFile(parentPath, 'utf-8')
+    const parentDOM = new JSDOM(parentHTML)
+
+    const childFolderPath = 'test/dom-match/site/'
+    const childFiles = await fs.readdir(childFolderPath)
+
+    // Create separate test for each child file
+    for (const childFile of childFiles) {
+      await rt.test(`Match child file: ${childFile}`, async () => {
+        try {
+          const childPath = path.join(childFolderPath, childFile)
+          const childHTML = await fs.readFile(childPath, 'utf-8')
+          const matched = findMatchingNode(parentDOM.window.document, childHTML)
+
+          assert.ok(matched, `Should find matching node for ${childFile}`)
+
+          console.log(`✓ [${childFile}]`)
+        } catch (error) {
+          console.error(`✗ [${childFile}] Failed:`, error.message)
+          throw error // Re-throw to mark this specific test as failed
+        }
+      })
+    }
+  })
 })
 
 console.log('✅ HTML DOM matching tests ready to run')
