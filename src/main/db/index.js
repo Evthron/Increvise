@@ -7,6 +7,7 @@ import fs from 'node:fs/promises'
 import os from 'os'
 import Database from 'better-sqlite3'
 import electron from 'electron'
+import { migrate } from './migration-central.js'
 const { app } = electron
 
 // Return XDG_DATA_HOME or default ~/.local/share
@@ -52,25 +53,8 @@ export async function initializeCentralDatabase() {
   try {
     const db = new Database(centralDbPath)
 
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS workspace_history (
-        library_id TEXT PRIMARY KEY,
-        folder_path TEXT NOT NULL UNIQUE,
-        folder_name TEXT NOT NULL,
-        db_path TEXT NOT NULL,
-        first_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
-        last_opened DATETIME DEFAULT CURRENT_TIMESTAMP,
-        open_count INTEGER DEFAULT 1,
-        total_files INTEGER DEFAULT 0,
-        files_due_today INTEGER DEFAULT 0
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_last_opened 
-      ON workspace_history(last_opened DESC);
-
-      CREATE INDEX IF NOT EXISTS idx_folder_path 
-      ON workspace_history(folder_path);
-    `)
+    // Use migration system to create/update schema
+    await migrate(db)
 
     db.close()
     console.log('Central database initialized successfully')

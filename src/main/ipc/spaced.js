@@ -8,6 +8,8 @@ import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 import { getWorkspaceDbPath } from '../db/index.js'
+import { insertInitialData } from '../db/insert-initial-data.js'
+import { migrate } from '../db/migration-workspace.js'
 
 async function createDatabase(folderPath, getCentralDbPath) {
   try {
@@ -33,138 +35,14 @@ async function createDatabase(folderPath, getCentralDbPath) {
     try {
       // Create and initialize the database
       const db = new Database(dbFilePath)
-      db.exec(`
-          CREATE TABLE library (
-              library_id TEXT PRIMARY KEY,
-              library_name TEXT NOT NULL,
-              created_time DATETIME DEFAULT CURRENT_TIMESTAMP
-          );
 
-          CREATE TABLE file (
-              library_id TEXT NOT NULL,
-              relative_path TEXT NOT NULL,
-              added_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-              last_revised_time DATETIME,
-              review_count INTEGER DEFAULT 0,
-              easiness REAL DEFAULT 2.5,
-              rank REAL DEFAULT 70.0,
-              interval INTEGER DEFAULT 1,
-              due_time DATETIME,
-              
-              rotation_interval INTEGER DEFAULT 3,
-              intermediate_multiplier REAL DEFAULT 1.0,
-              intermediate_base INTEGER DEFAULT 7,
-              extraction_count INTEGER DEFAULT 0,
-              last_queue_change DATETIME,
+      // Step 1: Run migrations to create latest schema
+      await migrate(db)
 
-              PRIMARY KEY (library_id, relative_path),
-              FOREIGN KEY (library_id) REFERENCES library(library_id)
-          );
-
-          CREATE TABLE review_queue (
-              library_id TEXT NOT NULL,
-              queue_name TEXT NOT NULL,
-              description TEXT,
-              created_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-
-              PRIMARY KEY (library_id, queue_name),
-              FOREIGN KEY (library_id) REFERENCES library(library_id)
-          );
-
-          CREATE TABLE queue_membership (
-              library_id TEXT NOT NULL,
-              queue_name TEXT NOT NULL,
-              relative_path TEXT NOT NULL,
-
-              PRIMARY KEY (library_id, relative_path),
-              FOREIGN KEY (library_id, relative_path)
-                REFERENCES file(library_id, relative_path),
-              FOREIGN KEY (library_id, queue_name)
-                REFERENCES review_queue(library_id, queue_name)
-          );
-
-          CREATE TABLE queue_config (
-              library_id TEXT NOT NULL,
-              queue_name TEXT NOT NULL,
-              config_key TEXT NOT NULL,
-              config_value TEXT NOT NULL,
-
-              PRIMARY KEY (library_id, queue_name, config_key),
-              FOREIGN KEY (library_id) REFERENCES library(library_id)
-          );
-
-          CREATE TABLE note_source (
-              library_id TEXT NOT NULL,
-              relative_path TEXT NOT NULL,
-              parent_path TEXT,
-              extract_type TEXT NOT NULL,
-              range_start TEXT,
-              range_end TEXT,
-              source_hash TEXT,
-
-              PRIMARY KEY (library_id, relative_path),
-              FOREIGN KEY (library_id, relative_path) 
-                  REFERENCES file(library_id, relative_path)
-          );
-
-          CREATE INDEX idx_note_source_parent ON note_source(library_id, parent_path);
-          CREATE INDEX idx_note_source_hash ON note_source(library_id, source_hash);
-        `)
-
+      // Step 2: Insert initial business data
       const libraryId = crypto.randomUUID()
       const libraryName = path.basename(folderPath)
-      db.prepare('INSERT INTO library (library_id, library_name) VALUES (?, ?)').run(
-        libraryId,
-        libraryName
-      )
-
-      // Initialize default queues
-      const insertQueue = db.prepare(
-        'INSERT INTO review_queue (library_id, queue_name, description) VALUES (?, ?, ?)'
-      )
-      insertQueue.run(libraryId, 'new', 'New queue, FIFO, waiting to be processed')
-      insertQueue.run(libraryId, 'processing', 'processing queue: rotation-based review')
-      insertQueue.run(libraryId, 'intermediate', 'intermediate queue: variable interval review')
-      insertQueue.run(libraryId, 'spaced-casual', 'Spaced Repetition (Casual): ~80% retention')
-      insertQueue.run(libraryId, 'spaced-standard', 'Spaced Repetition (Standard): ~90% retention')
-      insertQueue.run(libraryId, 'spaced-strict', 'Spaced Repetition (Strict): ~95% retention')
-      insertQueue.run(libraryId, 'archived', 'Archived items, low chance of review')
-
-      // Initialize default queue configs
-      const insertConfig = db.prepare(
-        'INSERT INTO queue_config (library_id, queue_name, config_key, config_value) VALUES (?, ?, ?, ?)'
-      )
-      insertConfig.run(libraryId, 'new', 'max_per_day', '10')
-      insertConfig.run(libraryId, 'processing', 'default_rotation', '3')
-      insertConfig.run(libraryId, 'intermediate', 'default_base', '7')
-      insertConfig.run(libraryId, 'intermediate', 'min_interval', '3')
-
-      // Spaced-Casual queue configs (~80% retention)
-      insertConfig.run(libraryId, 'spaced-casual', 'initial_ef', '2.0')
-      insertConfig.run(libraryId, 'spaced-casual', 'min_ef', '1.2')
-      insertConfig.run(libraryId, 'spaced-casual', 'max_ef', '2.5')
-      insertConfig.run(libraryId, 'spaced-casual', 'first_interval', '1')
-      insertConfig.run(libraryId, 'spaced-casual', 'second_interval', '4')
-      insertConfig.run(libraryId, 'spaced-casual', 'fail_threshold', '2')
-
-      // Spaced-Standard queue configs (~90% retention)
-      insertConfig.run(libraryId, 'spaced-standard', 'initial_ef', '2.5')
-      insertConfig.run(libraryId, 'spaced-standard', 'min_ef', '1.3')
-      insertConfig.run(libraryId, 'spaced-standard', 'max_ef', '2.5')
-      insertConfig.run(libraryId, 'spaced-standard', 'first_interval', '1')
-      insertConfig.run(libraryId, 'spaced-standard', 'second_interval', '6')
-      insertConfig.run(libraryId, 'spaced-standard', 'fail_threshold', '2')
-
-      // Spaced-Strict queue configs (~95% retention)
-      insertConfig.run(libraryId, 'spaced-strict', 'initial_ef', '2.8')
-      insertConfig.run(libraryId, 'spaced-strict', 'min_ef', '1.5')
-      insertConfig.run(libraryId, 'spaced-strict', 'max_ef', '3.0')
-      insertConfig.run(libraryId, 'spaced-strict', 'first_interval', '1')
-      insertConfig.run(libraryId, 'spaced-strict', 'second_interval', '8')
-      insertConfig.run(libraryId, 'spaced-strict', 'fail_threshold', '3')
-
-      // Global configs (not a real queue, just a config namespace)
-      insertConfig.run(libraryId, 'global', 'rank_penalty', '5')
+      insertInitialData(db, libraryId, libraryName)
 
       db.close()
 
@@ -549,6 +427,7 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
       try {
         await fs.access(workspace.db_path)
       } catch {
+        console.error(workspace.db_path, 'is not accessible, skip it')
         continue
       }
       try {
