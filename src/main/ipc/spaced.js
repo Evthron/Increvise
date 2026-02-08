@@ -920,10 +920,20 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
 
       // Set appropriate parameters based on target queue
       if (targetQueue === 'intermediate') {
+        // Get default interval from config
+        const defaultIntervalConfig = db
+          .prepare(
+            "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'intermediate' AND config_key = 'default_base'"
+          )
+          .get(libraryId)
+        const defaultInterval = defaultIntervalConfig
+          ? parseInt(defaultIntervalConfig.config_value)
+          : 7
+
         db.prepare(
-          `UPDATE file SET intermediate_multiplier = 1.0, due_time = datetime('now')
+          `UPDATE file SET intermediate_interval = ?, due_time = datetime('now')
            WHERE library_id = ? AND relative_path = ?`
-        ).run(libraryId, relativePath)
+        ).run(defaultInterval, libraryId, relativePath)
       } else if (targetQueue.startsWith('spaced-')) {
         // Get initial EF from queue config
         const queueConfig = db
@@ -999,11 +1009,21 @@ async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPa
          WHERE library_id = ? AND relative_path = ?`
       ).run(rankPenalty, libraryId, parentRelPath)
 
-      // Create child file entry (inherit parent rank)
+      // Get default interval for intermediate queue
+      const defaultIntervalConfig = db
+        .prepare(
+          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'intermediate' AND config_key = 'default_base'"
+        )
+        .get(libraryId)
+      const defaultInterval = defaultIntervalConfig
+        ? parseInt(defaultIntervalConfig.config_value)
+        : 7
+
+      // Create child file entry (inherit parent rank, set default intermediate interval)
       db.prepare(
-        `INSERT INTO file (library_id, relative_path, added_time, rank, due_time)
-         VALUES (?, ?, datetime('now'), ?, datetime('now'))`
-      ).run(libraryId, childRelPath, parent.rank)
+        `INSERT INTO file (library_id, relative_path, added_time, rank, due_time, intermediate_interval)
+         VALUES (?, ?, datetime('now'), ?, datetime('now'), ?)`
+      ).run(libraryId, childRelPath, parent.rank, defaultInterval)
 
       // Add child to intermediate queue
       db.prepare(
@@ -1130,42 +1150,61 @@ async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedbac
 }
 
 async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback) {
-  // feedback: 'decrease' (÷1.5), 'maintain' (same), 'increase' (×1.5)
+  // feedback: 'decrease' (more often, ÷1.5), 'maintain' (same), 'increase' (less often, ×1.5)
   try {
     const db = new Database(dbPath)
+
+    // Get current interval
     const file = db
-      .prepare(
-        'SELECT intermediate_base, intermediate_multiplier FROM file WHERE library_id = ? AND relative_path = ?'
-      )
+      .prepare('SELECT intermediate_interval FROM file WHERE library_id = ? AND relative_path = ?')
       .get(libraryId, relativePath)
 
-    const multiplierChanges = {
-      decrease: 1 / 1.5,
-      maintain: 1.0,
-      increase: 1.5,
+    if (!file) {
+      db.close()
+      return { success: false, error: 'File not found' }
     }
 
-    let newMultiplier = file.intermediate_multiplier * multiplierChanges[feedback]
-    let newInterval = file.intermediate_base * newMultiplier
+    // Get min_interval from config (default to 1)
+    const minIntervalConfig = db
+      .prepare(
+        "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'intermediate' AND config_key = 'min_interval'"
+      )
+      .get(libraryId)
+    const minInterval = minIntervalConfig ? parseInt(minIntervalConfig.config_value) : 1
 
-    // Ensure not below base interval
-    newInterval = Math.max(newInterval, file.intermediate_base)
-    newMultiplier = newInterval / file.intermediate_base
+    // Calculate new interval based on feedback
+    const intervalChanges = {
+      decrease: 1 / 1.5, // More often: reduce interval by 33%
+      maintain: 1.0, // Same: keep interval unchanged
+      increase: 1.5, // Less often: increase interval by 50%
+    }
 
+    const changeRatio = intervalChanges[feedback]
+    if (changeRatio === undefined) {
+      db.close()
+      return { success: false, error: `Invalid feedback value: ${feedback}` }
+    }
+
+    // Calculate and enforce minimum
+    let newInterval = Math.floor(file.intermediate_interval * changeRatio)
+    newInterval = Math.max(newInterval, minInterval)
+
+    // Update database
     db.prepare(
       `UPDATE file 
-       SET intermediate_multiplier = ?,
+       SET intermediate_interval = ?,
            due_time = datetime('now', '+' || ? || ' days'),
            last_revised_time = datetime('now')
        WHERE library_id = ? AND relative_path = ?`
-    ).run(newMultiplier, Math.floor(newInterval), libraryId, relativePath)
+    ).run(newInterval, newInterval, libraryId, relativePath)
 
     db.close()
     return {
       success: true,
-      message: 'Intermediate feedback recorded',
+      message: `Next review in ${newInterval} day(s)`,
       queueName: 'intermediate',
-      newInterval: Math.floor(newInterval),
+      newInterval: newInterval,
+      previousInterval: file.intermediate_interval,
     }
   } catch (err) {
     return { success: false, error: err.message }

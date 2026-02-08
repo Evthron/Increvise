@@ -291,6 +291,36 @@ export class FeedbackBar extends LitElement {
       box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
       transform: translateY(-1px);
     }
+
+    .feedback-btn.decrease {
+      background: linear-gradient(135deg, #ff3b30 0%, #d32f2f 100%);
+    }
+
+    .feedback-btn.decrease:hover {
+      background: linear-gradient(135deg, #e62e24 0%, #b71c1c 100%);
+      box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .feedback-btn.maintain {
+      background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+    }
+
+    .feedback-btn.maintain:hover {
+      background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
+      box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .feedback-btn.increase {
+      background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
+    }
+
+    .feedback-btn.increase:hover {
+      background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
+      box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
+      transform: translateY(-1px);
+    }
   `
 
   constructor() {
@@ -803,22 +833,48 @@ export class FeedbackBar extends LitElement {
       </div>
       ${this.currentQueue === 'processing' || this.currentQueue === 'new'
         ? html`<processing-feedback-bar></processing-feedback-bar>`
-        : html`
-            <div class="feedback-buttons">
-              <button class="feedback-btn again" @click=${() => this._handleFeedback('again')}>
-                Again
-              </button>
-              <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>
-                Hard
-              </button>
-              <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>
-                Good
-              </button>
-              <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>
-                Easy
-              </button>
-            </div>
-          `}
+        : this.currentQueue === 'intermediate'
+          ? html`
+              <div class="feedback-buttons">
+                <button
+                  class="feedback-btn decrease"
+                  @click=${() => this._handleFeedback('decrease')}
+                  title="Review more frequently (interval ÷1.5)"
+                >
+                  More Often
+                </button>
+                <button
+                  class="feedback-btn maintain"
+                  @click=${() => this._handleFeedback('maintain')}
+                  title="Keep same review interval"
+                >
+                  Same
+                </button>
+                <button
+                  class="feedback-btn increase"
+                  @click=${() => this._handleFeedback('increase')}
+                  title="Review less frequently (interval ×1.5)"
+                >
+                  Less Often
+                </button>
+              </div>
+            `
+          : html`
+              <div class="feedback-buttons">
+                <button class="feedback-btn again" @click=${() => this._handleFeedback('again')}>
+                  Again
+                </button>
+                <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>
+                  Hard
+                </button>
+                <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>
+                  Good
+                </button>
+                <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>
+                  Easy
+                </button>
+              </div>
+            `}
       <queue-menu
         .currentQueue=${this.currentQueue}
         .position=${this.queueMenuPosition}

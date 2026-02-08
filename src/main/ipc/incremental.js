@@ -815,8 +815,8 @@ async function extractNote(
       const initialDays = getRandomInitialDays()
       db.prepare(
         `
-            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
-            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
+            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
           `
       ).run(libraryId, relativePath, initialDays)
 
@@ -932,8 +932,8 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
       const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
       `
       ).run(libraryId, relativePath, initialDays)
 
@@ -1080,8 +1080,8 @@ async function extractPdfText(
       const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
       `
       ).run(libraryId, relativePath, initialDays)
 
@@ -1205,8 +1205,8 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       const initialDays = getRandomInitialDays()
       db.prepare(
         `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_base, intermediate_multiplier)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7, 1.0)
+        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
+        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
       `
       ).run(libraryId, relativePath, initialDays)
 

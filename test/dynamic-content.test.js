@@ -65,8 +65,7 @@ async function createWorkspaceDb(workspaceDir, libraryId, centralDbPath) {
       due_time DATETIME,
       queue TEXT DEFAULT 'new',
       rotation_interval INTEGER DEFAULT 3,
-      intermediate_multiplier REAL DEFAULT 1.0,
-      intermediate_base INTEGER DEFAULT 7,
+      intermediate_interval INTEGER DEFAULT 7,
       extraction_count INTEGER DEFAULT 0,
       PRIMARY KEY (library_id, relative_path),
       FOREIGN KEY (library_id) REFERENCES library(library_id)

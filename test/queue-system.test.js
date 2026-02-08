@@ -129,7 +129,7 @@ async function test2_AddFileToNewQueue() {
     console.log(`  - rank: ${file.rank}`)
     console.log(`  - easiness: ${file.easiness}`)
     console.log(`  - rotation_interval: ${file.rotation_interval}`)
-    console.log(`  - intermediate_base: ${file.intermediate_base}`)
+    console.log(`  - intermediate_interval: ${file.intermediate_interval}`)
     db.close()
   }
 }
@@ -264,9 +264,7 @@ async function test6_IntermediateFeedback() {
   for (const feedback of feedbacks) {
     const db = new Database(TEST_DB_PATH, { readonly: true })
     const before = db
-      .prepare(
-        'SELECT intermediate_base, intermediate_multiplier FROM file WHERE library_id = ? AND relative_path = ?'
-      )
+      .prepare('SELECT intermediate_interval FROM file WHERE library_id = ? AND relative_path = ?')
       .get(libraryId, childPath)
     db.close()
 
@@ -274,19 +272,13 @@ async function test6_IntermediateFeedback() {
 
     const db2 = new Database(TEST_DB_PATH, { readonly: true })
     const after = db2
-      .prepare(
-        'SELECT intermediate_base, intermediate_multiplier FROM file WHERE library_id = ? AND relative_path = ?'
-      )
+      .prepare('SELECT intermediate_interval FROM file WHERE library_id = ? AND relative_path = ?')
       .get(libraryId, childPath)
     db2.close()
 
     console.log(`\nFeedback: ${feedback}`)
-    console.log(
-      `  Multiplier: ${before.intermediate_multiplier.toFixed(2)} → ${after.intermediate_multiplier.toFixed(2)}`
-    )
-    console.log(
-      `  Interval: ${(before.intermediate_base * before.intermediate_multiplier).toFixed(1)} → ${result.newInterval} days`
-    )
+    console.log(`  Interval: ${before.intermediate_interval} → ${after.intermediate_interval} days`)
+    console.log(`  Result new interval: ${result.newInterval} days`)
   }
 }
 

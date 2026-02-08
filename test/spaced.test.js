@@ -37,8 +37,8 @@ function insertTestData(dbPath, libraryId) {
 
   const insertFile = db.prepare(`
     INSERT INTO file 
-    (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time, rotation_interval, intermediate_base, intermediate_multiplier)
-    VALUES (?, ?, datetime('now'), ?, ?, ?, ?, datetime('now', ? || ' days'), ?, ?, ?)
+    (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time, rotation_interval, intermediate_interval)
+    VALUES (?, ?, datetime('now'), ?, ?, ?, ?, datetime('now', ? || ' days'), ?, ?)
   `)
 
   const insertMembership = db.prepare(`
@@ -47,27 +47,27 @@ function insertTestData(dbPath, libraryId) {
   `)
 
   // File 1: In new queue (never reviewed)
-  insertFile.run(libraryId, 'new-file.md', 0, 2.5, 70, 1, -1, 3, 7, 1.0)
+  insertFile.run(libraryId, 'new-file.md', 0, 2.5, 70, 1, -1, 3, 7)
   insertMembership.run(libraryId, 'new', 'new-file.md')
 
   // File 2: In processing queue
-  insertFile.run(libraryId, 'processing-file.md', 2, 2.5, 70, 1, -1, 3, 7, 1.0)
+  insertFile.run(libraryId, 'processing-file.md', 2, 2.5, 70, 1, -1, 3, 7)
   insertMembership.run(libraryId, 'processing', 'processing-file.md')
 
   // File 3: In intermediate queue
-  insertFile.run(libraryId, 'intermediate-file.md', 3, 2.5, 70, 7, -1, 3, 7, 1.0)
+  insertFile.run(libraryId, 'intermediate-file.md', 3, 2.5, 70, 7, -1, 3, 7)
   insertMembership.run(libraryId, 'intermediate', 'intermediate-file.md')
 
   // File 4: In spaced-standard queue (reviewed once)
-  insertFile.run(libraryId, 'spaced-standard-file.md', 1, 1.35, 70, 1, -1, 3, 7, 1.0)
+  insertFile.run(libraryId, 'spaced-standard-file.md', 1, 1.35, 70, 1, -1, 3, 7)
   insertMembership.run(libraryId, 'spaced-standard', 'spaced-standard-file.md')
 
   // File 5: In spaced-casual queue (reviewed multiple times)
-  insertFile.run(libraryId, 'spaced-casual-file.md', 5, 2.0, 70, 30, -10, 3, 7, 1.0)
+  insertFile.run(libraryId, 'spaced-casual-file.md', 5, 2.0, 70, 30, -10, 3, 7)
   insertMembership.run(libraryId, 'spaced-casual', 'spaced-casual-file.md')
 
   // File 6: In spaced-strict queue (not yet due)
-  insertFile.run(libraryId, 'spaced-strict-file.md', 2, 2.8, 70, 10, 5, 3, 7, 1.0)
+  insertFile.run(libraryId, 'spaced-strict-file.md', 2, 2.8, 70, 10, 5, 3, 7)
   insertMembership.run(libraryId, 'spaced-strict', 'spaced-strict-file.md')
 
   db.close()
