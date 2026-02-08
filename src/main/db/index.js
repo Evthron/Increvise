@@ -7,7 +7,8 @@ import fs from 'node:fs/promises'
 import os from 'os'
 import Database from 'better-sqlite3'
 import electron from 'electron'
-import { migrate } from './migration-central.js'
+import { migrate as migrateCentral } from './migration-central.js'
+import { migrate as migrateWorkspace } from './migration-workspace.js'
 const { app } = electron
 
 // Return XDG_DATA_HOME or default ~/.local/share
@@ -26,7 +27,7 @@ export function getAppDataHome() {
       // Windows: %APPDATA%, macOS: ~/Library/Application Support
       return app.getPath('appData')
     }
-  } catch (e) {
+  } catch {
     return getXdgDataHome()
   }
 }
@@ -54,14 +55,69 @@ export async function initializeCentralDatabase() {
     const db = new Database(centralDbPath)
 
     // Use migration system to create/update schema
-    await migrate(db, centralDbPath)
+    await migrateCentral(db, centralDbPath)
 
     db.close()
     console.log('Central database initialized successfully')
+
+    // Migrate all known workspaces
+    await migrateAllWorkspaces()
+
     return true
   } catch (err) {
     console.error('Error creating central database:', err)
     throw err
+  }
+}
+
+/**
+ * Migrate all workspace databases registered in central DB
+ */
+export async function migrateAllWorkspaces() {
+  const centralDbPath = getCentralDbPath()
+
+  try {
+    const db = new Database(centralDbPath, { readonly: true })
+    const workspaces = db
+      .prepare('SELECT library_id, db_path, folder_path FROM workspace_history')
+      .all()
+    db.close()
+
+    if (workspaces.length === 0) {
+      console.log('No workspaces to migrate')
+      return
+    }
+
+    console.log(`Found ${workspaces.length} workspace(s) to check for migrations`)
+
+    for (const workspace of workspaces) {
+      const { library_id, db_path, folder_path } = workspace
+      const workspaceName = path.basename(folder_path)
+
+      // Check if database file exists
+      try {
+        await fs.access(db_path)
+      } catch {
+        console.log(`[${workspaceName}] Database file not found at ${db_path}, skipping migration`)
+        continue
+      }
+
+      // Open and migrate workspace database
+      try {
+        console.log(`[${workspaceName}] Checking migrations...`)
+        const workspaceDb = new Database(db_path)
+        await migrateWorkspace(workspaceDb, db_path)
+        workspaceDb.close()
+      } catch (err) {
+        console.error(`[${workspaceName}] Failed to migrate workspace ${library_id}:`, err.message)
+        // Continue with other workspaces even if one fails
+      }
+    }
+
+    console.log('Workspace migration check complete')
+  } catch (err) {
+    console.error('Error during workspace migration:', err)
+    // Don't throw - this shouldn't prevent app from starting
   }
 }
 
