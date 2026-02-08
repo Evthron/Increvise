@@ -22,6 +22,7 @@
     "test:spaced": "npm run rebuild:node && node --test test/spaced.test.js",
     "test:workspace": "npm run rebuild:node && node --test test/workspace.test.js",
     "test:clean": "rm -rf test/test-workspace && rm -rf test/temp-test-workspace",
+    "db:rollback": "npm run rebuild:node && node scripts/rollback.js",
     "dist": "npm run build && electron-builder",
     "dist:appimage": "npm run build && electron-builder --linux AppImage",
     "dist:linux": "npm run build && electron-builder --linux",
