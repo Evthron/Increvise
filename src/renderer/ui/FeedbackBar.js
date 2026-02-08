@@ -125,6 +125,34 @@ export class FeedbackBar extends LitElement {
       opacity: 1;
     }
 
+    .interval-control {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-secondary);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .interval-display {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-primary);
+    }
+
+    .interval-separator {
+      color: var(--border-color);
+      font-size: 10px;
+    }
+
+    .interval-unit {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-left: 2px;
+    }
+
     .queue-control {
       position: relative;
       display: inline-flex;
@@ -639,6 +667,78 @@ export class FeedbackBar extends LitElement {
     }
   }
 
+  _getIntervalInfo(file) {
+    const queue = this.currentQueue
+
+    if (queue === 'processing') {
+      return {
+        type: 'rotation',
+        value: file.rotation_interval || 3,
+        label: 'Rotation',
+        unit: 'days',
+      }
+    } else if (queue === 'intermediate') {
+      return {
+        type: 'intermediate',
+        value: file.intermediate_interval || 7,
+        label: 'Interval',
+        unit: 'days',
+      }
+    } else if (queue && queue.startsWith('spaced-')) {
+      return {
+        type: 'spaced',
+        interval: file.interval || 1,
+        easiness: file.easiness ? file.easiness.toFixed(2) : '2.50',
+        reviewCount: file.review_count || 0,
+        label: 'SR',
+        unit: 'days',
+      }
+    } else {
+      return null
+    }
+  }
+
+  async _handleIntervalChange(newInterval) {
+    const file = this.revisionFiles[this.currentIndex]
+    if (!file) return
+
+    const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
+
+    try {
+      let result
+      if (this.currentQueue === 'intermediate') {
+        result = await window.fileManager.updateIntermediateInterval(
+          file.file_path,
+          file.library_id,
+          clampedInterval
+        )
+      } else if (this.currentQueue === 'processing') {
+        result = await window.fileManager.updateRotationInterval(
+          file.file_path,
+          file.library_id,
+          clampedInterval
+        )
+      }
+
+      if (result && result.success) {
+        // Update local data
+        if (this.currentQueue === 'intermediate') {
+          file.intermediate_interval = clampedInterval
+        } else if (this.currentQueue === 'processing') {
+          file.rotation_interval = clampedInterval
+        }
+
+        this.requestUpdate()
+        this._showToast(`Interval updated to ${clampedInterval} days`)
+      } else {
+        this._showToast('Failed to update interval', true)
+      }
+    } catch (error) {
+      console.error('Error updating interval:', error)
+      this._showToast('Error updating interval', true)
+    }
+  }
+
   _toggleQueueMenu(e) {
     e.stopPropagation()
 
@@ -759,6 +859,9 @@ export class FeedbackBar extends LitElement {
     const workspaceName = file.workspacePath ? file.workspacePath.split('/').pop() : 'Unknown'
     const rank = Math.round(file.rank || 70)
 
+    // Get interval info based on queue
+    const intervalInfo = this._getIntervalInfo(file)
+
     // Calculate order number within the same day
     const dueDate = new Date(file.due_time).toDateString()
     const sameDayFiles = this.revisionFiles.filter(
@@ -817,6 +920,51 @@ export class FeedbackBar extends LitElement {
                 +
               </button>
             </span>
+            ${intervalInfo
+              ? html`
+                  <span class="file-meta-separator">•</span>
+                  <span class="file-meta-item interval-control" title="Review interval">
+                    <span class="meta-icon">⏱️</span>
+                    ${intervalInfo.type === 'spaced'
+                      ? html`
+                          <span class="interval-display">
+                            <span title="Current interval">${intervalInfo.interval}d</span>
+                            <span class="interval-separator">|</span>
+                            <span title="Easiness factor">EF:${intervalInfo.easiness}</span>
+                            <span class="interval-separator">|</span>
+                            <span title="Review count">×${intervalInfo.reviewCount}</span>
+                          </span>
+                        `
+                      : html`
+                          <button
+                            class="rank-btn rank-decrease"
+                            @click=${() => this._handleIntervalChange(intervalInfo.value - 1)}
+                            title="Decrease interval"
+                          >
+                            −
+                          </button>
+                          <input
+                            type="number"
+                            class="rank-input"
+                            .value=${intervalInfo.value}
+                            min="1"
+                            max="365"
+                            @change=${(e) => this._handleIntervalChange(parseInt(e.target.value))}
+                            @click=${(e) => e.stopPropagation()}
+                            title="Enter interval in days"
+                          />
+                          <button
+                            class="rank-btn rank-increase"
+                            @click=${() => this._handleIntervalChange(intervalInfo.value + 1)}
+                            title="Increase interval"
+                          >
+                            +
+                          </button>
+                          <span class="interval-unit">${intervalInfo.unit}</span>
+                        `}
+                  </span>
+                `
+              : ''}
             ${this.currentQueue
               ? html`
                   <span class="file-meta-separator">•</span>

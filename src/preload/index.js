@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   forgetFile: (filePath, libraryId) => ipcRenderer.invoke('forget-file', filePath, libraryId),
   updateFileRank: (filePath, libraryId, newRank) =>
     ipcRenderer.invoke('update-file-rank', filePath, libraryId, newRank),
+  updateIntermediateInterval: (filePath, libraryId, newInterval) =>
+    ipcRenderer.invoke('update-intermediate-interval', filePath, libraryId, newInterval),
+  updateRotationInterval: (filePath, libraryId, newInterval) =>
+    ipcRenderer.invoke('update-rotation-interval', filePath, libraryId, newInterval),
   getFileQueue: (filePath, libraryId) => ipcRenderer.invoke('get-file-queue', filePath, libraryId),
   moveFileToQueue: (filePath, libraryId, targetQueue) =>
     ipcRenderer.invoke('move-file-to-queue', filePath, libraryId, targetQueue),

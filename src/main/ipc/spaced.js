@@ -1211,6 +1211,56 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
   }
 }
 
+async function updateIntermediateInterval(filePath, libraryId, newInterval, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, filePath)
+
+    // Validate interval
+    const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
+
+    db.prepare(
+      'UPDATE file SET intermediate_interval = ? WHERE library_id = ? AND relative_path = ?'
+    ).run(clampedInterval, libraryId, relativePath)
+
+    db.close()
+    return { success: true, newInterval: clampedInterval }
+  } catch (error) {
+    console.error('Error updating intermediate interval:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+async function updateRotationInterval(filePath, libraryId, newInterval, getCentralDbPath) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, filePath)
+
+    // Validate interval
+    const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
+
+    db.prepare(
+      'UPDATE file SET rotation_interval = ? WHERE library_id = ? AND relative_path = ?'
+    ).run(clampedInterval, libraryId, relativePath)
+
+    db.close()
+    return { success: true, newInterval: clampedInterval }
+  } catch (error) {
+    console.error('Error updating rotation interval:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('create-database', (_event, folderPath) =>
     createDatabase(folderPath, getCentralDbPath)
@@ -1237,6 +1287,12 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   )
   ipcMain.handle('update-file-rank', (_event, filePath, libraryId, newRank) =>
     updateFileRank(filePath, libraryId, newRank, getCentralDbPath)
+  )
+  ipcMain.handle('update-intermediate-interval', (_event, filePath, libraryId, newInterval) =>
+    updateIntermediateInterval(filePath, libraryId, newInterval, getCentralDbPath)
+  )
+  ipcMain.handle('update-rotation-interval', (_event, filePath, libraryId, newInterval) =>
+    updateRotationInterval(filePath, libraryId, newInterval, getCentralDbPath)
   )
 
   // Migration
