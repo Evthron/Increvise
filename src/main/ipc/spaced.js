@@ -37,7 +37,7 @@ async function createDatabase(folderPath, getCentralDbPath) {
       const db = new Database(dbFilePath)
 
       // Step 1: Run migrations to create latest schema
-      await migrate(db)
+      await migrate(db, dbFilePath)
 
       // Step 2: Insert initial business data
       const libraryId = crypto.randomUUID()

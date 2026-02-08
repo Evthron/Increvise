@@ -29,7 +29,7 @@ try {
   const centralDb = new Database(centralDbPath)
   console.log(`   Current version: ${getVersion(centralDb)}`)
 
-  await migrateCentral(centralDb)
+  await migrateCentral(centralDb, centralDbPath)
   console.log(`   After migration: ${getVersion(centralDb)}`)
 
   const tables = centralDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
@@ -43,7 +43,7 @@ try {
   const workspaceDb = new Database(workspaceDbPath)
   console.log(`   Current version: ${getVersion(workspaceDb)}`)
 
-  await migrateWorkspace(workspaceDb)
+  await migrateWorkspace(workspaceDb, workspaceDbPath)
   console.log(`   After migration: ${getVersion(workspaceDb)}`)
 
   const workspaceTables = workspaceDb
@@ -59,7 +59,7 @@ try {
   const idempotentDb = new Database(centralDbPath)
   console.log(`   Current version: ${getVersion(idempotentDb)}`)
 
-  await migrateCentral(idempotentDb)
+  await migrateCentral(idempotentDb, centralDbPath)
   console.log(`   After re-migration: ${getVersion(idempotentDb)}`)
 
   idempotentDb.close()

@@ -8,14 +8,21 @@ import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const MIGRATIONS_DIR = path.join(__dirname, 'migration-workspace')
+
+// SQL files are in /out/main/main/db/migration-workspace/
+// In production build, __dirname is /out/main/
+// In dev build, __dirname is /out/main/main/db/
+const MIGRATIONS_DIR = fs.existsSync(path.join(__dirname, 'migration-workspace'))
+  ? path.join(__dirname, 'migration-workspace')
+  : path.join(__dirname, 'main/db/migration-workspace')
 
 /**
  * Migrate workspace database to latest or target version
  * @param {Database} db - better-sqlite3 database instance
+ * @param {string} dbPath - Database file path (for backups)
  * @param {number} targetVersion - Optional target version (default: latest)
  */
-export async function migrate(db, targetVersion = null) {
+export async function migrate(db, dbPath, targetVersion = null) {
   // Scan migration directory and return sorted list of migrations
   const files = fs.readdirSync(MIGRATIONS_DIR)
 
@@ -64,6 +71,17 @@ export async function migrate(db, targetVersion = null) {
   }
 
   console.log(`[workspace] Applying ${pendingMigrations.length} migration(s)...`)
+
+  // Create backup before applying migrations
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+    const backupPath = `${dbPath}.backup-v${currentVersion}-${timestamp}`
+    fs.copyFileSync(dbPath, backupPath)
+    console.log(`[workspace] Backup created: ${backupPath}`)
+  } catch (err) {
+    console.error('[workspace] Failed to create backup:', err.message)
+    throw new Error('Backup failed - aborting migration for safety')
+  }
 
   try {
     for (const migration of pendingMigrations) {

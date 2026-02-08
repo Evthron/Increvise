@@ -54,7 +54,7 @@ export async function initializeCentralDatabase() {
     const db = new Database(centralDbPath)
 
     // Use migration system to create/update schema
-    await migrate(db)
+    await migrate(db, centralDbPath)
 
     db.close()
     console.log('Central database initialized successfully')
