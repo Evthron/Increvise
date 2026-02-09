@@ -567,7 +567,8 @@ async function handleSpacedFeedback(dbPath, libraryId, relativePath, feedback, q
         params.min_ef,
         Math.min(params.max_ef, file.easiness + easiness_update)
       )
-      newRank = file.rank + Math.floor(easiness_update * 5)
+      // Naively adjust rank based on feedback. This can be further refined
+      newRank = file.rank + q
 
       if (file.review_count === 0) {
         newInterval = params.first_interval
