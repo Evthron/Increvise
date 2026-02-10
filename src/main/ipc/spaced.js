@@ -1188,6 +1188,9 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
 
     // Calculate and enforce minimum
     let newInterval = Math.floor(file.intermediate_interval * changeRatio)
+    // Add a random jitter of ±10% to prevent review clustering
+    const jitter = Math.round(newInterval * (Math.random() * 0.2 - 0.1))
+    newInterval += jitter
     newInterval = Math.max(newInterval, minInterval)
 
     // Update database
