@@ -9,20 +9,11 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// SQL files location:
-// - Dev build: __dirname is /out/main/main/db/, read from src/main/db/migration-workspace/
-// - Prod build: __dirname is /out/main/, use /out/main/main/db/migration-workspace/
-let MIGRATIONS_DIR
-if (fs.existsSync(path.join(__dirname, 'migration-workspace'))) {
-  // Found in current directory (dev build after SQL copy)
-  MIGRATIONS_DIR = path.join(__dirname, 'migration-workspace')
-} else if (fs.existsSync(path.join(__dirname, 'main/db/migration-workspace'))) {
-  // Production build structure
-  MIGRATIONS_DIR = path.join(__dirname, 'main/db/migration-workspace')
-} else {
-  // Fallback to source directory (dev build before SQL copy)
-  MIGRATIONS_DIR = path.resolve(__dirname, '../../../../src/main/db/migration-workspace')
-}
+// In production build, all js files are bundled into one file, located in /out/main, so __dirname should be /out/main/
+// While in dev build, this file remains in the original position, so __dirname should still be /out/main/db/
+const MIGRATIONS_DIR = fs.existsSync(path.join(__dirname, 'migration-workspace'))
+  ? path.join(__dirname, 'migration-workspace')
+  : path.join(__dirname, 'db/migration-workspace')
 
 /**
  * Migrate workspace database to latest or target version
