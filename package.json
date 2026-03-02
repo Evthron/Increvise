@@ -30,8 +30,10 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dev:mobile": "vite --config vite.config.mobile.js",
     "build:mobile": "vite build --config vite.config.mobile.js",
-    "sync:mobile": "npm run build:mobile && cap sync",
-    "android": "npm run sync:mobile && cap run android"
+    "sync:mobile": "npm run build:mobile && npx cap sync",
+    "android": "npm run sync:mobile && npx cap run android",
+    "android:build": "npm run sync:mobile && cd android && ./gradlew assembleDebug",
+    "android:release": "npm run sync:mobile && cd android && ./gradlew assembleRelease"
   },
   "devDependencies": {
     "@capacitor/android": "^8.0.2",
