@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Increvise</string>
+    <string name="title_activity_main">Increvise</string>
+    <string name="package_name">com.increvise.app</string>
+    <string name="custom_url_scheme">com.increvise.app</string>
+</resources>
