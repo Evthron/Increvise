@@ -110,14 +110,20 @@ class SQLiteAdapter {
 
   /**
    * Execute multiple SQL statements (used for migrations)
+   * @param {string} dbName - Database name
+   * @param {string} sql - SQL statements as string
+   * @param {boolean} transaction - Enable transaction (default: true)
+   * @returns {Promise<Object>} Result object
    */
-  async execute(dbName, sql) {
+  async execute(dbName, sql, transaction = true) {
     const db = await this.openDatabase(dbName)
     try {
-      const result = await db.execute(sql)
+      const result = await db.execute(sql, transaction)
       return result
     } catch (error) {
       console.error(`[SQLite] Execute error:`, error)
+      console.error(`[SQLite] SQL type:`, typeof sql)
+      console.error(`[SQLite] SQL content (first 200 chars):`, String(sql).substring(0, 200))
       throw error
     }
   }

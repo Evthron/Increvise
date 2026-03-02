@@ -16,5 +16,21 @@ import './ui/VideoViewer.js'
 import './ui/FlashcardViewer.js'
 import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
 
-initializeResizeHandles()
-setupExternalLinkInterceptor()
+// Initialize platform-specific features
+async function initPlatform() {
+  // Check if running on Capacitor (mobile)
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    const { initMobilePlatform } = await import('../mobile/init.js')
+    const result = await initMobilePlatform()
+    if (!result.success) {
+      console.error('[Platform] Mobile platform initialization failed:', result.error)
+      alert('Failed to initialize mobile platform: ' + result.error)
+    }
+  }
+}
+
+// Initialize platform first, then UI
+initPlatform().then(() => {
+  initializeResizeHandles()
+  setupExternalLinkInterceptor()
+})
