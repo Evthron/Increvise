@@ -2,4 +2,13 @@ include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 
+include ':capacitor-community-sqlite'
+project(':capacitor-community-sqlite').projectDir = new File('../node_modules/@capacitor-community/sqlite/android')
+
+include ':capacitor-filesystem'
+project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')
+
+include ':capgo-capacitor-file-picker'
+project(':capgo-capacitor-file-picker').projectDir = new File('../node_modules/@capgo/capacitor-file-picker/android')
+
 apply from: 'capacitor.settings.gradle'

@@ -22,6 +22,11 @@ allprojects {
         google()
         mavenCentral()
     }
+    
+    // Disable Eclipse plugin auto-apply (prevents .project/.classpath generation)
+    plugins.withType(org.gradle.plugins.ide.eclipse.EclipsePlugin) {
+        enabled = false
+    }
 }
 
 task clean(type: Delete) {
