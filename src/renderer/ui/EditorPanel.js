@@ -164,6 +164,7 @@ export class EditorPanel extends LitElement {
     this.currentViewerType = null
     this.currentDisplayMode = 'preview'
     this.currentQueue = null
+    this.isMobile = typeof window !== 'undefined' && window.Capacitor !== undefined
   }
 
   firstUpdated() {
@@ -323,7 +324,7 @@ export class EditorPanel extends LitElement {
       let flashcardExtractInfo = null
       let videoExtractInfo = null
 
-      if (window.currentFileLibraryId) {
+      if (window.currentFileLibraryId && !this.isMobile) {
         const extractInfo = await window.fileManager.getNoteExtractInfo(
           filePath,
           window.currentFileLibraryId

@@ -163,6 +163,8 @@ export class FileManager extends LitElement {
     this.currentRootPath = null
     this.isAllWorkspacesMode = false
     this.treeData = []
+    // Detect if running on mobile (Capacitor)
+    this.isMobile = typeof window !== 'undefined' && window.Capacitor !== undefined
   }
 
   async connectedCallback() {
@@ -378,36 +380,64 @@ export class FileManager extends LitElement {
 
   async _openSingleWorkspace(folderPath) {
     // Database and tree setup
-    const dbResult = await window.fileManager.createDatabase(folderPath)
-    if (dbResult.success) {
-      console.log('Database ready at:', dbResult.path)
-      window.currentWorkspaceLibraryId = dbResult.libraryId
-      console.log('Workspace Library ID:', dbResult.libraryId)
+    // On mobile, skip createDatabase as workspace DB is already opened during import
+    if (!this.isMobile) {
+      const dbResult = await window.fileManager.createDatabase(folderPath)
+      if (dbResult.success) {
+        console.log('Database ready at:', dbResult.path)
+        window.currentWorkspaceLibraryId = dbResult.libraryId
+        console.log('Workspace Library ID:', dbResult.libraryId)
+      } else {
+        console.warn('Database setup warning:', dbResult.error)
+      }
     } else {
-      console.warn('Database setup warning:', dbResult.error)
+      // On mobile, folderPath is actually the DB name
+      // Extract library_id from the workspace DB
+      try {
+        const { sqliteAdapter } = await import('../../adapters/sqlite-adapter.js')
+        const library = await sqliteAdapter.getOne(
+          folderPath,
+          'SELECT library_id FROM library LIMIT 1'
+        )
+        if (library) {
+          window.currentWorkspaceLibraryId = library.library_id
+          console.log('Mobile Workspace Library ID:', library.library_id)
+        } else {
+          console.error('No library found in workspace DB:', folderPath)
+        }
+      } catch (error) {
+        console.error('Error getting library ID from workspace:', error)
+      }
     }
 
     await window.fileManager.recordWorkspace(folderPath)
     console.log('Workspace recorded in central database')
 
-    try {
-      const result = await window.fileManager.getDirectoryTree(
-        folderPath,
-        window.currentWorkspaceLibraryId
-      )
+    // On mobile, skip directory tree loading (read-only mode)
+    if (!this.isMobile) {
+      try {
+        const result = await window.fileManager.getDirectoryTree(
+          folderPath,
+          window.currentWorkspaceLibraryId
+        )
 
-      if (!result.success) {
-        console.error('Failed to load directory tree:', result.error)
-        alert(`Failed to load directory tree: ${result.error}`)
+        if (!result.success) {
+          console.error('Failed to load directory tree:', result.error)
+          alert(`Failed to load directory tree: ${result.error}`)
+          this.treeData = []
+        } else {
+          console.log('Directory tree received:', result.data)
+          this.treeData = result.data
+        }
+      } catch (error) {
+        console.error('Error fetching directory tree:', error)
+        alert(`Error fetching directory tree:：${error.message}`)
         this.treeData = []
-      } else {
-        console.log('Directory tree received:', result.data)
-        this.treeData = result.data
       }
-    } catch (error) {
-      console.error('Error fetching directory tree:', error)
-      alert(`Error fetching directory tree:：${error.message}`)
+    } else {
+      // Mobile: no directory tree, just empty array
       this.treeData = []
+      console.log('[Mobile] Skipped directory tree loading (read-only mode)')
     }
 
     // Load recent workspaces and update revision list
