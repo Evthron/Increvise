@@ -1,7 +1,6 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
-import { resolve } from 'path'
+import { resolve, dirname, basename } from 'path'
 import { fileURLToPath } from 'url'
-import { dirname } from 'path'
 import { copyFileSync, mkdirSync, readdirSync, statSync } from 'fs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -17,10 +16,10 @@ function copySqlFiles() {
         resolve(__dirname, 'src/main/db/migration-workspace'),
       ]
 
-      const destBase = resolve(__dirname, 'out/main/main/db')
+      const destBase = resolve(__dirname, 'out/main/db')
 
       sourceDirs.forEach((sourceDir) => {
-        const dirName = sourceDir.split('/').pop()
+        const dirName = basename(sourceDir)
         const destDir = resolve(destBase, dirName)
 
         try {
@@ -59,7 +58,7 @@ export default defineConfig(({ command, mode }) => {
           output: isDev
             ? {
                 preserveModules: true,
-                preserveModulesRoot: 'src',
+                preserveModulesRoot: 'src/main',
                 entryFileNames: '[name].js',
                 chunkFileNames: '[name].js',
               }
@@ -82,7 +81,7 @@ export default defineConfig(({ command, mode }) => {
             ...(isDev
               ? {
                   preserveModules: true,
-                  preserveModulesRoot: 'src',
+                  preserveModulesRoot: 'src/preload',
                 }
               : {}),
           },

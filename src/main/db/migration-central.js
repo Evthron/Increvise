@@ -9,12 +9,13 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// SQL files are in /out/main/main/db/migration-central/
-// In production build, __dirname is /out/main/
-// In dev build, __dirname is /out/main/main/db/
+console.log("dirname", __dirname)
+// In production build, all js files are bundled into one file, located in /out/main, so __dirname is /out/main/
+// While in dev build, this file remains in the original position, so __dirname is /out/main/db/
 const MIGRATIONS_DIR = fs.existsSync(path.join(__dirname, 'migration-central'))
   ? path.join(__dirname, 'migration-central')
-  : path.join(__dirname, 'main/db/migration-central')
+  : path.join(__dirname, 'db/migration-central')
+
 
 /**
  * Migrate central database to latest or target version
