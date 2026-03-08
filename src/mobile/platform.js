@@ -10,9 +10,28 @@
  * exposed as window.fileManager for compatibility with the renderer UI.
  */
 
-import { sqliteAdapter } from '../adapters/sqlite-adapter.js'
-import { filesystemAdapter } from '../adapters/filesystem-adapter.js'
+import * as db from '../adapters/sqlite-adapter.js'
 import { REVIEW_QUERIES } from '../shared/queries/review.js'
+import {
+  selectAndImportWorkspace,
+  syncDatabaseBack,
+  readExternalFile,
+  readExternalBinaryFile,
+} from './workspace-sync.js'
+
+/**
+ * Convert Base64 string to Uint8Array
+ * Uses Fetch API with data URI
+ * @param {string} base64 - Base64 encoded string
+ * @returns {Promise<Uint8Array>} - Binary data as typed array
+ */
+async function base64ToUint8Array(base64) {
+  // Use Fetch API with data URI (modern, standards-compliant approach)
+  const dataUrl = `data:application/octet-stream;base64,${base64}`
+  const response = await fetch(dataUrl)
+  const arrayBuffer = await response.arrayBuffer()
+  return new Uint8Array(arrayBuffer)
+}
 
 /**
  * Mobile Platform API object
@@ -22,10 +41,14 @@ export const mobilePlatform = {
   // ===== Workspace Management =====
 
   /**
-   * Select a folder (not supported on mobile)
+   * Select a folder and import workspace
+   * @returns {Promise<string|null>} Workspace ID (used as dbName) or null if cancelled
    */
   async selectFolder() {
-    console.warn('[Mobile] selectFolder not supported on mobile')
+    const result = await selectAndImportWorkspace()
+    if (result.success) {
+      return result.workspaceId // Return just the workspace ID string
+    }
     return null
   },
 
@@ -85,7 +108,7 @@ export const mobilePlatform = {
   async getFilesForRevision(rootPath) {
     const { getFilesForRevision } = await import('./review.js')
 
-    const library = await sqliteAdapter.getOne(rootPath, 'SELECT library_id FROM library LIMIT 1')
+    const library = await db.getOne(rootPath, 'SELECT library_id FROM library LIMIT 1')
 
     if (!library) {
       return { success: false, error: 'No library found', files: [] }
@@ -101,7 +124,7 @@ export const mobilePlatform = {
   async getFilesIncludingFuture(rootPath) {
     const { getAllFiles } = await import('./review.js')
 
-    const library = await sqliteAdapter.getOne(rootPath, 'SELECT library_id FROM library LIMIT 1')
+    const library = await db.getOne(rootPath, 'SELECT library_id FROM library LIMIT 1')
 
     if (!library) {
       return { success: false, error: 'No library found', files: [] }
@@ -121,14 +144,11 @@ export const mobilePlatform = {
       const allFiles = []
 
       for (const workspace of workspaces) {
-        const library = await sqliteAdapter.getOne(
-          workspace.db_path,
-          'SELECT library_id FROM library LIMIT 1'
-        )
+        const library = await db.getOne(workspace.db_path, 'SELECT library_id FROM library LIMIT 1')
 
         if (library) {
           // Get max_per_day config for new queue
-          const maxNewConfig = await sqliteAdapter.getOne(
+          const maxNewConfig = await db.getOne(
             workspace.db_path,
             REVIEW_QUERIES.GET_QUEUE_CONFIG_VALUE,
             [library.library_id, 'new', 'max_per_day']
@@ -136,7 +156,7 @@ export const mobilePlatform = {
           const maxNewPerDay = maxNewConfig ? parseInt(maxNewConfig.config_value) : 10
 
           // Get new queue items (FIFO)
-          const newItems = await sqliteAdapter.getAll(
+          const newItems = await db.getAll(
             workspace.db_path,
             `SELECT f.*, qm.queue_name
              FROM file f
@@ -148,7 +168,7 @@ export const mobilePlatform = {
           )
 
           // Get processing queue items (due today)
-          const processingItems = await sqliteAdapter.getAll(
+          const processingItems = await db.getAll(
             workspace.db_path,
             `SELECT f.*, qm.queue_name
              FROM file f
@@ -161,7 +181,7 @@ export const mobilePlatform = {
           )
 
           // Get intermediate queue items (due today)
-          const intermediateItems = await sqliteAdapter.getAll(
+          const intermediateItems = await db.getAll(
             workspace.db_path,
             `SELECT f.*, qm.queue_name
              FROM file f
@@ -174,7 +194,7 @@ export const mobilePlatform = {
           )
 
           // Get spaced queue items (due today) - all three sub-queues
-          const spacedItems = await sqliteAdapter.getAll(
+          const spacedItems = await db.getAll(
             workspace.db_path,
             `SELECT f.*, qm.queue_name
              FROM file f
@@ -232,17 +252,12 @@ export const mobilePlatform = {
       const allFiles = []
 
       for (const workspace of workspaces) {
-        const library = await sqliteAdapter.getOne(
-          workspace.db_path,
-          'SELECT library_id FROM library LIMIT 1'
-        )
+        const library = await db.getOne(workspace.db_path, 'SELECT library_id FROM library LIMIT 1')
 
         if (library) {
-          const files = await sqliteAdapter.getAll(
-            workspace.db_path,
-            REVIEW_QUERIES.GET_ALL_FILES,
-            [library.library_id]
-          )
+          const files = await db.getAll(workspace.db_path, REVIEW_QUERIES.GET_ALL_FILES, [
+            library.library_id,
+          ])
 
           allFiles.push(
             ...files.map((row) => ({
@@ -306,7 +321,7 @@ export const mobilePlatform = {
 
       // Find workspace containing this library
       const workspace = workspaces.find(async (ws) => {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         return lib && lib.library_id === libraryId
       })
 
@@ -317,22 +332,19 @@ export const mobilePlatform = {
       const dbName = workspace.db_path
 
       // Update queue membership
-      await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_QUEUE_MEMBERSHIP, [
+      await db.run(dbName, REVIEW_QUERIES.UPDATE_QUEUE_MEMBERSHIP, [
         targetQueue,
         libraryId,
         filePath,
       ])
 
       // Update last_queue_change timestamp
-      await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_QUEUE_CHANGE_TIME, [
-        libraryId,
-        filePath,
-      ])
+      await db.run(dbName, REVIEW_QUERIES.UPDATE_QUEUE_CHANGE_TIME, [libraryId, filePath])
 
       // Set appropriate parameters based on target queue
       if (targetQueue === 'intermediate') {
         // Get default interval from config
-        const defaultIntervalConfig = await sqliteAdapter.getOne(
+        const defaultIntervalConfig = await db.getOne(
           dbName,
           REVIEW_QUERIES.GET_QUEUE_CONFIG_VALUE,
           [libraryId, 'intermediate', 'default_base']
@@ -341,45 +353,42 @@ export const mobilePlatform = {
           ? parseInt(defaultIntervalConfig.config_value)
           : 7
 
-        await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_INTERMEDIATE_INTERVAL, [
+        await db.run(dbName, REVIEW_QUERIES.UPDATE_INTERMEDIATE_INTERVAL, [
           defaultInterval,
           libraryId,
           filePath,
         ])
-        await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_DUE_TIME_IMMEDIATE, [
-          libraryId,
-          filePath,
-        ])
+        await db.run(dbName, REVIEW_QUERIES.UPDATE_DUE_TIME_IMMEDIATE, [libraryId, filePath])
       } else if (targetQueue.startsWith('spaced-')) {
         // Get initial EF from queue config
-        const queueConfig = await sqliteAdapter.getOne(
-          dbName,
-          REVIEW_QUERIES.GET_QUEUE_CONFIG_VALUE,
-          [libraryId, targetQueue, 'initial_ef']
-        )
+        const queueConfig = await db.getOne(dbName, REVIEW_QUERIES.GET_QUEUE_CONFIG_VALUE, [
+          libraryId,
+          targetQueue,
+          'initial_ef',
+        ])
 
         const initialEF = queueConfig ? parseFloat(queueConfig.config_value) : 2.5
 
-        await sqliteAdapter.run(
+        await db.run(
           dbName,
           `UPDATE file SET easiness = ?, review_count = 0, interval = 1, due_time = datetime('now')
            WHERE library_id = ? AND relative_path = ?`,
           [initialEF, libraryId, filePath]
         )
       } else if (targetQueue === 'archived') {
-        await sqliteAdapter.run(dbName, REVIEW_QUERIES.ARCHIVE_FILE, [libraryId, filePath])
+        await db.run(dbName, REVIEW_QUERIES.ARCHIVE_FILE, [libraryId, filePath])
       } else if (targetQueue === 'processing') {
-        const file = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.GET_FILE_DETAILS, [
-          libraryId,
-          filePath,
-        ])
+        const file = await db.getOne(dbName, REVIEW_QUERIES.GET_FILE_DETAILS, [libraryId, filePath])
         const rotationInterval = file?.rotation_interval || 3
-        await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_DUE_TIME_WITH_INTERVAL, [
+        await db.run(dbName, REVIEW_QUERIES.UPDATE_DUE_TIME_WITH_INTERVAL, [
           rotationInterval,
           libraryId,
           filePath,
         ])
       }
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return { success: true, message: `File moved to ${targetQueue} queue` }
     } catch (error) {
@@ -401,7 +410,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let dbName = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           dbName = ws.db_path
           break
@@ -413,7 +422,7 @@ export const mobilePlatform = {
       }
 
       // Check if file exists
-      const fileCheck = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
+      const fileCheck = await db.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
         libraryId,
         filePath,
       ])
@@ -423,16 +432,16 @@ export const mobilePlatform = {
       }
 
       // Delete note source data
-      const noteSourceResult = await sqliteAdapter.run(dbName, REVIEW_QUERIES.DELETE_NOTE_SOURCE, [
+      const noteSourceResult = await db.run(dbName, REVIEW_QUERIES.DELETE_NOTE_SOURCE, [
         libraryId,
         filePath,
       ])
 
       // Reset file data
-      const fileResult = await sqliteAdapter.run(dbName, REVIEW_QUERIES.FORGET_FILE, [
-        libraryId,
-        filePath,
-      ])
+      const fileResult = await db.run(dbName, REVIEW_QUERIES.FORGET_FILE, [libraryId, filePath])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return {
         success: true,
@@ -460,7 +469,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let dbName = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           dbName = ws.db_path
           break
@@ -472,7 +481,7 @@ export const mobilePlatform = {
       }
 
       // Check if file exists
-      const fileCheck = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
+      const fileCheck = await db.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
         libraryId,
         filePath,
       ])
@@ -481,11 +490,14 @@ export const mobilePlatform = {
         return { success: false, error: 'File not found in database' }
       }
 
-      const result = await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_FILE_RANK, [
+      const result = await db.run(dbName, REVIEW_QUERIES.UPDATE_FILE_RANK, [
         newRank,
         libraryId,
         filePath,
       ])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return {
         success: true,
@@ -512,7 +524,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let dbName = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           dbName = ws.db_path
           break
@@ -526,11 +538,14 @@ export const mobilePlatform = {
       // Validate interval (1-365 days)
       const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
 
-      const result = await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_INTERMEDIATE_INTERVAL, [
+      const result = await db.run(dbName, REVIEW_QUERIES.UPDATE_INTERMEDIATE_INTERVAL, [
         clampedInterval,
         libraryId,
         filePath,
       ])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return { success: true, newInterval: clampedInterval, changes: result.changes }
     } catch (error) {
@@ -553,7 +568,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let dbName = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           dbName = ws.db_path
           break
@@ -567,11 +582,14 @@ export const mobilePlatform = {
       // Validate interval (1-365 days)
       const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
 
-      const result = await sqliteAdapter.run(dbName, REVIEW_QUERIES.UPDATE_ROTATION_INTERVAL, [
+      const result = await db.run(dbName, REVIEW_QUERIES.UPDATE_ROTATION_INTERVAL, [
         clampedInterval,
         libraryId,
         filePath,
       ])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return { success: true, newInterval: clampedInterval, changes: result.changes }
     } catch (error) {
@@ -595,7 +613,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let workspace = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           workspace = ws
           break
@@ -607,7 +625,7 @@ export const mobilePlatform = {
       }
 
       // Get all files in this workspace from the database
-      const files = await sqliteAdapter.getAll(
+      const files = await db.getAll(
         workspace.db_path,
         `SELECT relative_path FROM file WHERE library_id = ?`,
         [libraryId]
@@ -657,31 +675,47 @@ export const mobilePlatform = {
   },
 
   /**
-   * Read text file
-   * @param {string} filePath - File path
+   * Read text file from external workspace folder
+   * @param {string} filePath - File path (format: "workspaceId/relative/path")
    */
   async readFile(filePath) {
-    return filesystemAdapter.readFile(filePath)
+    try {
+      // Parse workspace ID from path
+      const parts = filePath.split('/')
+      const workspaceId = parts[0]
+      const relativePath = parts.slice(1).join('/')
+
+      // Read from external URI
+      const content = await readExternalFile(workspaceId, relativePath)
+      return { success: true, content }
+    } catch (error) {
+      console.error('[Mobile] readFile error:', error)
+      return { success: false, error: error.message }
+    }
   },
 
   /**
-   * Read PDF file (returns Uint8Array for PDF.js)
-   * @param {string} filePath - PDF file path
+   * Read PDF file from external workspace folder (returns Uint8Array for PDF.js)
+   * @param {string} filePath - PDF file path (format: "workspaceId/relative/path")
    */
   async readPdfFile(filePath) {
-    // Get base64 string from Capacitor Filesystem
-    const base64 = await filesystemAdapter.readBinaryFile(filePath)
+    try {
+      // Parse workspace ID from path
+      const parts = filePath.split('/')
+      const workspaceId = parts[0]
+      const relativePath = parts.slice(1).join('/')
 
-    // Convert base64 to Uint8Array for PDF.js
-    // In Capacitor/mobile environment, use atob (global in browser context)
-    /* global atob */
-    const binaryString = atob(base64)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i)
+      // Get base64 string from external URI
+      const base64 = await readExternalBinaryFile(workspaceId, relativePath)
+
+      // Convert base64 to Uint8Array for PDF.js using modern Fetch API
+      const bytes = await base64ToUint8Array(base64)
+
+      return { success: true, data: bytes }
+    } catch (error) {
+      console.error('[Mobile] readPdfFile error:', error)
+      throw error
     }
-
-    return { success: true, data: bytes }
   },
 
   /**
@@ -715,7 +749,7 @@ export const mobilePlatform = {
       // Find workspace containing this library
       let dbName = null
       for (const ws of workspaces) {
-        const lib = await sqliteAdapter.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
+        const lib = await db.getOne(ws.db_path, 'SELECT library_id FROM library LIMIT 1')
         if (lib && lib.library_id === libraryId) {
           dbName = ws.db_path
           break
@@ -726,7 +760,7 @@ export const mobilePlatform = {
         return false
       }
 
-      const result = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
+      const result = await db.getOne(dbName, REVIEW_QUERIES.CHECK_FILE_EXISTS, [
         libraryId,
         filePath,
       ])
@@ -768,14 +802,14 @@ export const mobilePlatform = {
     return []
   },
 
+  async getNoteExtractInfo(_notePath, _libraryId) {
+    console.warn('[Mobile] getNoteExtractInfo not supported on mobile')
+    return { success: false, found: false }
+  },
+
   async updateLockedRanges(_parentPath, _rangeUpdates, _libraryId) {
     console.warn('[Mobile] updateLockedRanges not supported on mobile')
     return { success: false, error: 'Not available on mobile' }
-  },
-
-  async getNoteExtractInfo(_notePath, _libraryId) {
-    console.warn('[Mobile] getNoteExtractInfo not supported on mobile')
-    return null
   },
 
   async extractPdfPages(_pdfPath, _startPage, _endPage, _libraryId) {

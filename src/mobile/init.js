@@ -11,12 +11,13 @@
  * 3. Sets up window.fileManager polyfill for backward compatibility
  */
 
-import { sqliteAdapter } from '../adapters/sqlite-adapter.js'
+import * as db from '../adapters/sqlite-adapter.js'
 import { mobilePlatform } from './platform.js'
 import centralSchema from '../main/db/migration-central/0001-initial.sql?raw'
+import mobileSyncSchema from '../main/db/migration-central/0002-mobile-workspace-sync.sql?raw'
 
 const CENTRAL_DB = 'central'
-const CENTRAL_DB_VERSION = 1
+const CENTRAL_DB_VERSION = 2
 
 /**
  * Initialize mobile platform (called once at app startup)
@@ -27,12 +28,11 @@ export async function initMobilePlatform() {
 
     // 1. Open Central database
     console.log('[Mobile] Opening Central database...')
-    await sqliteAdapter.openDatabase(CENTRAL_DB)
     console.log('[Mobile] Central database opened successfully')
 
     // 2. Create schema if first time (mobile doesn't run migrations)
     console.log('[Mobile] Checking database version...')
-    const version = await sqliteAdapter.pragma(CENTRAL_DB, 'user_version')
+    const version = await db.pragma(CENTRAL_DB, 'user_version')
     console.log('[Mobile] Current database version:', version)
 
     if (version === 0) {
@@ -41,14 +41,19 @@ export async function initMobilePlatform() {
       console.log('[Mobile] Schema length:', centralSchema?.length)
       console.log('[Mobile] Schema preview:', centralSchema?.substring?.(0, 100))
 
-      // Execute entire SQL file
+      // Execute base schema
       console.log('[Mobile] Executing schema creation...')
-      await sqliteAdapter.execute(CENTRAL_DB, centralSchema)
+      await db.execute(CENTRAL_DB, centralSchema)
+      await db.execute(CENTRAL_DB, mobileSyncSchema)
       console.log('[Mobile] Schema created successfully')
 
       console.log('[Mobile] Setting database version...')
-      await sqliteAdapter.setPragma(CENTRAL_DB, 'user_version', CENTRAL_DB_VERSION)
+      await db.setPragma(CENTRAL_DB, 'user_version', CENTRAL_DB_VERSION)
       console.log('[Mobile] Database version set to', CENTRAL_DB_VERSION)
+    }
+
+    if (version > 0) {
+      await db.execute(CENTRAL_DB, mobileSyncSchema)
     }
 
     // 3. Setup window.fileManager polyfill for backward compatibility

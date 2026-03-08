@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { sqliteAdapter } from '../adapters/sqlite-adapter.js'
+import * as db from '../adapters/sqlite-adapter.js'
 import { WORKSPACE_QUERIES } from '../shared/queries/workspace.js'
 
 const CENTRAL_DB = 'central'
@@ -17,7 +17,7 @@ const REQUIRED_WORKSPACE_VERSION = 2 // Minimum workspace DB version required
  */
 export async function recordWorkspace(libraryId, folderPath, folderName, dbName) {
   try {
-    const result = await sqliteAdapter.run(CENTRAL_DB, WORKSPACE_QUERIES.RECORD, [
+    const result = await db.run(CENTRAL_DB, WORKSPACE_QUERIES.RECORD, [
       libraryId,
       folderPath,
       folderName,
@@ -41,7 +41,7 @@ export async function recordWorkspace(libraryId, folderPath, folderName, dbName)
  */
 export async function getRecentWorkspaces(limit = 10) {
   try {
-    const rows = await sqliteAdapter.getAll(CENTRAL_DB, WORKSPACE_QUERIES.GET_RECENT, [limit])
+    const rows = await db.getAll(CENTRAL_DB, WORKSPACE_QUERIES.GET_RECENT, [limit])
     return rows || []
   } catch (error) {
     console.error('[Workspace] Failed to get recent workspaces:', error)
@@ -57,7 +57,7 @@ export async function getRecentWorkspaces(limit = 10) {
  */
 export async function updateWorkspaceStats(folderPath, totalFiles, filesDueToday) {
   try {
-    const result = await sqliteAdapter.run(CENTRAL_DB, WORKSPACE_QUERIES.UPDATE_STATS, [
+    const result = await db.run(CENTRAL_DB, WORKSPACE_QUERIES.UPDATE_STATS, [
       totalFiles,
       filesDueToday,
       folderPath,
@@ -76,7 +76,7 @@ export async function updateWorkspaceStats(folderPath, totalFiles, filesDueToday
  */
 export async function removeWorkspace(folderPath) {
   try {
-    const result = await sqliteAdapter.run(CENTRAL_DB, WORKSPACE_QUERIES.REMOVE, [folderPath])
+    const result = await db.run(CENTRAL_DB, WORKSPACE_QUERIES.REMOVE, [folderPath])
 
     return { success: true, changes: result.changes }
   } catch (error) {
@@ -92,11 +92,10 @@ export async function removeWorkspace(folderPath) {
  */
 export async function importWorkspace(workspaceDbName) {
   try {
-    // 1. Open the workspace database
-    await sqliteAdapter.openDatabase(workspaceDbName)
+    // 1. Open the workspace database (connection will be managed by plugin)
 
     // 2. Check database version (mobile doesn't run migrations, only validates)
-    const version = await sqliteAdapter.pragma(workspaceDbName, 'user_version')
+    const version = await db.pragma(workspaceDbName, 'user_version')
 
     if (version < REQUIRED_WORKSPACE_VERSION) {
       return {
@@ -108,7 +107,7 @@ export async function importWorkspace(workspaceDbName) {
     console.log(`[Workspace] Database version validated (v${version})`)
 
     // 3. Read library information
-    const library = await sqliteAdapter.getOne(workspaceDbName, WORKSPACE_QUERIES.GET_LIBRARY_INFO)
+    const library = await db.getOne(workspaceDbName, WORKSPACE_QUERIES.GET_LIBRARY_INFO)
 
     if (!library) {
       return {

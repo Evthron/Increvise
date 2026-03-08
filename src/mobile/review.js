@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { sqliteAdapter } from '../adapters/sqlite-adapter.js'
+import * as db from '../adapters/sqlite-adapter.js'
 import { calculateSM2 } from '../shared/algorithms/sm2.js'
 import { REVIEW_QUERIES } from '../shared/queries/review.js'
+import { syncDatabaseBack } from './workspace-sync.js'
 
 /**
  * Get the list of files due for review
@@ -13,8 +14,14 @@ import { REVIEW_QUERIES } from '../shared/queries/review.js'
  */
 export async function getFilesForRevision(dbName, libraryId) {
   try {
-    const files = await sqliteAdapter.getAll(dbName, REVIEW_QUERIES.GET_FILES_DUE, [libraryId])
-    return { success: true, files }
+    const files = await db.getAll(dbName, REVIEW_QUERIES.GET_FILES_DUE, [libraryId])
+    const mapped = (files || []).map((file) => ({
+      ...file,
+      file_path: `${dbName}/${file.relative_path}`,
+      workspacePath: dbName,
+      dbPath: dbName,
+    }))
+    return { success: true, files: mapped }
   } catch (error) {
     console.error('[Review] Failed to get files for revision:', error)
     return { success: false, error: error.message, files: [] }
@@ -28,8 +35,14 @@ export async function getFilesForRevision(dbName, libraryId) {
  */
 export async function getAllFiles(dbName, libraryId) {
   try {
-    const files = await sqliteAdapter.getAll(dbName, REVIEW_QUERIES.GET_ALL_FILES, [libraryId])
-    return { success: true, files }
+    const files = await db.getAll(dbName, REVIEW_QUERIES.GET_ALL_FILES, [libraryId])
+    const mapped = (files || []).map((file) => ({
+      ...file,
+      file_path: `${dbName}/${file.relative_path}`,
+      workspacePath: dbName,
+      dbPath: dbName,
+    }))
+    return { success: true, files: mapped }
   } catch (error) {
     console.error('[Review] Failed to get all files:', error)
     return { success: false, error: error.message, files: [] }
@@ -40,10 +53,7 @@ export async function getAllFiles(dbName, libraryId) {
  * Get the current queue of a file
  */
 async function getFileQueue(dbName, libraryId, relativePath) {
-  const result = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.GET_FILE_QUEUE, [
-    libraryId,
-    relativePath,
-  ])
+  const result = await db.getOne(dbName, REVIEW_QUERIES.GET_FILE_QUEUE, [libraryId, relativePath])
   return result ? result.queue_name : null
 }
 
@@ -59,13 +69,17 @@ async function handleNewQueueFeedback(dbName, libraryId, relativePath, feedback)
         SET due_time = datetime('now', '+1 day')
         WHERE library_id = ? AND relative_path = ?
       `
-      await sqliteAdapter.run(dbName, sql, [libraryId, relativePath])
+      await db.run(dbName, sql, [libraryId, relativePath])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
+
       return { success: true, message: 'File postponed to tomorrow' }
     } else if (feedback === 'viewed') {
       // Viewed: Move to the "processing" queue
-      await sqliteAdapter.executeTransaction(dbName, async () => {
+      await db.executeTransaction(dbName, async () => {
         // Get rotation_interval
-        const file = await sqliteAdapter.getOne(
+        const file = await db.getOne(
           dbName,
           'SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?',
           [libraryId, relativePath]
@@ -73,19 +87,22 @@ async function handleNewQueueFeedback(dbName, libraryId, relativePath, feedback)
         const rotationInterval = file?.rotation_interval || 3
 
         // Update queue
-        await sqliteAdapter.run(
+        await db.run(
           dbName,
           'UPDATE queue_membership SET queue_name = ? WHERE library_id = ? AND relative_path = ?',
           ['processing', libraryId, relativePath]
         )
 
         // Update due_time
-        await sqliteAdapter.run(
+        await db.run(
           dbName,
           `UPDATE file SET due_time = datetime('now', '+' || ? || ' days'), last_queue_change = datetime('now') WHERE library_id = ? AND relative_path = ?`,
           [rotationInterval, libraryId, relativePath]
         )
       })
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return { success: true, message: 'File moved to processing queue' }
     }
@@ -109,22 +126,29 @@ async function handleProcessingFeedback(dbName, libraryId, relativePath, feedbac
         SET due_time = datetime('now', '+1 day')
         WHERE library_id = ? AND relative_path = ?
       `
-      await sqliteAdapter.run(dbName, sql, [libraryId, relativePath])
+      await db.run(dbName, sql, [libraryId, relativePath])
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
+
       return { success: true, message: 'File postponed to tomorrow' }
     } else if (feedback === 'viewed') {
       // Viewed: Postpone based on rotation_interval
-      const file = await sqliteAdapter.getOne(
+      const file = await db.getOne(
         dbName,
         'SELECT rotation_interval FROM file WHERE library_id = ? AND relative_path = ?',
         [libraryId, relativePath]
       )
       const rotationInterval = file?.rotation_interval || 3
 
-      await sqliteAdapter.run(
+      await db.run(
         dbName,
         `UPDATE file SET due_time = datetime('now', '+' || ? || ' days') WHERE library_id = ? AND relative_path = ?`,
         [rotationInterval, libraryId, relativePath]
       )
+
+      // Sync database back immediately
+      await syncDatabaseBack(dbName)
 
       return { success: true, message: `Next review in ${rotationInterval} days` }
     }
@@ -141,7 +165,7 @@ async function handleProcessingFeedback(dbName, libraryId, relativePath, feedbac
  */
 async function handleIntermediateFeedback(dbName, libraryId, relativePath, feedback) {
   try {
-    const file = await sqliteAdapter.getOne(
+    const file = await db.getOne(
       dbName,
       'SELECT intermediate_interval FROM file WHERE library_id = ? AND relative_path = ?',
       [libraryId, relativePath]
@@ -163,7 +187,7 @@ async function handleIntermediateFeedback(dbName, libraryId, relativePath, feedb
       return { success: false, error: 'Invalid feedback for intermediate queue' }
     }
 
-    await sqliteAdapter.run(
+    await db.run(
       dbName,
       `UPDATE file 
        SET intermediate_interval = ?,
@@ -171,6 +195,9 @@ async function handleIntermediateFeedback(dbName, libraryId, relativePath, feedb
        WHERE library_id = ? AND relative_path = ?`,
       [newInterval, newInterval, libraryId, relativePath]
     )
+
+    // Sync database back immediately
+    await syncDatabaseBack(dbName)
 
     return { success: true, message: `Next review in ${newInterval} days` }
   } catch (error) {
@@ -185,10 +212,7 @@ async function handleIntermediateFeedback(dbName, libraryId, relativePath, feedb
 async function handleSpacedFeedback(dbName, libraryId, relativePath, feedback, queueName) {
   try {
     // 1. Load queue configuration
-    const configs = await sqliteAdapter.getAll(dbName, REVIEW_QUERIES.GET_QUEUE_CONFIG, [
-      libraryId,
-      queueName,
-    ])
+    const configs = await db.getAll(dbName, REVIEW_QUERIES.GET_QUEUE_CONFIG, [libraryId, queueName])
 
     const params = {}
     configs.forEach((c) => {
@@ -196,10 +220,7 @@ async function handleSpacedFeedback(dbName, libraryId, relativePath, feedback, q
     })
 
     // 2. Get the current state of the file
-    const file = await sqliteAdapter.getOne(dbName, REVIEW_QUERIES.GET_FILE_DETAILS, [
-      libraryId,
-      relativePath,
-    ])
+    const file = await db.getOne(dbName, REVIEW_QUERIES.GET_FILE_DETAILS, [libraryId, relativePath])
 
     if (!file) {
       return { success: false, error: 'File not found' }
@@ -219,7 +240,7 @@ async function handleSpacedFeedback(dbName, libraryId, relativePath, feedback, q
           rank = ?
       WHERE library_id = ? AND relative_path = ?
     `
-    const result = await sqliteAdapter.run(dbName, updateSql, [
+    const result = await db.run(dbName, updateSql, [
       newEasiness,
       newInterval,
       newInterval,
@@ -227,6 +248,9 @@ async function handleSpacedFeedback(dbName, libraryId, relativePath, feedback, q
       libraryId,
       relativePath,
     ])
+
+    // Sync database back immediately
+    await syncDatabaseBack(dbName)
 
     return {
       success: true,
