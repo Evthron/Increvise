@@ -29,6 +29,8 @@ export default [
         getComputedStyle: 'readonly',
         DOMParser: 'readonly',
         fetch: 'readonly',
+        Blob: 'readonly',
+        FileReader: 'readonly',
       },
     },
     rules: {

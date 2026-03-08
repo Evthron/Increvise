@@ -28,6 +28,29 @@ async function base64ToText(base64) {
 }
 
 /**
+ * Convert UTF-8 text to Base64 string
+ * Uses FileReader with Blob to avoid deprecated btoa()
+ * @param {string} text - UTF-8 text
+ * @returns {Promise<string>} - Base64 encoded string
+ */
+async function textToBase64(text) {
+  // Create a Blob from the text
+  const blob = new Blob([text], { type: 'text/plain' })
+
+  // Use FileReader to convert to base64
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      // Result is "data:text/plain;base64,..." - extract base64 part
+      const base64 = reader.result.split(',')[1]
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
  * Generate a unique workspace ID
  */
 function generateWorkspaceId() {
@@ -322,4 +345,50 @@ export async function readExternalBinaryFile(workspaceId, relativePath) {
     })
     return result.data // Base64
   }
+}
+
+/**
+ * Write a text file to external workspace folder
+ * @param {string} workspaceId - Workspace ID
+ * @param {string} relativePath - Relative path within workspace (e.g., 'notes/file1.md')
+ * @param {string} content - Text content to write
+ * @returns {Promise<void>}
+ */
+export async function writeExternalFile(workspaceId, relativePath, content) {
+  const externalUri = await getExternalUri(workspaceId)
+  if (!externalUri) {
+    throw new Error('External URI not found for workspace')
+  }
+
+  console.log('[WorkspaceSync] Writing file:', `${externalUri}/${relativePath}`)
+
+  // Check platform
+  const platform = (await import('@capacitor/core')).Capacitor.getPlatform()
+
+  if (platform === 'android') {
+    // Use native plugin for Android SAF tree URI
+    const { FileWriter } = await import('../adapters/file-writer-plugin.js')
+
+    // Convert UTF-8 text to base64 using modern Blob/FileReader API
+    const base64 = await textToBase64(content)
+
+    const result = await FileWriter.writeToTreeUri({
+      treeUri: externalUri,
+      relativePath,
+      data: base64,
+    })
+
+    if (!result.success) {
+      throw new Error('Failed to write file')
+    }
+  } else {
+    // iOS can write directly
+    await Filesystem.writeFile({
+      path: `${externalUri}/${relativePath}`,
+      data: content,
+      encoding: Encoding.UTF8,
+    })
+  }
+
+  console.log('[WorkspaceSync] File written successfully')
 }

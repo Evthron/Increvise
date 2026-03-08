@@ -17,6 +17,7 @@ import {
   syncDatabaseBack,
   readExternalFile,
   readExternalBinaryFile,
+  writeExternalFile,
 } from './workspace-sync.js'
 
 /**
@@ -719,11 +720,24 @@ export const mobilePlatform = {
   },
 
   /**
-   * Write file (not supported - mobile is read-only)
+   * Write file to external workspace folder
+   * @param {string} filePath - File path (format: "workspaceId/relative/path")
+   * @param {string} content - Text content to write
    */
-  async writeFile(_filePath, _content) {
-    console.warn('[Mobile] writeFile not supported on mobile (read-only mode)')
-    return { success: false, error: 'Mobile is read-only' }
+  async writeFile(filePath, content) {
+    try {
+      // Parse workspace ID from path
+      const parts = filePath.split('/')
+      const workspaceId = parts[0]
+      const relativePath = parts.slice(1).join('/')
+
+      // Write to external URI
+      await writeExternalFile(workspaceId, relativePath, content)
+      return { success: true }
+    } catch (error) {
+      console.error('[Mobile] writeFile error:', error)
+      return { success: false, error: error.message }
+    }
   },
 
   // ===== Database Operations =====
