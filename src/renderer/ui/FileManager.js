@@ -9,6 +9,11 @@ import { LitElement, html, css } from 'lit'
 import { LionDrawer } from '@lion/ui/drawer.js'
 import '@lion/ui/define/lion-icon.js'
 
+const EVENT = {
+  TRANSITION_END: 'transitionend',
+  TRANSITION_START: 'transitionstart',
+}
+
 class SidebarDrawer extends LionDrawer {
   static get styles() {
     return [
@@ -29,6 +34,32 @@ class SidebarDrawer extends LionDrawer {
         }
       `,
     ]
+  }
+
+  // The source function forgets to check the source of the event, all transition event inside the content node would trigger this
+  _waitForTransition({ contentNode }) {
+    return new Promise((resolve) => {
+      const transitionStarted = (event) => {
+        // Check if the event is from the contentNode itself, not its children
+        if (event.target !== contentNode) {
+          return
+        }
+        contentNode.removeEventListener(EVENT.TRANSITION_START, transitionStarted)
+        this.transitioning = true
+      }
+      contentNode.addEventListener(EVENT.TRANSITION_START, transitionStarted)
+
+      const transitionEnded = (event) => {
+        // Check if the event is from the contentNode itself, not its children
+        if (event.target !== contentNode) {
+          return
+        }
+        contentNode.removeEventListener(EVENT.TRANSITION_END, transitionEnded)
+        this.transitioning = false
+        resolve()
+      }
+      contentNode.addEventListener(EVENT.TRANSITION_END, transitionEnded)
+    })
   }
 }
 
