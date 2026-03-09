@@ -6,6 +6,31 @@
 // Manages workspace history, file tree, and folder selection
 
 import { LitElement, html, css } from 'lit'
+import { LionDrawer } from '@lion/ui/drawer.js'
+import '@lion/ui/define/lion-icon.js'
+
+class SidebarDrawer extends LionDrawer {
+  static get styles() {
+    return [
+      ...super.styles,
+      css`
+        :host {
+          display: flex;
+          --min-width: 30px;
+          --max-width: unset;
+          --max-height: unset;
+        }
+
+        .container {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+        }
+      `,
+    ]
+  }
+}
 
 export class FileManager extends LitElement {
   static properties = {
@@ -174,21 +199,29 @@ export class FileManager extends LitElement {
 
   render() {
     return html`
-      <div class="sidebar-header">
-        <h3>File Manager</h3>
-      </div>
-      <div class="sidebar-content">
-        <div class="controls">
-          <button @click=${this._handleSelectFolder}>Open Folder</button>
+      <sidebar-drawer>
+        <button slot="invoker">
+          <lion-icon
+            icon-id="increvise:misc:arrowLeft"
+            style="width: 16px; height: 16px;"
+          ></lion-icon>
+        </button>
+        <h3 slot="headline">File Manager</h3>
+        <div slot="content">
+          <div class="sidebar-content">
+            <div class="controls">
+              <button @click=${this._handleSelectFolder}>Open Folder</button>
+            </div>
+            <file-tree .treeData=${this.treeData} .disabled=${this.isAllWorkspacesMode}></file-tree>
+          </div>
+          <div class="workspace-history">
+            <div class="workspace-history-header">
+              <h3>Recent Workspaces</h3>
+            </div>
+            ${this._renderWorkspaceHistory()}
+          </div>
         </div>
-        <file-tree .treeData=${this.treeData} .disabled=${this.isAllWorkspacesMode}></file-tree>
-      </div>
-      <div class="workspace-history">
-        <div class="workspace-history-header">
-          <h3>Recent Workspaces</h3>
-        </div>
-        ${this._renderWorkspaceHistory()}
-      </div>
+      </sidebar-drawer>
     `
   }
 
@@ -494,3 +527,4 @@ export class FileManager extends LitElement {
 }
 
 customElements.define('file-manager', FileManager)
+customElements.define('sidebar-drawer', SidebarDrawer)

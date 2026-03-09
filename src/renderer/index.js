@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Import Shoelace themes based on user's color scheme preference
+import { icons } from '@lion/ui/icon.js'
+import { resolveIcon } from './ui/icons/iconResolver.js'
 import './ui/EditorPanel.js'
 import './ui/FileManager.js'
 import './ui/FileTree.js'
@@ -15,6 +18,18 @@ import './ui/MarkdownViewer.js'
 import './ui/VideoViewer.js'
 import './ui/FlashcardViewer.js'
 import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
+
+// Register icon resolver for icon components
+icons.addIconResolver('increvise', resolveIcon)
+
+// Listen for color scheme changes and update theme dynamically
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  if (e.matches) {
+    document.documentElement.classList.add('sl-theme-dark')
+  } else {
+    document.documentElement.classList.remove('sl-theme-dark')
+  }
+})
 
 // Initialize platform-specific features
 async function initPlatform() {
