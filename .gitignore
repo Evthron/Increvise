@@ -152,3 +152,6 @@ dist-mobile/
 test/test-workspace
 test/temp-test-workspace
 .increvise/
+
+# Android Studio
+.idea/
