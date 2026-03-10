@@ -10,7 +10,6 @@ import './ui/FileManager.js'
 import './ui/FileTree.js'
 import './ui/revisionList.js'
 import './ui/FeedbackBar.js'
-import { initializeResizeHandles } from './ui/resize.js'
 import './ui/codemirror-viewer.js'
 import './ui/pdfViewer.js'
 import './ui/HTMLViewer.js'
@@ -50,6 +49,5 @@ async function initPlatform() {
 
 // Initialize platform first, then UI
 initPlatform().then(() => {
-  initializeResizeHandles()
   setupExternalLinkInterceptor()
 })
