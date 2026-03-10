@@ -18,7 +18,47 @@
 
     <main>
       <div class="user-panel">
-        <file-manager></file-manager>
+        <sidebar-drawer opened>
+          <div class="headline" slot="headline">
+            <h3 class="headline-title">File Manager</h3>
+          </div>
+          <lion-button slot="invoker">
+            <lion-icon
+              icon-id="increvise:misc:arrowLeft"
+              style="width: 16px; height: 16px"
+            ></lion-icon>
+          </lion-button>
+          <div slot="content">
+            <sl-split-panel vertical style="height: 100%">
+              <div
+                slot="start"
+                style="
+                  height: 100%;
+                  width: 100%;
+                  background: var(--sl-color-neutral-50);
+                  display: flex;
+                  overflow: hidden;
+                "
+              >
+                <div class="sidebar-content">
+                  <file-manager></file-manager>
+                </div>
+              </div>
+              <div
+                slot="end"
+                style="
+                  height: 100%;
+                  width: 100%;
+                  background: var(--sl-color-neutral-50);
+                  display: flex;
+                  overflow: hidden;
+                "
+              >
+                <workspace-manager></workspace-manager>
+              </div>
+            </sl-split-panel>
+          </div>
+        </sidebar-drawer>
 
         <div class="resize-handle" data-resize="sidebar"></div>
 

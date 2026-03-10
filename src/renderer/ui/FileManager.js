@@ -51,6 +51,22 @@ class SidebarDrawer extends LionDrawer {
       `,
     ]
   }
+  connectedCallback() {
+    super.connectedCallback()
+    this.addEventListener('opened-changed', this._handleOpenedChanged)
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    this.removeEventListener('opened-changed', this._handleOpenedChanged)
+  }
+
+  _handleOpenedChanged = () => {
+    const contentNode = this.shadowRoot.querySelector('.content-container')
+    if (contentNode) {
+      contentNode.style.setProperty('display', this.opened ? '' : 'none')
+    }
+  }
 
   // The source function forgets to check the source of the event, all transition event inside the content node would trigger this
   _waitForTransition({ contentNode }) {
@@ -128,12 +144,12 @@ export class FileManager extends LitElement {
   async connectedCallback() {
     super.connectedCallback()
     // Listen for workspace selection events from WorkspaceManager
-    this.addEventListener('workspace-selected', this._handleWorkspaceSelected)
+    window.addEventListener('workspace-selected', this._handleWorkspaceSelected)
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    this.removeEventListener('workspace-selected', this._handleWorkspaceSelected)
+    window.removeEventListener('workspace-selected', this._handleWorkspaceSelected)
   }
 
   _handleWorkspaceSelected = async (event) => {
@@ -148,47 +164,7 @@ export class FileManager extends LitElement {
 
   render() {
     return html`
-      <sidebar-drawer
-        opened
-        @opened-changed=${(ev) => {
-          const sidebarDrawer = this.shadowRoot.querySelector('sidebar-drawer')
-          const contentNode = sidebarDrawer.shadowRoot.querySelector('.content-container')
-          if (contentNode) {
-            contentNode.style.setProperty('display', ev.target.opened ? '' : 'none')
-          }
-        }}
-      >
-        <div class="headline" slot="headline">
-          <h3 class="headline-title">File Manager</h3>
-        </div>
-        <lion-button slot="invoker">
-          <lion-icon
-            icon-id="increvise:misc:arrowLeft"
-            style="width: 16px; height: 16px;"
-          ></lion-icon>
-        </lion-button>
-        <div slot="content">
-          <sl-split-panel vertical style="height: 100%">
-            <div
-              slot="start"
-              style="height: 100%; width: 100%; background: var(--sl-color-neutral-50); display: flex; overflow: hidden;"
-            >
-              <div class="sidebar-content">
-                <file-tree
-                  .treeData=${this.treeData}
-                  .disabled=${this.isAllWorkspacesMode}
-                ></file-tree>
-              </div>
-            </div>
-            <div
-              slot="end"
-              style="height: 100%; width: 100%; background: var(--sl-color-neutral-50); display: flex; overflow: hidden;"
-            >
-              <workspace-manager></workspace-manager>
-            </div>
-          </sl-split-panel>
-        </div>
-      </sidebar-drawer>
+      <file-tree .treeData="${this.treeData}" .disabled="${this.isAllWorkspacesMode}"></file-tree>
     `
   }
 
@@ -204,8 +180,8 @@ export class FileManager extends LitElement {
       this.currentRootPath = folderPath
       this.isAllWorkspacesMode = false
 
-      // Update WorkspaceManager component
-      const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
+      // Update WorkspaceManager component (sibling)
+      const workspaceManager = document.querySelector('workspace-manager')
       if (workspaceManager) {
         workspaceManager.selectSingleWorkspace(folderPath)
       }
@@ -244,8 +220,8 @@ export class FileManager extends LitElement {
       this.currentRootPath = null
       this.isAllWorkspacesMode = true
 
-      // Update WorkspaceManager component
-      const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
+      // Update WorkspaceManager component (sibling)
+      const workspaceManager = document.querySelector('workspace-manager')
       if (workspaceManager) {
         workspaceManager.selectAllWorkspaces()
       }
@@ -331,8 +307,8 @@ export class FileManager extends LitElement {
 
       this.treeData = combined
 
-      // Refresh workspace list in WorkspaceManager
-      const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
+      // Refresh workspace list in WorkspaceManager (sibling)
+      const workspaceManager = document.querySelector('workspace-manager')
       if (workspaceManager) {
         await workspaceManager.loadRecentWorkspaces()
       }
@@ -421,8 +397,8 @@ export class FileManager extends LitElement {
       console.log('[Mobile] Skipped directory tree loading (read-only mode)')
     }
 
-    // Refresh workspace list in WorkspaceManager
-    const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
+    // Refresh workspace list in WorkspaceManager (sibling)
+    const workspaceManager = document.querySelector('workspace-manager')
     if (workspaceManager) {
       await workspaceManager.loadRecentWorkspaces()
     }
