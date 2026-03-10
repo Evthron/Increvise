@@ -22,8 +22,10 @@ class SidebarDrawer extends LionDrawer {
         :host {
           display: flex;
           --min-width: 30px;
-          --max-width: unset;
+          --max-width: 20vw;
           --max-height: unset;
+          background-color: var(--bg-sidebar);
+          border-right: 1px solid var(--border-color);
         }
 
         .container {
@@ -31,6 +33,12 @@ class SidebarDrawer extends LionDrawer {
           flex-direction: column;
           height: 100%;
           width: 100%;
+        }
+
+        .headline-container {
+          padding: 12px 16px;
+          border-bottom: 1px solid var(--border-color);
+          background-color: var(--toolbar-bg);
         }
       `,
     ]
@@ -61,6 +69,18 @@ class SidebarDrawer extends LionDrawer {
       contentNode.addEventListener(EVENT.TRANSITION_END, transitionEnded)
     })
   }
+
+  async _updateContentSize() {
+    if (this.__contentNode) {
+      if (this.opened) {
+        await this._showAnimation({ contentNode: this.__contentNode })
+      } else {
+        await this._hideAnimation({ contentNode: this.__contentNode })
+        // hide the content elements when collapsed
+        this._contentNode.style.setProperty('display', 'none')
+      }
+    }
+  }
 }
 
 export class FileManager extends LitElement {
@@ -79,13 +99,13 @@ export class FileManager extends LitElement {
       background-color: var(--bg-sidebar);
     }
 
-    .sidebar-header {
+    /* .sidebar-header {
       padding: 12px 16px;
       border-bottom: 1px solid var(--border-color);
       background-color: var(--toolbar-bg);
-    }
+    } */
 
-    .sidebar-header h3 {
+    .headline-title {
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
@@ -117,7 +137,6 @@ export class FileManager extends LitElement {
       background: var(--bg-primary);
       color: var(--text-primary);
       text-align: left;
-      transition: background-color 0.15s ease;
     }
 
     .controls button:hover {
@@ -132,7 +151,6 @@ export class FileManager extends LitElement {
       border-top: 1px solid var(--border-color);
       background-color: var(--bg-sidebar);
       flex-shrink: 0;
-      max-height: 250px;
       display: flex;
       flex-direction: column;
     }
@@ -165,7 +183,7 @@ export class FileManager extends LitElement {
       border: 1px solid var(--border-color);
       border-radius: 5px;
       cursor: pointer;
-      transition: all 0.15s ease;
+      /* transition: all 0.15s ease; */
     }
 
     .workspace-item:hover {
@@ -230,14 +248,16 @@ export class FileManager extends LitElement {
 
   render() {
     return html`
-      <sidebar-drawer>
+      <sidebar-drawer opened>
+        <div class="headline" slot="headline">
+          <h3 class="headline-title">File Manager</h3>
+        </div>
         <button slot="invoker">
           <lion-icon
             icon-id="increvise:misc:arrowLeft"
             style="width: 16px; height: 16px;"
           ></lion-icon>
         </button>
-        <h3 slot="headline">File Manager</h3>
         <div slot="content">
           <div class="sidebar-content">
             <div class="controls">
