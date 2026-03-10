@@ -6,6 +6,10 @@
 // Handles revision file listing, review navigation, and feedback
 
 import { LitElement, html, css } from 'lit'
+import '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js'
+import '@shoelace-style/shoelace/dist/components/button/button.js'
+import '@shoelace-style/shoelace/dist/components/menu/menu.js'
+import '@shoelace-style/shoelace/dist/components/menu-item/menu-item.js'
 
 export class RevisionList extends LitElement {
   static properties = {
@@ -194,38 +198,20 @@ export class RevisionList extends LitElement {
 
     .queue-filter-bar {
       display: flex;
-      gap: 6px;
+      gap: 12px;
       padding: 12px 16px;
       background-color: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
-      overflow-x: auto;
       flex-shrink: 0;
+      align-items: center;
     }
 
-    .queue-filter-btn {
-      padding: 6px 12px;
+    .queue-filter-label {
       font-size: 11px;
       font-weight: 600;
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      background-color: var(--bg-primary);
       color: var(--text-secondary);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-    }
-
-    .queue-filter-btn:hover {
-      background-color: var(--bg-secondary);
-      border-color: var(--accent-color);
-    }
-
-    .queue-filter-btn.active {
-      background-color: var(--accent-color);
-      color: white;
-      border-color: var(--accent-color);
     }
 
     .queue-badge-inline {
@@ -283,6 +269,7 @@ export class RevisionList extends LitElement {
       border-bottom: 1px solid var(--border-color);
       flex-shrink: 0;
       align-items: center;
+      justify-content: space-between;
     }
 
     .view-toggle-label {
@@ -462,6 +449,17 @@ export class RevisionList extends LitElement {
     }
 
     this.requestUpdate()
+
+    // Close the dropdown
+    const dropdown = this.shadowRoot?.querySelector('sl-dropdown')
+    if (dropdown) {
+      dropdown.hide()
+    }
+  }
+
+  _handleDropdownSelect(event) {
+    const selectedItem = event.detail.item
+    this.handleQueueFilterChange(selectedItem.value)
   }
 
   async handleViewToggle(showAll) {
@@ -474,19 +472,22 @@ export class RevisionList extends LitElement {
   _renderViewToggleBar() {
     return html`
       <div class="view-toggle-bar">
-        <span class="view-toggle-label">Show:</span>
-        <button
-          class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
-          @click=${() => this.handleViewToggle(false)}
-        >
-          📅 Due Today
-        </button>
-        <button
-          class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
-          @click=${() => this.handleViewToggle(true)}
-        >
-          📋 All Files
-        </button>
+        <div>
+          <span class="view-toggle-label">Show:</span>
+          <button
+            class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(false)}
+          >
+            📅 Due Today
+          </button>
+          <button
+            class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(true)}
+          >
+            📋 All Files
+          </button>
+        </div>
+        ${this._renderQueueFilterBar()}
       </div>
     `
   }
@@ -504,20 +505,23 @@ export class RevisionList extends LitElement {
       { id: 'archived', label: 'Archived', icon: '📦' },
     ]
 
+    const currentFilter = filters.find((f) => f.id === this.selectedQueueFilter)
+
     return html`
-      <div class="queue-filter-bar">
-        ${filters.map(
-          (filter) => html`
-            <button
-              class="queue-filter-btn ${this.selectedQueueFilter === filter.id ? 'active' : ''}"
-              @click=${() => this.handleQueueFilterChange(filter.id)}
-            >
-              <span>${filter.icon}</span>
-              <span>${filter.label}</span>
-            </button>
-          `
-        )}
-      </div>
+      <sl-dropdown @sl-select=${this._handleDropdownSelect}>
+        <sl-button slot="trigger" caret size="small">
+          ${currentFilter?.icon} ${currentFilter?.label}
+        </sl-button>
+        <sl-menu>
+          ${filters.map(
+            (filter) => html`
+              <sl-menu-item value="${filter.id}" ?checked=${this.selectedQueueFilter === filter.id}>
+                ${filter.icon} ${filter.label}
+              </sl-menu-item>
+            `
+          )}
+        </sl-menu>
+      </sl-dropdown>
     `
   }
 
@@ -678,8 +682,7 @@ export class RevisionList extends LitElement {
           ${this.showAllFiles ? 'All files in queues' : 'Due for review'}
         </div>
       </div>
-
-      ${this._renderViewToggleBar()} ${this._renderQueueFilterBar()}
+      ${this._renderViewToggleBar()}
       ${filteredCount === 0
         ? this.renderEmptyState()
         : html`
