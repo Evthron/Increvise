@@ -29,7 +29,7 @@
             ></lion-icon>
           </lion-button>
           <div slot="content">
-            <sl-split-panel vertical style="height: 100%">
+            <sl-split-panel vertical style="flex: 1">
               <div
                 slot="start"
                 style="
@@ -40,7 +40,7 @@
                   overflow: hidden;
                 "
               >
-                <div class="sidebar-content">
+                <div style="flex: 1" class="sidebar-content">
                   <file-manager></file-manager>
                 </div>
               </div>
@@ -60,15 +60,10 @@
           </div>
         </sidebar-drawer>
 
-        <sl-split-panel position="75">
+        <sl-split-panel style="flex: 1" position="75">
           <div
             slot="start"
-            style="
-              height: 100%;
-              background: var(--sl-color-neutral-50);
-              display: flex;
-              overflow: hidden;
-            "
+            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
           >
             <div class="list-panel">
               <div class="list-header">
@@ -79,12 +74,7 @@
           </div>
           <div
             slot="end"
-            style="
-              height: 100%;
-              background: var(--sl-color-neutral-50);
-              display: flex;
-              overflow: hidden;
-            "
+            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
           >
             <div class="editor-panel">
               <editor-panel>
