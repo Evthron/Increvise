@@ -17,7 +17,11 @@ import './ui/HTMLViewer.js'
 import './ui/MarkdownViewer.js'
 import './ui/VideoViewer.js'
 import './ui/FlashcardViewer.js'
-import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
+import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js'
+import '@shoelace-style/shoelace/dist/components/split-panel/split-panel.js'
+
+// Set the base path to the folder you copied Shoelace's assets to
+setBasePath('node_modules/@shoelace-style/shoelace/dist')
 
 // Register icon resolver for icon components
 icons.addIconResolver('increvise', resolveIcon)

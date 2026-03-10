@@ -22,27 +22,46 @@
 
         <div class="resize-handle" data-resize="sidebar"></div>
 
-        <div class="list-panel">
-          <div class="list-header">
-            <h3>Files for Revision</h3>
+        <sl-split-panel position="75">
+          <div
+            slot="start"
+            style="
+              height: 100%;
+              background: var(--sl-color-neutral-50);
+              display: flex;
+              overflow: hidden;
+            "
+          >
+            <div class="list-panel">
+              <div class="list-header">
+                <h3>Files for Revision</h3>
+              </div>
+              <revision-list></revision-list>
+            </div>
           </div>
-          <revision-list></revision-list>
-        </div>
-
-        <div class="resize-handle" data-resize="list-panel"></div>
-
-        <div class="editor-panel">
-          <editor-panel>
-            <codemirror-viewer slot="codemirror" content="Select a file to revise">
-            </codemirror-viewer>
-            <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
-            <html-viewer slot="html" class="hidden"></html-viewer>
-            <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
-            <video-viewer slot="video" class="hidden"></video-viewer>
-            <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
-          </editor-panel>
-          <feedback-bar></feedback-bar>
-        </div>
+          <div
+            slot="end"
+            style="
+              height: 100%;
+              background: var(--sl-color-neutral-50);
+              display: flex;
+              overflow: hidden;
+            "
+          >
+            <div class="editor-panel">
+              <editor-panel>
+                <codemirror-viewer slot="codemirror" content="Select a file to revise">
+                </codemirror-viewer>
+                <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
+                <html-viewer slot="html" class="hidden"></html-viewer>
+                <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
+                <video-viewer slot="video" class="hidden"></video-viewer>
+                <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
+              </editor-panel>
+              <feedback-bar></feedback-bar>
+            </div>
+          </div>
+        </sl-split-panel>
       </div>
     </main>
 

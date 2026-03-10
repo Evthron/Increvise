@@ -7,7 +7,9 @@
 
 import { LitElement, html, css } from 'lit'
 import { LionDrawer } from '@lion/ui/drawer.js'
+import '@lion/ui/button.js'
 import '@lion/ui/define/lion-icon.js'
+import '@shoelace-style/shoelace/dist/components/split-panel/split-panel.js'
 
 const EVENT = {
   TRANSITION_END: 'transitionend',
@@ -39,6 +41,11 @@ class SidebarDrawer extends LionDrawer {
           padding: 12px 16px;
           border-bottom: 1px solid var(--border-color);
           background-color: var(--toolbar-bg);
+        }
+
+        .content-container {
+          display: flex;
+          height: 100%;
         }
       `,
     ]
@@ -153,6 +160,7 @@ export class FileManager extends LitElement {
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
+      width: 100%;
     }
 
     .workspace-history-header {
@@ -252,25 +260,40 @@ export class FileManager extends LitElement {
         <div class="headline" slot="headline">
           <h3 class="headline-title">File Manager</h3>
         </div>
-        <button slot="invoker">
+        <lion-button slot="invoker">
           <lion-icon
             icon-id="increvise:misc:arrowLeft"
             style="width: 16px; height: 16px;"
           ></lion-icon>
-        </button>
+        </lion-button>
         <div slot="content">
-          <div class="sidebar-content">
-            <div class="controls">
-              <button @click=${this._handleSelectFolder}>Open Folder</button>
+          <sl-split-panel vertical style="height: 100%">
+            <div
+              slot="start"
+              style="height: 100%; width: 100%; background: var(--sl-color-neutral-50); display: flex; overflow: hidden;"
+            >
+              <div class="sidebar-content">
+                <div class="controls">
+                  <button @click=${this._handleSelectFolder}>Open Folder</button>
+                </div>
+                <file-tree
+                  .treeData=${this.treeData}
+                  .disabled=${this.isAllWorkspacesMode}
+                ></file-tree>
+              </div>
             </div>
-            <file-tree .treeData=${this.treeData} .disabled=${this.isAllWorkspacesMode}></file-tree>
-          </div>
-          <div class="workspace-history">
-            <div class="workspace-history-header">
-              <h3>Recent Workspaces</h3>
+            <div
+              slot="end"
+              style="height: 100%; width: 100%; background: var(--sl-color-neutral-50); display: flex; overflow: hidden;"
+            >
+              <div class="workspace-history">
+                <div class="workspace-history-header">
+                  <h3>Recent Workspaces</h3>
+                </div>
+                ${this._renderWorkspaceHistory()}
+              </div>
             </div>
-            ${this._renderWorkspaceHistory()}
-          </div>
+          </sl-split-panel>
         </div>
       </sidebar-drawer>
     `
