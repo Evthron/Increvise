@@ -290,19 +290,24 @@ export class FileManager extends LitElement {
 
       // Loop through each workspace and get its directory tree
       for (const ws of workspaces) {
-        const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
+        try {
+          const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
 
-        if (!result.success) {
-          console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
-          continue // Skip this workspace but continue with others
+          if (!result.success) {
+            console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
+            continue // Skip this workspace but continue with others
+          }
+
+          const nodes = Array.isArray(result.data)
+            ? result.data
+            : Array.isArray(result.data?.children)
+              ? result.data.children
+              : []
+          combined.push(...nodes)
+        } catch (error) {
+          console.error(`Failed to load workspace ${ws.folder_path}:`, error)
+          continue
         }
-
-        const nodes = Array.isArray(result.data)
-          ? result.data
-          : Array.isArray(result.data?.children)
-            ? result.data.children
-            : []
-        combined.push(...nodes)
       }
 
       this.treeData = combined
@@ -331,7 +336,6 @@ export class FileManager extends LitElement {
     } catch (error) {
       console.error('Error loading combined workspace view:', error)
       alert(`Error loading combined view: ${error.message}`)
-      console.error('Error loading combined workspace view:', error)
     }
   }
 
@@ -351,11 +355,8 @@ export class FileManager extends LitElement {
       // On mobile, folderPath is actually the DB name
       // Extract library_id from the workspace DB
       try {
-        const { sqliteAdapter } = await import('../../adapters/sqlite-adapter.js')
-        const library = await sqliteAdapter.getOne(
-          folderPath,
-          'SELECT library_id FROM library LIMIT 1'
-        )
+        const db = await import('../../adapters/sqlite-adapter.js')
+        const library = await db.getOne(folderPath, 'SELECT library_id FROM library LIMIT 1')
         if (library) {
           window.currentWorkspaceLibraryId = library.library_id
           console.log('Mobile Workspace Library ID:', library.library_id)

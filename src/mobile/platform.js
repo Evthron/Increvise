@@ -605,6 +605,7 @@ export const mobilePlatform = {
    * Get directory tree structure
    * @param {string} path - Directory path
    * @param {string} libraryId - Library ID
+   * @returns {Promise<{success: boolean, data?: any, error?: string}>}
    */
   async getDirectoryTree(path, libraryId) {
     try {
@@ -622,7 +623,7 @@ export const mobilePlatform = {
       }
 
       if (!workspace) {
-        return null
+        return { success: false, error: 'Workspace not found' }
       }
 
       // Get all files in this workspace from the database
@@ -668,10 +669,10 @@ export const mobilePlatform = {
         }
       }
 
-      return tree
+      return { success: true, data: tree }
     } catch (error) {
       console.error('[Mobile] getDirectoryTree error:', error)
-      return null
+      return { success: false, error: error.message }
     }
   },
 

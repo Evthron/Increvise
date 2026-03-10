@@ -131,11 +131,24 @@ export class WorkspaceManager extends LitElement {
     this.workspaces = []
     this.currentRootPath = null
     this.isAllWorkspacesMode = false
+    this._fileManagerReady = false
+
+    // Listen for fileManager ready event (mobile)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('filemanager-ready', () => {
+        this._fileManagerReady = true
+        this.loadRecentWorkspaces()
+      })
+    }
   }
 
   async connectedCallback() {
     super.connectedCallback()
-    await this.loadRecentWorkspaces()
+    // Only load if fileManager is already available (desktop) or ready (mobile)
+    if (window.fileManager) {
+      this._fileManagerReady = true
+      await this.loadRecentWorkspaces()
+    }
   }
 
   render() {
@@ -180,6 +193,10 @@ export class WorkspaceManager extends LitElement {
 
   async loadRecentWorkspaces() {
     try {
+      if (!window.fileManager) {
+        console.warn('fileManager not yet initialized')
+        return
+      }
       const workspaces = await window.fileManager.getRecentWorkspaces()
       this.workspaces = workspaces || []
     } catch (error) {

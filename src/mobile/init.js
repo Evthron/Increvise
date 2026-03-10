@@ -30,6 +30,9 @@ export async function initMobilePlatform() {
     // 2. Setup window.fileManager polyfill for backward compatibility
     if (typeof window !== 'undefined') {
       window.fileManager = mobilePlatform
+
+      // 3. Dispatch event to notify components that fileManager is ready
+      window.dispatchEvent(new CustomEvent('filemanager-ready'))
     }
 
     console.log('[Mobile] Ready')
