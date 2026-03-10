@@ -137,8 +137,13 @@ export class FileManager extends LitElement {
   }
 
   _handleWorkspaceSelected = async (event) => {
-    const { folderPath } = event.detail
-    await this.openWorkspace(folderPath)
+    const { folderPath, isAllWorkspacesMode } = event.detail
+
+    if (isAllWorkspacesMode) {
+      await this.openAllWorkspaces()
+    } else {
+      await this.openWorkspace(folderPath)
+    }
   }
 
   render() {
@@ -197,37 +202,70 @@ export class FileManager extends LitElement {
 
       // Update state
       this.currentRootPath = folderPath
-      this.isAllWorkspacesMode = folderPath === 'ALL'
+      this.isAllWorkspacesMode = false
 
       // Update WorkspaceManager component
       const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
       if (workspaceManager) {
-        workspaceManager.setCurrentWorkspace(folderPath)
+        workspaceManager.selectSingleWorkspace(folderPath)
       }
 
-      // Update global window properties for backward compatibility
+      // Update global window properties
       window.currentRootPath = folderPath
-      window.isAllWorkspacesMode = this.isAllWorkspacesMode
+      window.isAllWorkspacesMode = false
 
       // Dispatch event
       window.dispatchEvent(
         new CustomEvent('workspace-mode-changed', {
-          detail: { isAll: this.isAllWorkspacesMode, path: folderPath },
+          detail: { isAll: false, path: folderPath },
         })
       )
-
-      // Special case: "All Workspaces" combined view
-      if (folderPath === 'ALL') {
-        await this._openAllWorkspaces()
-        return
-      }
 
       // Single workspace mode
       await this._openSingleWorkspace(folderPath)
     } catch (error) {
       console.error('Error opening workspace:', error)
       alert(`Error opening workspace: ${error.message}`)
-      console.error('Error opening workspace:', error)
+    }
+
+    // Register add button guard for ALL workspaces mode
+    this._registerAddButtonGuard()
+  }
+
+  async openAllWorkspaces() {
+    try {
+      // Stop current revision workflow before switching workspace
+      const feedbackBar = document.querySelector('feedback-bar')
+      if (feedbackBar) {
+        feedbackBar.stopRevisionWorkflow()
+      }
+
+      // Update state
+      this.currentRootPath = null
+      this.isAllWorkspacesMode = true
+
+      // Update WorkspaceManager component
+      const workspaceManager = this.shadowRoot.querySelector('workspace-manager')
+      if (workspaceManager) {
+        workspaceManager.selectAllWorkspaces()
+      }
+
+      // Update global window properties for backward compatibility
+      window.currentRootPath = null
+      window.isAllWorkspacesMode = true
+
+      // Dispatch event
+      window.dispatchEvent(
+        new CustomEvent('workspace-mode-changed', {
+          detail: { isAll: true, path: null },
+        })
+      )
+
+      // Open all workspaces combined view
+      await this._openAllWorkspaces()
+    } catch (error) {
+      console.error('Error opening all workspaces:', error)
+      alert(`Error opening all workspaces: ${error.message}`)
     }
 
     // Register add button guard for ALL workspaces mode
@@ -235,7 +273,7 @@ export class FileManager extends LitElement {
   }
 
   async refreshCurrentWorkspace() {
-    if (!this.currentRootPath) {
+    if (!this.isAllWorkspacesMode && !this.currentRootPath) {
       console.warn('No workspace is currently open')
       return
     }

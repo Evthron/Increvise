@@ -148,10 +148,8 @@ export class WorkspaceManager extends LitElement {
       </div>
       <div id="workspace-history-list">
         <div
-          class="workspace-item all-workspaces-item ${this.currentRootPath === 'ALL'
-            ? 'selected'
-            : ''}"
-          @click=${() => this._handleWorkspaceClick('ALL')}
+          class="workspace-item all-workspaces-item ${this.isAllWorkspacesMode ? 'selected' : ''}"
+          @click=${() => this._handleAllWorkspacesClick()}
         >
           All Workspaces
         </div>
@@ -162,13 +160,13 @@ export class WorkspaceManager extends LitElement {
   }
 
   _renderWorkspaceItem(workspace) {
-    const isSelected = this.currentRootPath === workspace.folder_path
+    const isSelected = !this.isAllWorkspacesMode && this.currentRootPath === workspace.folder_path
     const timeAgo = this._getTimeAgo(new Date(workspace.last_opened))
 
     return html`
       <div
         class="workspace-item ${isSelected ? 'selected' : ''}"
-        @click=${() => this._handleWorkspaceClick(workspace.folder_path)}
+        @click=${() => this._handleSingleWorkspaceClick(workspace.folder_path)}
         title=${workspace.folder_path}
       >
         <div class="workspace-name">${workspace.folder_name}</div>
@@ -193,7 +191,7 @@ export class WorkspaceManager extends LitElement {
     try {
       const folderPath = await window.fileManager.selectFolder()
       if (folderPath) {
-        this._handleWorkspaceClick(folderPath)
+        this._handleSingleWorkspaceClick(folderPath)
       }
     } catch (error) {
       console.error('Error selecting folder:', error)
@@ -201,11 +199,22 @@ export class WorkspaceManager extends LitElement {
     }
   }
 
-  async _handleWorkspaceClick(folderPath) {
-    // Dispatch event for parent component to handle
+  _handleAllWorkspacesClick() {
+    // Dispatch event for switching to all workspaces mode
     this.dispatchEvent(
       new CustomEvent('workspace-selected', {
-        detail: { folderPath },
+        detail: { isAllWorkspacesMode: true },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  _handleSingleWorkspaceClick(folderPath) {
+    // Dispatch event for opening a specific workspace
+    this.dispatchEvent(
+      new CustomEvent('workspace-selected', {
+        detail: { folderPath, isAllWorkspacesMode: false },
         bubbles: true,
         composed: true,
       })
@@ -222,10 +231,15 @@ export class WorkspaceManager extends LitElement {
     return `${Math.floor(seconds / 2592000)}mo ago`
   }
 
-  // Method to update current workspace from parent
-  setCurrentWorkspace(folderPath) {
+  // Methods to update workspace state from parent
+  selectSingleWorkspace(folderPath) {
     this.currentRootPath = folderPath
-    this.isAllWorkspacesMode = folderPath === 'ALL'
+    this.isAllWorkspacesMode = false
+  }
+
+  selectAllWorkspaces() {
+    this.currentRootPath = null
+    this.isAllWorkspacesMode = true
   }
 }
 
