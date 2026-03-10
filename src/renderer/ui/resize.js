@@ -18,7 +18,7 @@ export function initializeResizeHandles() {
   const savedSidebarWidth = localStorage.getItem(STORAGE_KEYS.SIDEBAR_WIDTH)
   const savedListPanelWidth = localStorage.getItem(STORAGE_KEYS.LIST_PANEL_WIDTH)
 
-  if (savedSidebarWidth) {
+  if (sidebar && savedSidebarWidth) {
     sidebar.style.width = savedSidebarWidth + 'px'
   }
   if (savedListPanelWidth) {

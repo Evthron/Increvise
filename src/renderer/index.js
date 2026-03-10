@@ -17,6 +17,7 @@ import './ui/HTMLViewer.js'
 import './ui/MarkdownViewer.js'
 import './ui/VideoViewer.js'
 import './ui/FlashcardViewer.js'
+import { setupExternalLinkInterceptor } from './ui/linkInterceptor.js'
 import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js'
 import '@shoelace-style/shoelace/dist/components/split-panel/split-panel.js'
 
