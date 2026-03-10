@@ -218,6 +218,7 @@ export const mobilePlatform = {
           allFiles.push(
             ...workspaceFiles.map((row) => ({
               ...row,
+              file_path: `${workspace.db_path}/${row.relative_path}`,
               workspace_name: workspace.folder_name,
               db_path: workspace.db_path,
             }))
@@ -263,6 +264,7 @@ export const mobilePlatform = {
           allFiles.push(
             ...files.map((row) => ({
               ...row,
+              file_path: `${workspace.db_path}/${row.relative_path}`,
               workspace_name: workspace.folder_name,
               db_path: workspace.db_path,
             }))
@@ -301,12 +303,22 @@ export const mobilePlatform = {
 
   /**
    * Get file's current queue
-   * @param {string} filePath - File path
+   * @param {string} filePath - File path (format: "workspaceId/relative/path")
    * @param {string} libraryId - Library ID
    */
   async getFileQueue(filePath, libraryId) {
-    const { getFileQueue_export } = await import('./review.js')
-    return getFileQueue_export(filePath, libraryId, filePath)
+    try {
+      // Parse workspace ID and relative path
+      const parts = filePath.split('/')
+      const dbName = parts[0]
+      const relativePath = parts.slice(1).join('/')
+
+      const { getFileQueue_export } = await import('./review.js')
+      return getFileQueue_export(dbName, libraryId, relativePath)
+    } catch (error) {
+      console.error('[Mobile] getFileQueue error:', error)
+      return { success: false, error: error.message }
+    }
   },
 
   /**
