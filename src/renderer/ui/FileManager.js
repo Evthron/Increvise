@@ -114,33 +114,6 @@ export class FileManager extends LitElement {
       overflow-y: auto;
       padding: 8px;
     }
-
-    .controls {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .controls button {
-      font-family: var(--font-family);
-      font-size: 13px;
-      font-weight: 400;
-      padding: 6px 12px;
-      border: 1px solid var(--border-color);
-      border-radius: 5px;
-      cursor: pointer;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      text-align: left;
-    }
-
-    .controls button:hover {
-      background-color: #fafafa;
-    }
-
-    .controls button:active {
-      background-color: #e5e5e5;
-    }
   `
 
   constructor() {
@@ -196,9 +169,6 @@ export class FileManager extends LitElement {
               style="height: 100%; width: 100%; background: var(--sl-color-neutral-50); display: flex; overflow: hidden;"
             >
               <div class="sidebar-content">
-                <div class="controls">
-                  <button @click=${this._handleSelectFolder}>Open Folder</button>
-                </div>
                 <file-tree
                   .treeData=${this.treeData}
                   .disabled=${this.isAllWorkspacesMode}
@@ -215,19 +185,6 @@ export class FileManager extends LitElement {
         </div>
       </sidebar-drawer>
     `
-  }
-
-  async _handleSelectFolder() {
-    try {
-      const folderPath = await window.fileManager.selectFolder()
-      if (folderPath) {
-        await this.openWorkspace(folderPath)
-      }
-    } catch (error) {
-      console.error('Error selecting folder:', error)
-      alert(`Error selecting folder: ${error.message}`)
-      console.error('Error selecting folder:', error)
-    }
   }
 
   async openWorkspace(folderPath) {

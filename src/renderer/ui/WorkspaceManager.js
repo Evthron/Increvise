@@ -38,6 +38,34 @@ export class WorkspaceManager extends LitElement {
       margin: 0;
     }
 
+    .controls {
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .controls button {
+      font-family: var(--font-family);
+      font-size: 13px;
+      font-weight: 400;
+      padding: 6px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      cursor: pointer;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      text-align: left;
+    }
+
+    .controls button:hover {
+      background-color: #fafafa;
+    }
+
+    .controls button:active {
+      background-color: #e5e5e5;
+    }
+
     #workspace-history-list {
       flex: 1;
       overflow-y: auto;
@@ -115,6 +143,9 @@ export class WorkspaceManager extends LitElement {
       <div class="workspace-history-header">
         <h3>Recent Workspaces</h3>
       </div>
+      <div class="controls">
+        <button @click=${this._handleOpenFolder}>Open Folder</button>
+      </div>
       <div id="workspace-history-list">
         <div
           class="workspace-item all-workspaces-item ${this.currentRootPath === 'ALL'
@@ -155,6 +186,18 @@ export class WorkspaceManager extends LitElement {
       this.workspaces = workspaces || []
     } catch (error) {
       console.error('Error loading recent workspaces:', error)
+    }
+  }
+
+  async _handleOpenFolder() {
+    try {
+      const folderPath = await window.fileManager.selectFolder()
+      if (folderPath) {
+        this._handleWorkspaceClick(folderPath)
+      }
+    } catch (error) {
+      console.error('Error selecting folder:', error)
+      alert(`Error selecting folder: ${error.message}`)
     }
   }
 
