@@ -76,18 +76,6 @@ class SidebarDrawer extends LionDrawer {
       contentNode.addEventListener(EVENT.TRANSITION_END, transitionEnded)
     })
   }
-
-  async _updateContentSize() {
-    if (this.__contentNode) {
-      if (this.opened) {
-        await this._showAnimation({ contentNode: this.__contentNode })
-      } else {
-        await this._hideAnimation({ contentNode: this.__contentNode })
-        // hide the content elements when collapsed
-        this._contentNode.style.setProperty('display', 'none')
-      }
-    }
-  }
 }
 
 export class FileManager extends LitElement {
@@ -256,7 +244,16 @@ export class FileManager extends LitElement {
 
   render() {
     return html`
-      <sidebar-drawer opened>
+      <sidebar-drawer
+        opened
+        @opened-changed=${(ev) => {
+          const sidebarDrawer = this.shadowRoot.querySelector('sidebar-drawer')
+          const contentNode = sidebarDrawer.shadowRoot.querySelector('.content-container')
+          if (contentNode) {
+            contentNode.style.setProperty('display', ev.target.opened ? '' : 'none')
+          }
+        }}
+      >
         <div class="headline" slot="headline">
           <h3 class="headline-title">File Manager</h3>
         </div>
