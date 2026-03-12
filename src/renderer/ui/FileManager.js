@@ -205,7 +205,11 @@ export class FileManager extends LitElement {
         feedbackBar.stopRevisionWorkflow()
       }
 
-      // Update global window properties for backward compatibility
+      // Update state
+      this.currentRootPath = null
+      this.isAllWorkspacesMode = true
+
+      // Update global window properties
       window.currentRootPath = null
       window.isAllWorkspacesMode = true
 
