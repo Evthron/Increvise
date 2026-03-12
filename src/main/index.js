@@ -9,6 +9,11 @@ import { registerFileIpc } from './ipc/file.js'
 import { registerSpacedIpc } from './ipc/spaced.js'
 import { registerIncrementalIpc } from './ipc/incremental.js'
 import { registerWorkspaceIpc } from './ipc/workspace.js'
+import { registerFileWatcherIpc } from './ipc/file-watcher.js'
+
+let mainWindow = null
+
+const getMainWindow = () => mainWindow
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -18,6 +23,8 @@ const createWindow = () => {
       preload: path.join(__dirname, '../preload/index.js'),
     },
   })
+
+  mainWindow = win
 
   // In dev mode, use the dev server; in production, load the built file
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -41,6 +48,7 @@ app.whenReady().then(async () => {
   registerSpacedIpc(ipcMain, getCentralDbPath)
   registerIncrementalIpc(ipcMain, getCentralDbPath)
   registerWorkspaceIpc(ipcMain, getCentralDbPath)
+  registerFileWatcherIpc(ipcMain, getMainWindow)
   createWindow()
 
   app.on('activate', () => {

@@ -87,4 +87,15 @@ contextBridge.exposeInMainWorld('fileManager', {
   updateWorkspaceStats: (folderPath, totalFiles, filesDueToday) =>
     ipcRenderer.invoke('update-workspace-stats', folderPath, totalFiles, filesDueToday),
   removeWorkspace: (folderPath) => ipcRenderer.invoke('remove-workspace', folderPath),
+
+  // 5. File Watcher
+  startWatchingWorkspace: (workspacePath) =>
+    ipcRenderer.invoke('start-watching-workspace', workspacePath),
+  stopWatchingWorkspace: (workspacePath) =>
+    ipcRenderer.invoke('stop-watching-workspace', workspacePath),
+  stopAllWatchers: () => ipcRenderer.invoke('stop-all-watchers'),
+  onWorkspaceFilesChanged: (callback) =>
+    ipcRenderer.on('workspace-files-changed', (event, data) => callback(data)),
+  removeWorkspaceFilesChangedListener: (callback) =>
+    ipcRenderer.removeListener('workspace-files-changed', callback),
 })

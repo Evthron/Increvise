@@ -18,6 +18,41 @@ function getRandomInitialDays() {
 }
 
 /**
+ * Ensure parent file exists in database before creating note_source relationship
+ * @param {Database} db - Better-sqlite3 database instance
+ * @param {string} libraryId - Library ID
+ * @param {string} parentRelativePath - Relative path to parent file
+ * @returns {void}
+ */
+function ensureParentFileInDb(db, libraryId, parentRelativePath) {
+  // Check if parent file exists in file table
+  const { exists_flag } = db
+    .prepare(
+      'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
+    )
+    .get(libraryId, parentRelativePath)
+
+  const exists = exists_flag === 1
+
+  if (!exists) {
+    // Add parent file to file table with default values
+    // Parent files added this way go to the 'new' queue and are due today
+    db.prepare(
+      `INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+       VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
+    ).run(libraryId, parentRelativePath)
+
+    // Add to new queue by default
+    db.prepare(
+      `INSERT INTO queue_membership (library_id, queue_name, relative_path)
+       VALUES (?, 'new', ?)`
+    ).run(libraryId, parentRelativePath)
+
+    console.log(`[ensureParentFileInDb] Added parent file to database: ${parentRelativePath}`)
+  }
+}
+
+/**
  * Parse a hierarchical note filename
  * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
  * Example: "10-20-introduction-to.15-18-core-concepts.md"
@@ -832,6 +867,10 @@ async function extractNote(
       // Note: For HTML/semantic extractions, rangeStart and rangeEnd can be null or 0
       if (rangeStart !== undefined && rangeEnd !== undefined) {
         const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+        
+        // Ensure parent file exists in database before creating relationship
+        ensureParentFileInDb(db, libraryId, parentRelativePath)
+        
         try {
           db.prepare(
             `
@@ -944,6 +983,9 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
         VALUES (?, 'intermediate', ?)
       `
       ).run(libraryId, relativePath)
+
+      // Ensure parent PDF file exists in database before creating relationship
+      ensureParentFileInDb(db, libraryId, parentRelativePath)
 
       db.prepare(
         `
@@ -1103,6 +1145,9 @@ async function extractPdfText(
       const rangeEnd =
         lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
 
+      // Ensure parent PDF file exists in database before creating relationship
+      ensureParentFileInDb(db, libraryId, parentRelativePath)
+
       db.prepare(
         `
         INSERT INTO note_source 
@@ -1217,6 +1262,9 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
         VALUES (?, 'intermediate', ?)
       `
       ).run(libraryId, relativePath)
+
+      // Ensure parent video file exists in database before creating relationship
+      ensureParentFileInDb(db, libraryId, parentRelativePath)
 
       db.prepare(
         `
@@ -1401,6 +1449,10 @@ async function extractFlashcard(
 
       // Insert note_source record with character positions
       const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+      
+      // Ensure parent file exists in database before creating relationship
+      ensureParentFileInDb(db, libraryId, parentRelativePath)
+      
       db.prepare(
         `
             INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)

@@ -54,7 +54,7 @@ async function run() {
     if (fs.existsSync(db_path)) {
       const db = new Database(db_path)
       console.log(`[${label}] Current user_version: ${db.pragma('user_version', { simple: true })}`)
-      db.pragma('user_version = 1')
+      db.pragma('user_version = 2')
       console.log(`[${label}] New user_version: ${db.pragma('user_version', { simple: true })}`)
       console.log(`[${label}] ✅ Successfully updated user_version to 1`)
       db.close()

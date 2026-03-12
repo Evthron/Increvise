@@ -163,11 +163,45 @@ export class FileManager extends LitElement {
     this.currentRootPath = null
     this.isAllWorkspacesMode = false
     this.treeData = []
+
+    // Listen for tree refresh events
+    this._handleTreeRefresh = this._handleTreeRefresh.bind(this)
+    
+    // Listen for file system changes
+    this._handleFileSystemChange = this._handleFileSystemChange.bind(this)
   }
 
   async connectedCallback() {
     super.connectedCallback()
     await this._loadRecentWorkspaces()
+
+    // Add event listener for tree refresh
+    this.addEventListener('tree-refresh-needed', this._handleTreeRefresh)
+    
+    // Add listener for file system changes
+    window.fileManager.onWorkspaceFilesChanged(this._handleFileSystemChange)
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    this.removeEventListener('tree-refresh-needed', this._handleTreeRefresh)
+    
+    // Remove file system change listener
+    window.fileManager.removeWorkspaceFilesChangedListener(this._handleFileSystemChange)
+    
+    // Stop all watchers
+    window.fileManager.stopAllWatchers()
+  }
+
+  async _handleTreeRefresh() {
+    await this.refreshCurrentWorkspace()
+  }
+
+  async _handleFileSystemChange(data) {
+    console.log('[FileManager] File system change detected:', data)
+    
+    // Auto-refresh the tree after a file system change
+    await this.refreshCurrentWorkspace()
   }
 
   render() {
@@ -259,6 +293,9 @@ export class FileManager extends LitElement {
       if (feedbackBar) {
         feedbackBar.stopRevisionWorkflow()
       }
+
+      // Stop watching previous workspace
+      await window.fileManager.stopAllWatchers()
 
       // Update state
       this.currentRootPath = folderPath
@@ -426,6 +463,15 @@ export class FileManager extends LitElement {
           await feedbackBar.startRevisionWorkflow(filteredFiles)
         }
       }
+    }
+
+    // Start watching this workspace for file changes
+    console.log('[FileManager] Starting file watcher for:', folderPath)
+    const watchResult = await window.fileManager.startWatchingWorkspace(folderPath)
+    if (watchResult.success) {
+      console.log('[FileManager] File watcher active')
+    } else {
+      console.error('[FileManager] Failed to start file watcher:', watchResult.error)
     }
   }
 
