@@ -217,6 +217,8 @@ export class WorkspaceManager extends LitElement {
   }
 
   _handleAllWorkspacesClick() {
+    this.currentRootPath = null
+    this.isAllWorkspacesMode = true
     // Dispatch event for switching to all workspaces mode
     this.dispatchEvent(
       new CustomEvent('workspace-selected', {
@@ -228,6 +230,8 @@ export class WorkspaceManager extends LitElement {
   }
 
   _handleSingleWorkspaceClick(folderPath) {
+    this.currentRootPath = folderPath
+    this.isAllWorkspacesMode = false
     // Dispatch event for opening a specific workspace
     this.dispatchEvent(
       new CustomEvent('workspace-selected', {
@@ -246,17 +250,6 @@ export class WorkspaceManager extends LitElement {
     if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
     if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`
     return `${Math.floor(seconds / 2592000)}mo ago`
-  }
-
-  // Methods to update workspace state from parent
-  selectSingleWorkspace(folderPath) {
-    this.currentRootPath = folderPath
-    this.isAllWorkspacesMode = false
-  }
-
-  selectAllWorkspaces() {
-    this.currentRootPath = null
-    this.isAllWorkspacesMode = true
   }
 }
 

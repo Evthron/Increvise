@@ -175,12 +175,6 @@ export class FileManager extends LitElement {
       this.currentRootPath = folderPath
       this.isAllWorkspacesMode = false
 
-      // Update WorkspaceManager component (sibling)
-      const workspaceManager = document.querySelector('workspace-manager')
-      if (workspaceManager) {
-        workspaceManager.selectSingleWorkspace(folderPath)
-      }
-
       // Update global window properties
       window.currentRootPath = folderPath
       window.isAllWorkspacesMode = false
