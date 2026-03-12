@@ -33,6 +33,18 @@ function extname(filePath) {
 }
 
 /**
+ * Helper: Get file base path relative to the root folder
+ * @param {string} filePath - Full file path
+ * @returns {string} - Relative path from root folder
+ */
+function relative(filePath) {
+  const rootPath = window.currentRootPath || ''
+  return filePath.startsWith(rootPath)
+    ? filePath.slice(rootPath.length).replace(/^\/+/, '')
+    : filePath
+}
+
+/**
  * Parse a hierarchical note filename
  * Format: rangeStart-rangeEnd-layer1Name.rangeStart-rangeEnd-layer2Name.md
  * Example: "10-20-introduction-to.15-18-core-concepts.md"
@@ -212,25 +224,14 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 
   const words = generateNameFromText(plainText)
 
-  // Check if parent is truly a top-level file (no layers with ranges, or only null range)
-  const isTopLevel =
-    !parentLayers ||
-    (parentLayers.length === 1 &&
-      parentLayers[0].rangeStart === null &&
-      parentLayers[0].rangeEnd === null)
+  // Check if parent is a top-level file (inside root folder)
+  const isTopLevel = relative(parentFilePath) === basename(parentFilePath)
 
   if (isTopLevel) {
-    // Parent is a top-level file - extract name from filename (as fallback)
+    // extract name from parent filename as fallback
+    // Probably not useful since extraction from HTML should contain words?
     const parentName = generateNameFromText(parentFileName) || parentFileName.substring(0, 20)
-
-    // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
-    // For text-line extractions, use range-based naming with parent name as fallback
-    // For null ranges, omit the range prefix entirely
-    if (rangeStart === null && rangeEnd === null) {
-      return words || parentName || 'note'
-    } else {
-      return `${rangeStart}-${rangeEnd}_${words || parentName || 'note'}`
-    }
+    return words || parentName || 'note'
   } else {
     // Flat structure: keep all parent layers, append new layer
     const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
