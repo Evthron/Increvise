@@ -106,8 +106,9 @@ export class FileManager extends LitElement {
     :host {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
       background-color: var(--bg-sidebar);
+      overflow-y: auto;
     }
 
     /* .sidebar-header {
@@ -123,12 +124,6 @@ export class FileManager extends LitElement {
       color: var(--text-secondary);
       letter-spacing: 0.5px;
       margin: 0;
-    }
-
-    .sidebar-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
     }
   `
 
