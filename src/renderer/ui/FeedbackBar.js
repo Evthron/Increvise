@@ -15,7 +15,6 @@ export class FeedbackBar extends LitElement {
     currentIndex: { type: Number, state: true },
     isRevisionMode: { type: Boolean, state: true },
     currentQueue: { type: String, state: true },
-    showQueueMenu: { type: Boolean, state: true },
   }
 
   static styles = css`
@@ -191,7 +190,7 @@ export class FeedbackBar extends LitElement {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 0px 8px;
       border-radius: 12px;
       font-size: 11px;
       font-weight: 600;
@@ -357,38 +356,21 @@ export class FeedbackBar extends LitElement {
     this.currentIndex = 0
     this.isRevisionMode = false
     this.currentQueue = null
-    this.showQueueMenu = false
-    this.queueMenuPosition = { top: 0, left: 0 }
   }
 
   connectedCallback() {
     super.connectedCallback()
     // Listen for file selection from revision list
     document.addEventListener('file-selected', this._handleFileSelected.bind(this))
-    // Listen for queue selection from menu
-    document.addEventListener('queue-selected', this._handleQueueSelected.bind(this))
     // Listen for file forgotten event
     document.addEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     // Listen for processing queue feedback
     document.addEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
-    // Close queue menu when clicking outside
-    this._clickOutsideHandler = (e) => {
-      if (
-        this.showQueueMenu &&
-        !e.target.closest('.queue-control') &&
-        !e.target.closest('queue-menu')
-      ) {
-        this.showQueueMenu = false
-        this.requestUpdate()
-      }
-    }
-    document.addEventListener('click', this._clickOutsideHandler)
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     document.removeEventListener('file-selected', this._handleFileSelected.bind(this))
-    document.removeEventListener('queue-selected', this._handleQueueSelected.bind(this))
     document.removeEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     document.removeEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
     if (this._clickOutsideHandler) {
@@ -739,46 +721,6 @@ export class FeedbackBar extends LitElement {
     }
   }
 
-  _toggleQueueMenu(e) {
-    e.stopPropagation()
-
-    if (this.showQueueMenu) {
-      // Close menu
-      this.showQueueMenu = false
-    } else {
-      // Open menu and calculate position
-      this.showQueueMenu = true
-
-      // Get the position of the queue control button
-      const target = e.currentTarget
-      const rect = target.getBoundingClientRect()
-
-      // Menu dimensions (approximate)
-      const menuWidth = 240
-      const menuHeight = 350 // Approximate height with 7 items
-
-      // Calculate position (menu appears above the button)
-      let left = rect.left
-      let top = rect.top - menuHeight - 70 // 16px gap above button (increased from 8px)
-
-      // Adjust if menu would go off screen
-      if (left + menuWidth > window.innerWidth) {
-        left = window.innerWidth - menuWidth - 16
-      }
-      if (left < 16) {
-        left = 16
-      }
-      if (top < 70) {
-        // If not enough space above, show below instead
-        top = rect.bottom + 70
-      }
-
-      this.queueMenuPosition = { top, left }
-    }
-
-    this.requestUpdate()
-  }
-
   _getQueueDisplayName(queueName) {
     const names = {
       new: 'New',
@@ -791,14 +733,15 @@ export class FeedbackBar extends LitElement {
     }
     return names[queueName] || queueName
   }
+  async _handleDropdownSelect(event) {
+    const newQueue = event.detail.item.value
+    if (!newQueue || newQueue === this.currentQueue) {
+      return
+    }
 
-  async _handleQueueSelected(e) {
-    const newQueue = e.detail.queueName
     const file = this.revisionFiles[this.currentIndex]
 
     if (!file || newQueue === this.currentQueue) {
-      this.showQueueMenu = false
-      this.requestUpdate()
       return
     }
 
@@ -811,7 +754,6 @@ export class FeedbackBar extends LitElement {
 
       if (result && result.success) {
         this.currentQueue = newQueue
-        this.showQueueMenu = false
         this._showToast(`Moved to ${this._getQueueDisplayName(newQueue)} queue`)
 
         // Dispatch event to notify other components that queue was changed
@@ -825,6 +767,8 @@ export class FeedbackBar extends LitElement {
             },
           })
         )
+
+        this.requestUpdate()
       } else {
         this._showToast(`Failed to move to ${newQueue} queue`, true)
       }
@@ -832,8 +776,6 @@ export class FeedbackBar extends LitElement {
       console.error('Error changing queue:', error)
       this._showToast('Error changing queue', true)
     }
-
-    this.requestUpdate()
   }
 
   _showToast(message, isError = false) {
@@ -968,11 +910,18 @@ export class FeedbackBar extends LitElement {
             ${this.currentQueue
               ? html`
                   <span class="file-meta-separator">•</span>
-                  <div class="queue-control" @click=${this._toggleQueueMenu}>
-                    <span class="meta-icon">📂</span>
-                    <span class="queue-badge ${this.currentQueue}"
-                      >${this._getQueueDisplayName(this.currentQueue)}</span
-                    >
+                  <div>
+                    <sl-dropdown @sl-select=${this._handleDropdownSelect}>
+                      <sl-button slot="trigger" caret size="small">
+                        <span class="meta-icon">📂</span>
+                        <span class="queue-badge ${this.currentQueue}"
+                          >${this._getQueueDisplayName(this.currentQueue)}</span
+                        >
+                      </sl-button>
+                      <sl-menu>
+                        <queue-menu .currentQueue=${this.currentQueue}></queue-menu>
+                      </sl-menu>
+                    </sl-dropdown>
                   </div>
                 `
               : ''}
@@ -1023,11 +972,6 @@ export class FeedbackBar extends LitElement {
                 </button>
               </div>
             `}
-      <queue-menu
-        .currentQueue=${this.currentQueue}
-        .position=${this.queueMenuPosition}
-        .visible=${this.showQueueMenu}
-      ></queue-menu>
     `
   }
 }
