@@ -5,6 +5,7 @@
 // MarkdownViewer.js
 import { LitElement, html, css } from 'lit'
 import { marked } from 'marked'
+import { basename, extname } from './path.js'
 
 // Configure marked to use GitHub Flavored Markdown (GFM) for tables and other features
 marked.setOptions({
@@ -12,32 +13,6 @@ marked.setOptions({
   breaks: true,
   tables: true,
 })
-
-/**
- * Helper: Get basename of a file path
- * @param {string} filePath - Full file path
- * @param {string} ext - Optional extension to remove
- * @returns {string} - Base name
- */
-function basename(filePath, ext) {
-  const parts = filePath.replace(/\\/g, '/').split('/')
-  let name = parts[parts.length - 1] || ''
-  if (ext && name.endsWith(ext)) {
-    name = name.slice(0, -ext.length)
-  }
-  return name
-}
-
-/**
- * Helper: Get file extension
- * @param {string} filePath - Full file path
- * @returns {string} - Extension including dot (e.g., '.md')
- */
-function extname(filePath) {
-  const name = basename(filePath)
-  const lastDot = name.lastIndexOf('.')
-  return lastDot === -1 ? '' : name.slice(lastDot)
-}
 
 /**
  * Parse a hierarchical note filename
