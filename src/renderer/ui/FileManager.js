@@ -205,16 +205,6 @@ export class FileManager extends LitElement {
         feedbackBar.stopRevisionWorkflow()
       }
 
-      // Update state
-      this.currentRootPath = null
-      this.isAllWorkspacesMode = true
-
-      // Update WorkspaceManager component (sibling)
-      const workspaceManager = document.querySelector('workspace-manager')
-      if (workspaceManager) {
-        workspaceManager.selectAllWorkspaces()
-      }
-
       // Update global window properties for backward compatibility
       window.currentRootPath = null
       window.isAllWorkspacesMode = true
