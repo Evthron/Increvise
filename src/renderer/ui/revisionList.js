@@ -15,7 +15,7 @@ export class RevisionList extends LitElement {
   static properties = {
     files: { type: Array },
     currentIndex: { type: Number },
-    selectedQueueFilter: { type: String, state: true },
+    queueFilter: { type: String, state: true },
     showAllFiles: { type: Boolean, state: true },
   }
 
@@ -310,7 +310,7 @@ export class RevisionList extends LitElement {
     super()
     this.files = []
     this.currentIndex = 0
-    this.selectedQueueFilter = 'all'
+    this.queueFilter = 'all'
     this.showAllFiles = false
   }
 
@@ -435,19 +435,19 @@ export class RevisionList extends LitElement {
     }
 
     // Then filter by queue if not "all"
-    if (this.selectedQueueFilter === 'all') {
+    if (this.queueFilter === 'all') {
       return filtered
     }
 
     return filtered.filter((file) => {
-      if (this.selectedQueueFilter === 'spaced') {
+      if (this.queueFilter === 'spaced') {
         return (
           file.queue_name === 'spaced-casual' ||
           file.queue_name === 'spaced-standard' ||
           file.queue_name === 'spaced-strict'
         )
       }
-      return file.queue_name === this.selectedQueueFilter
+      return file.queue_name === this.queueFilter
     })
   }
 
@@ -465,7 +465,7 @@ export class RevisionList extends LitElement {
   }
 
   handleQueueFilterChange(filter) {
-    this.selectedQueueFilter = filter
+    this.queueFilter = filter
 
     // Reset to first file after filtering
     const filteredFiles = this.getFilteredFiles()
@@ -530,7 +530,7 @@ export class RevisionList extends LitElement {
       { id: 'archived', label: 'Archived', icon: '📦' },
     ]
 
-    const currentFilter = filters.find((f) => f.id === this.selectedQueueFilter)
+    const currentFilter = filters.find((f) => f.id === this.queueFilter)
 
     return html`
       <sl-dropdown @sl-select=${this._handleDropdownSelect}>
@@ -540,7 +540,7 @@ export class RevisionList extends LitElement {
         <sl-menu>
           ${filters.map(
             (filter) => html`
-              <sl-menu-item value="${filter.id}" ?checked=${this.selectedQueueFilter === filter.id}>
+              <sl-menu-item value="${filter.id}" ?checked=${this.queueFilter === filter.id}>
                 ${filter.icon} ${filter.label}
               </sl-menu-item>
             `
