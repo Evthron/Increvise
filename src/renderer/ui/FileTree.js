@@ -344,12 +344,11 @@ export class FileTree extends LitElement {
         item._inQueue = true
         this.requestUpdate()
 
-        // Dispatch event to notify other components that a file was added to queue
-        window.dispatchEvent(
-          new CustomEvent('file-added-to-queue', {
-            detail: { filePath: item.path, libraryId: libraryId },
-          })
-        )
+        // Notify revision list to refresh if file was added to queue
+        const revisionList = document.querySelector('revision-list')
+        if (revisionList) {
+          await revisionList.refreshFileList()
+        }
       } else {
         alert(`Error: ${result.error}`)
         console.error('Error adding file to queue:', result.error)

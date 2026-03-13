@@ -624,25 +624,6 @@ export class RevisionList extends LitElement {
     this.showAllFiles = false
   }
 
-  connectedCallback() {
-    super.connectedCallback()
-
-    // Listen for file-added-to-queue event
-    window.addEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback()
-
-    // Clean up event listeners
-    window.removeEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-  }
-
-  async _handleFileAddedToQueue(event) {
-    console.log('RevisionList: File added to queue, refreshing...', event.detail)
-    await this.refreshFileList()
-  }
-
   async refreshFileList() {
     try {
       console.log('Refreshing file list, showAllFiles:', this.showAllFiles)
@@ -705,6 +686,7 @@ export class RevisionList extends LitElement {
       console.error('Error refreshing file list:', error)
     }
   }
+
   checkAndShowFeedbackIfInQueue(filePath) {
     if (!window.mode.revision) return
 
