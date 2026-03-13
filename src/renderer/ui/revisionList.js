@@ -366,6 +366,185 @@ export class RevisionWorkspaceGroup extends LitElement {
 
 customElements.define('revision-workspace-group', RevisionWorkspaceGroup)
 
+// Queue filter dropdown component
+export class RevisionQueueFilter extends LitElement {
+  static properties = {
+    currentFilter: { type: String },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
+    }
+  `
+
+  constructor() {
+    super()
+    this.currentFilter = 'all'
+  }
+
+  getFilters() {
+    return [
+      { id: 'all', label: 'All', icon: '📋' },
+      { id: 'new', label: 'New', icon: '📥' },
+      { id: 'processing', label: 'Processing', icon: '🔄' },
+      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
+      { id: 'spaced', label: 'Spaced', icon: '🧠' },
+      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
+      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
+      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
+      { id: 'archived', label: 'Archived', icon: '📦' },
+    ]
+  }
+
+  handleSelect(event) {
+    const selectedItem = event.detail.item
+    this.dispatchEvent(
+      new CustomEvent('filter-change', {
+        detail: { filter: selectedItem.value },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    const filters = this.getFilters()
+    const currentFilterObj = filters.find((f) => f.id === this.currentFilter)
+
+    return html`
+      <sl-dropdown @sl-select=${this.handleSelect}>
+        <sl-button slot="trigger" caret size="small">
+          ${currentFilterObj?.icon} ${currentFilterObj?.label}
+        </sl-button>
+        <sl-menu>
+          ${filters.map(
+            (filter) => html`
+              <sl-menu-item value="${filter.id}" ?checked=${this.currentFilter === filter.id}>
+                ${filter.icon} ${filter.label}
+              </sl-menu-item>
+            `
+          )}
+        </sl-menu>
+      </sl-dropdown>
+    `
+  }
+}
+
+customElements.define('revision-queue-filter', RevisionQueueFilter)
+
+// View toggle bar component
+export class RevisionViewToggleBar extends LitElement {
+  static properties = {
+    showAllFiles: { type: Boolean },
+    currentFilter: { type: String },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
+    }
+
+    .view-toggle-bar {
+      display: flex;
+      gap: 6px;
+      padding: 8px 16px;
+      background-color: var(--bg-primary);
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .view-toggle-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-right: 8px;
+    }
+
+    .view-toggle-btn {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      background-color: var(--bg-primary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .view-toggle-btn:hover {
+      background-color: var(--bg-secondary);
+      border-color: var(--accent-color);
+    }
+
+    .view-toggle-btn.active {
+      background-color: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+  `
+
+  constructor() {
+    super()
+    this.showAllFiles = false
+    this.currentFilter = 'all'
+  }
+
+  handleViewToggle(showAll) {
+    this.dispatchEvent(
+      new CustomEvent('view-toggle', {
+        detail: { showAll },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  handleFilterChange(e) {
+    this.dispatchEvent(
+      new CustomEvent('filter-change', {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    return html`
+      <div class="view-toggle-bar">
+        <div>
+          <span class="view-toggle-label">Show:</span>
+          <button
+            class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(false)}
+          >
+            📅 Due Today
+          </button>
+          <button
+            class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(true)}
+          >
+            📋 All Files
+          </button>
+        </div>
+        <revision-queue-filter
+          .currentFilter=${this.currentFilter}
+          @filter-change=${this.handleFilterChange}
+        ></revision-queue-filter>
+      </div>
+    `
+  }
+}
+
+customElements.define('revision-view-toggle-bar', RevisionViewToggleBar)
+
 export class RevisionList extends LitElement {
   static properties = {
     files: { type: Array },
@@ -434,50 +613,6 @@ export class RevisionList extends LitElement {
       flex: 1;
       overflow-y: auto;
       padding: 8px;
-    }
-
-    .view-toggle-bar {
-      display: flex;
-      gap: 6px;
-      padding: 8px 16px;
-      background-color: var(--bg-primary);
-      border-bottom: 1px solid var(--border-color);
-      flex-shrink: 0;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .view-toggle-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-right: 8px;
-    }
-
-    .view-toggle-btn {
-      padding: 6px 12px;
-      font-size: 11px;
-      font-weight: 600;
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      background-color: var(--bg-primary);
-      color: var(--text-secondary);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
-    }
-
-    .view-toggle-btn:hover {
-      background-color: var(--bg-secondary);
-      border-color: var(--accent-color);
-    }
-
-    .view-toggle-btn.active {
-      background-color: var(--accent-color);
-      color: white;
-      border-color: var(--accent-color);
     }
   `
 
@@ -639,7 +774,8 @@ export class RevisionList extends LitElement {
     return names[queueName] || queueName
   }
 
-  handleQueueFilterChange(filter) {
+  handleQueueFilterChange(e) {
+    const { filter } = e.detail
     this.queueFilter = filter
 
     // Reset to first file after filtering
@@ -649,80 +785,14 @@ export class RevisionList extends LitElement {
     }
 
     this.requestUpdate()
-
-    // Close the dropdown
-    const dropdown = this.shadowRoot?.querySelector('sl-dropdown')
-    if (dropdown) {
-      dropdown.hide()
-    }
   }
 
-  _handleDropdownSelect(event) {
-    const selectedItem = event.detail.item
-    this.handleQueueFilterChange(selectedItem.value)
-  }
-
-  async handleViewToggle(showAll) {
+  async handleViewToggle(e) {
+    const { showAll } = e.detail
     console.log('View toggle:', showAll ? 'All Files' : 'Due Today')
     this.showAllFiles = showAll
     await this.refreshFileList()
     console.log('Files loaded:', this.files.length)
-  }
-
-  _renderViewToggleBar() {
-    return html`
-      <div class="view-toggle-bar">
-        <div>
-          <span class="view-toggle-label">Show:</span>
-          <button
-            class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
-            @click=${() => this.handleViewToggle(false)}
-          >
-            📅 Due Today
-          </button>
-          <button
-            class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
-            @click=${() => this.handleViewToggle(true)}
-          >
-            📋 All Files
-          </button>
-        </div>
-        ${this._renderQueueFilterBar()}
-      </div>
-    `
-  }
-
-  _renderQueueFilterBar() {
-    const filters = [
-      { id: 'all', label: 'All', icon: '📋' },
-      { id: 'new', label: 'New', icon: '📥' },
-      { id: 'processing', label: 'Processing', icon: '🔄' },
-      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
-      { id: 'spaced', label: 'Spaced', icon: '🧠' },
-      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
-      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
-      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
-      { id: 'archived', label: 'Archived', icon: '📦' },
-    ]
-
-    const currentFilter = filters.find((f) => f.id === this.queueFilter)
-
-    return html`
-      <sl-dropdown @sl-select=${this._handleDropdownSelect}>
-        <sl-button slot="trigger" caret size="small">
-          ${currentFilter?.icon} ${currentFilter?.label}
-        </sl-button>
-        <sl-menu>
-          ${filters.map(
-            (filter) => html`
-              <sl-menu-item value="${filter.id}" ?checked=${this.queueFilter === filter.id}>
-                ${filter.icon} ${filter.label}
-              </sl-menu-item>
-            `
-          )}
-        </sl-menu>
-      </sl-dropdown>
-    `
   }
 
   async startRevisionWorkflow(files) {
@@ -809,7 +879,12 @@ export class RevisionList extends LitElement {
           ${this.showAllFiles ? 'All files in queues' : 'Due for review'}
         </div>
       </div>
-      ${this._renderViewToggleBar()}
+      <revision-view-toggle-bar
+        .showAllFiles=${this.showAllFiles}
+        .currentFilter=${this.queueFilter}
+        @view-toggle=${this.handleViewToggle}
+        @filter-change=${this.handleQueueFilterChange}
+      ></revision-view-toggle-bar>
       ${filteredCount === 0
         ? this.renderEmptyState()
         : html`
