@@ -187,7 +187,7 @@ async function getFilesForRevision(rootPath) {
             FROM file f
             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
             WHERE date(f.due_time) <= date('now')
-            ORDER BY date(f.due_time) ASC, f.rank ASC
+            ORDER BY f.rank ASC, date(f.due_time) ASC
           `
           )
           .all()
@@ -257,7 +257,7 @@ async function getFilesIncludingFuture(rootPath) {
             FROM file f
             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
             WHERE qm.queue_name != 'archived'
-            ORDER BY f.due_time ASC, f.rank ASC
+            ORDER BY f.rank ASC, f.due_time ASC
           `
           )
           .all()
@@ -336,7 +336,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
             WHERE qm.queue_name = 'processing' 
               AND f.library_id = ?
               AND date(f.due_time) <= date('now')
-            ORDER BY f.due_time ASC, f.rank ASC
+            ORDER BY f.rank ASC, f.due_time ASC
           `
           )
           .all(libraryId)
@@ -351,7 +351,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
             WHERE qm.queue_name = 'intermediate'
               AND f.library_id = ?
               AND date(f.due_time) <= date('now')
-            ORDER BY f.due_time ASC, f.rank ASC
+            ORDER BY f.rank ASC, f.due_time ASC
           `
           )
           .all(libraryId)
@@ -366,7 +366,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
             WHERE qm.queue_name IN ('spaced-casual', 'spaced-standard', 'spaced-strict')
               AND f.library_id = ?
               AND date(f.due_time) <= date('now')
-            ORDER BY f.due_time ASC, f.rank ASC
+            ORDER BY f.rank ASC, f.due_time ASC
           `
           )
           .all(libraryId)
@@ -442,7 +442,7 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
             FROM file f
             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
             WHERE f.library_id = ? AND qm.queue_name != 'archived'
-            ORDER BY f.due_time ASC, f.rank ASC
+            ORDER BY f.rank ASC, f.due_time ASC
           `
           )
           .all(libraryId)
