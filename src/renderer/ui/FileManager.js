@@ -6,95 +6,6 @@
 // Manages workspace history, file tree, and folder selection
 
 import { LitElement, html, css } from 'lit'
-import { LionDrawer } from '@lion/ui/drawer.js'
-import '@lion/ui/button.js'
-import '@lion/ui/define/lion-icon.js'
-import '@shoelace-style/shoelace/dist/components/split-panel/split-panel.js'
-import './WorkspaceManager.js'
-import './states.js'
-
-const EVENT = {
-  TRANSITION_END: 'transitionend',
-  TRANSITION_START: 'transitionstart',
-}
-
-class SidebarDrawer extends LionDrawer {
-  static get styles() {
-    return [
-      ...super.styles,
-      css`
-        :host {
-          display: flex;
-          --min-width: 30px;
-          --max-width: 20vw;
-          --max-height: unset;
-          background-color: var(--bg-sidebar);
-          border-right: 1px solid var(--border-color);
-        }
-
-        .container {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          width: 100%;
-        }
-
-        .headline-container {
-          padding: 12px 16px;
-          border-bottom: 1px solid var(--border-color);
-          background-color: var(--toolbar-bg);
-        }
-
-        .content-container {
-          display: flex;
-          height: 100%;
-        }
-      `,
-    ]
-  }
-  connectedCallback() {
-    super.connectedCallback()
-    this.addEventListener('opened-changed', this._handleOpenedChanged)
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback()
-    this.removeEventListener('opened-changed', this._handleOpenedChanged)
-  }
-
-  _handleOpenedChanged = () => {
-    const contentNode = this.shadowRoot.querySelector('.content-container')
-    if (contentNode) {
-      contentNode.style.setProperty('display', this.opened ? '' : 'none')
-    }
-  }
-
-  // The source function forgets to check the source of the event, all transition event inside the content node would trigger this
-  _waitForTransition({ contentNode }) {
-    return new Promise((resolve) => {
-      const transitionStarted = (event) => {
-        // Check if the event is from the contentNode itself, not its children
-        if (event.target !== contentNode) {
-          return
-        }
-        contentNode.removeEventListener(EVENT.TRANSITION_START, transitionStarted)
-        this.transitioning = true
-      }
-      contentNode.addEventListener(EVENT.TRANSITION_START, transitionStarted)
-
-      const transitionEnded = (event) => {
-        // Check if the event is from the contentNode itself, not its children
-        if (event.target !== contentNode) {
-          return
-        }
-        contentNode.removeEventListener(EVENT.TRANSITION_END, transitionEnded)
-        this.transitioning = false
-        resolve()
-      }
-      contentNode.addEventListener(EVENT.TRANSITION_END, transitionEnded)
-    })
-  }
-}
 
 export class FileManager extends LitElement {
   static properties = {
@@ -109,12 +20,6 @@ export class FileManager extends LitElement {
       background-color: var(--bg-sidebar);
       overflow-y: auto;
     }
-
-    /* .sidebar-header {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border-color);
-      background-color: var(--toolbar-bg);
-    } */
 
     .headline-title {
       font-size: 11px;
@@ -371,4 +276,3 @@ export class FileManager extends LitElement {
 }
 
 customElements.define('file-manager', FileManager)
-customElements.define('sidebar-drawer', SidebarDrawer)
