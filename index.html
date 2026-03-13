@@ -18,73 +18,28 @@
 
     <main>
       <div class="user-panel">
-        <sl-split-panel style="width: 100%; height: 100%" position="30">
-          <div
-            slot="start"
-            style="background: var(--sl-color-neutral-50); height: 100%; overflow: hidden"
-          >
-            <sl-split-panel style="height: 100%" position="50">
-              <div slot="start" style="background: var(--sl-color-neutral-50); overflow: hidden">
-                <sl-split-panel vertical style="height: 100%">
-                  <div
-                    slot="start"
-                    style="
-                      height: 100%;
-                      width: 100%;
-                      background: var(--sl-color-neutral-50);
-                      display: flex;
-                      overflow: hidden;
-                    "
-                  >
-                    <file-manager></file-manager>
-                  </div>
-                  <div
-                    slot="end"
-                    style="
-                      height: 100%;
-                      width: 100%;
-                      background: var(--sl-color-neutral-50);
-                      display: flex;
-                      overflow: hidden;
-                    "
-                  >
-                    <workspace-manager></workspace-manager>
-                  </div>
-                </sl-split-panel>
-              </div>
-              <div
-                slot="end"
-                style="
-                  background: var(--sl-color-neutral-50);
-                  display: flex;
-                  overflow: hidden;
-                  flex: 1;
-                "
-              >
-                <div class="list-panel">
-                  <revision-list></revision-list>
-                </div>
-              </div>
-            </sl-split-panel>
+        <three-column-layout>
+          <file-manager slot="sidebar-top"></file-manager>
+
+          <workspace-manager slot="sidebar-bottom"></workspace-manager>
+
+          <div slot="middle" class="list-panel">
+            <revision-list></revision-list>
           </div>
-          <div
-            slot="end"
-            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
-          >
-            <div class="editor-panel">
-              <editor-panel>
-                <codemirror-viewer slot="codemirror" content="Select a file to revise">
-                </codemirror-viewer>
-                <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
-                <html-viewer slot="html" class="hidden"></html-viewer>
-                <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
-                <video-viewer slot="video" class="hidden"></video-viewer>
-                <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
-              </editor-panel>
-              <feedback-bar></feedback-bar>
-            </div>
+
+          <div slot="main" class="editor-panel">
+            <editor-panel>
+              <codemirror-viewer slot="codemirror" content="Select a file to revise">
+              </codemirror-viewer>
+              <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
+              <html-viewer slot="html" class="hidden"></html-viewer>
+              <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
+              <video-viewer slot="video" class="hidden"></video-viewer>
+              <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
+            </editor-panel>
+            <feedback-bar></feedback-bar>
           </div>
-        </sl-split-panel>
+        </three-column-layout>
       </div>
     </main>
 
