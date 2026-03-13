@@ -9,6 +9,521 @@ import { LitElement, html, css } from 'lit'
 import './QueueMenu.js'
 import './ProcessingFeedbackBar.js'
 
+export class FeedbackFileHeader extends LitElement {
+  static properties = {
+    fileName: { type: String },
+    workspaceName: { type: String },
+  }
+
+  static styles = css`
+    .current-file-header {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .current-file-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+    .current-file-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .file-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .meta-icon {
+      font-size: 13px;
+    }
+  `
+
+  render() {
+    return html`
+      <div class="current-file-header">
+        <div class="current-file-title">${this.fileName}</div>
+        <div class="current-file-meta">
+          <span class="file-meta-item">
+            <span class="meta-icon">📁</span>
+            <span>${this.workspaceName}</span>
+          </span>
+          <slot></slot>
+        </div>
+      </div>
+    `
+  }
+}
+customElements.define('feedback-file-header', FeedbackFileHeader)
+
+export class FeedbackRankControl extends LitElement {
+  static properties = {
+    rank: { type: Number },
+  }
+
+  static styles = css`
+    .rank-control {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-secondary);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .rank-btn {
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-primary);
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .rank-btn:hover {
+      background-color: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+    .rank-input {
+      width: 45px;
+      padding: 2px 4px;
+      border: 1px solid var(--border-color);
+      border-radius: 3px;
+      font-size: 12px;
+      text-align: center;
+      background-color: var(--bg-primary);
+    }
+    .meta-icon {
+      font-size: 13px;
+    }
+  `
+
+  render() {
+    return html`
+      <span class="rank-control" title="Priority rank (1-100)">
+        <span class="meta-icon">⭐</span>
+        <button
+          class="rank-btn rank-decrease"
+          @click=${() =>
+            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank - 1 }))}
+          title="Decrease rank"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          class="rank-input"
+          .value=${this.rank}
+          min="1"
+          max="100"
+          @change=${(e) =>
+            this.dispatchEvent(
+              new CustomEvent('rank-change', { detail: parseInt(e.target.value) })
+            )}
+          @click=${(e) => e.stopPropagation()}
+          title="Enter rank (1-100)"
+        />
+        <button
+          class="rank-btn rank-increase"
+          @click=${() =>
+            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank + 1 }))}
+          title="Increase rank"
+        >
+          +
+        </button>
+      </span>
+    `
+  }
+}
+customElements.define('feedback-rank-control', FeedbackRankControl)
+
+export class FeedbackIntervalControl extends LitElement {
+  static properties = {
+    intervalInfo: { type: Object },
+  }
+
+  static styles = css`
+    .interval-control {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-secondary);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .rank-btn {
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-primary);
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .rank-btn:hover {
+      background-color: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+    .rank-input {
+      width: 45px;
+      padding: 2px 4px;
+      border: 1px solid var(--border-color);
+      border-radius: 3px;
+      font-size: 12px;
+      text-align: center;
+      background-color: var(--bg-primary);
+    }
+    .interval-display {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-primary);
+    }
+    .interval-separator {
+      color: var(--border-color);
+      font-size: 10px;
+    }
+    .interval-unit {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-left: 2px;
+    }
+    .meta-icon {
+      font-size: 13px;
+    }
+  `
+
+  render() {
+    if (!this.intervalInfo) return html``
+
+    return html`
+      <span class="interval-control" title="Review interval">
+        <span class="meta-icon">⏱️</span>
+        ${this.intervalInfo.type === 'spaced'
+          ? html`
+              <span class="interval-display">
+                <span title="Current interval">${this.intervalInfo.interval}d</span>
+                <span class="interval-separator">|</span>
+                <span title="Easiness factor">EF:${this.intervalInfo.easiness}</span>
+                <span class="interval-separator">|</span>
+                <span title="Review count">×${this.intervalInfo.reviewCount}</span>
+              </span>
+            `
+          : html`
+              <button
+                class="rank-btn rank-decrease"
+                @click=${() =>
+                  this.dispatchEvent(
+                    new CustomEvent('interval-change', { detail: this.intervalInfo.value - 1 })
+                  )}
+                title="Decrease interval"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                class="rank-input"
+                .value=${this.intervalInfo.value}
+                min="1"
+                max="365"
+                @change=${(e) =>
+                  this.dispatchEvent(
+                    new CustomEvent('interval-change', { detail: parseInt(e.target.value) })
+                  )}
+                @click=${(e) => e.stopPropagation()}
+                title="Enter interval in days"
+              />
+              <button
+                class="rank-btn rank-increase"
+                @click=${() =>
+                  this.dispatchEvent(
+                    new CustomEvent('interval-change', { detail: this.intervalInfo.value + 1 })
+                  )}
+                title="Increase interval"
+              >
+                +
+              </button>
+              <span class="interval-unit">${this.intervalInfo.unit}</span>
+            `}
+      </span>
+    `
+  }
+}
+customElements.define('feedback-interval-control', FeedbackIntervalControl)
+
+export class FeedbackQueueControl extends LitElement {
+  static properties = {
+    currentQueue: { type: String },
+  }
+
+  static styles = css`
+    .queue-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .queue-badge.new {
+      background-color: #e3f2fd;
+      color: #1976d2;
+    }
+    .queue-badge.processing {
+      background-color: #fff3e0;
+      color: #f57c00;
+    }
+    .queue-badge.intermediate {
+      background-color: #f3e5f5;
+      color: #7b1fa2;
+    }
+    .queue-badge.spaced-casual {
+      background-color: #e8f5e9;
+      color: #388e3c;
+    }
+    .queue-badge.spaced-standard {
+      background-color: #e1f5fe;
+      color: #0277bd;
+    }
+    .queue-badge.spaced-strict {
+      background-color: #fce4ec;
+      color: #c2185b;
+    }
+    .queue-badge.archived {
+      background-color: #f5f5f5;
+      color: #757575;
+    }
+    .meta-icon {
+      font-size: 13px;
+    }
+  `
+
+  _getQueueDisplayName(queueName) {
+    const names = {
+      new: 'New',
+      processing: 'Processing',
+      intermediate: 'Intermediate',
+      'spaced-casual': 'Casual',
+      'spaced-standard': 'Standard',
+      'spaced-strict': 'Strict',
+      archived: 'Archived',
+    }
+    return names[queueName] || queueName
+  }
+
+  render() {
+    return html`
+      <sl-dropdown
+        @sl-select=${(e) =>
+          this.dispatchEvent(new CustomEvent('queue-select', { detail: e.detail }))}
+      >
+        <sl-button slot="trigger" caret size="small">
+          <span class="meta-icon">📂</span>
+          <span class="queue-badge ${this.currentQueue}"
+            >${this._getQueueDisplayName(this.currentQueue)}</span
+          >
+        </sl-button>
+        <sl-menu>
+          <queue-menu .currentQueue=${this.currentQueue}></queue-menu>
+        </sl-menu>
+      </sl-dropdown>
+    `
+  }
+}
+customElements.define('feedback-queue-control', FeedbackQueueControl)
+
+export class FeedbackButtons extends LitElement {
+  static properties = {
+    currentQueue: { type: String },
+  }
+
+  static styles = css`
+    .feedback-buttons {
+      display: flex;
+      gap: 8px;
+      margin: 10px;
+    }
+    .feedback-btn {
+      flex: 1;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: none;
+      text-align: center;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      position: relative;
+      overflow: hidden;
+      color: white;
+    }
+    .feedback-btn::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      transform: translate(-50%, -50%);
+      transition:
+        width 0.3s,
+        height 0.3s;
+    }
+    .feedback-btn:active::before {
+      width: 100px;
+      height: 100px;
+    }
+    .feedback-btn:active {
+      transform: scale(0.95);
+    }
+    .feedback-btn.again {
+      background: linear-gradient(135deg, #ff3b30 0%, #d32f2f 100%);
+    }
+    .feedback-btn.again:hover {
+      background: linear-gradient(135deg, #e62e24 0%, #b71c1c 100%);
+      box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.hard {
+      background: linear-gradient(135deg, #ff9500 0%, #f57c00 100%);
+    }
+    .feedback-btn.hard:hover {
+      background: linear-gradient(135deg, #e68600 0%, #ef6c00 100%);
+      box-shadow: 0 4px 8px rgba(255, 149, 0, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.good {
+      background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+    }
+    .feedback-btn.good:hover {
+      background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
+      box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.easy {
+      background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
+    }
+    .feedback-btn.easy:hover {
+      background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
+      box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.decrease {
+      background: linear-gradient(135deg, #ff3b30 0%, #d32f2f 100%);
+    }
+    .feedback-btn.decrease:hover {
+      background: linear-gradient(135deg, #e62e24 0%, #b71c1c 100%);
+      box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.maintain {
+      background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+    }
+    .feedback-btn.maintain:hover {
+      background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
+      box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
+      transform: translateY(-1px);
+    }
+    .feedback-btn.increase {
+      background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
+    }
+    .feedback-btn.increase:hover {
+      background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
+      box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
+      transform: translateY(-1px);
+    }
+  `
+
+  render() {
+    if (this.currentQueue === 'processing' || this.currentQueue === 'new') {
+      return html`<processing-feedback-bar></processing-feedback-bar>`
+    }
+
+    if (this.currentQueue === 'intermediate') {
+      return html`
+        <div class="feedback-buttons">
+          <button
+            class="feedback-btn decrease"
+            @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'decrease' }))}
+            title="Review more frequently (interval ÷1.5)"
+          >
+            More Often
+          </button>
+          <button
+            class="feedback-btn maintain"
+            @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'maintain' }))}
+            title="Keep same review interval"
+          >
+            Same
+          </button>
+          <button
+            class="feedback-btn increase"
+            @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'increase' }))}
+            title="Review less frequently (interval ×1.5)"
+          >
+            Less Often
+          </button>
+        </div>
+      `
+    }
+
+    return html`
+      <div class="feedback-buttons">
+        <button
+          class="feedback-btn again"
+          @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'again' }))}
+        >
+          Again
+        </button>
+        <button
+          class="feedback-btn hard"
+          @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'hard' }))}
+        >
+          Hard
+        </button>
+        <button
+          class="feedback-btn good"
+          @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'good' }))}
+        >
+          Good
+        </button>
+        <button
+          class="feedback-btn easy"
+          @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'easy' }))}
+        >
+          Easy
+        </button>
+      </div>
+    `
+  }
+}
+customElements.define('feedback-buttons', FeedbackButtons)
+
 export class FeedbackBar extends LitElement {
   static properties = {
     currentQueue: { type: String, state: true },
@@ -43,310 +558,8 @@ export class FeedbackBar extends LitElement {
       border: 1px solid var(--border-color);
     }
 
-    .current-file-header {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .current-file-title {
-      font-weight: 600;
-      font-size: 14px;
-      color: var(--text-primary);
-    }
-
-    .current-file-meta {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    .file-meta-item {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .meta-icon {
-      font-size: 13px;
-    }
-
     .file-meta-separator {
       color: var(--border-color);
-    }
-
-    .rank-control {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      background-color: var(--bg-secondary);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    .rank-btn {
-      width: 20px;
-      height: 20px;
-      padding: 0;
-      border: 1px solid var(--border-color);
-      background-color: var(--bg-primary);
-      border-radius: 3px;
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.15s ease;
-    }
-
-    .rank-btn:hover {
-      background-color: var(--accent-color);
-      color: white;
-      border-color: var(--accent-color);
-    }
-
-    .rank-input {
-      width: 45px;
-      padding: 2px 4px;
-      border: 1px solid var(--border-color);
-      border-radius: 3px;
-      font-size: 12px;
-      text-align: center;
-      background-color: var(--bg-primary);
-    }
-
-    .rank-input::-webkit-inner-spin-button,
-    .rank-input::-webkit-outer-spin-button {
-      opacity: 1;
-    }
-
-    .interval-control {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      background-color: var(--bg-secondary);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    .interval-display {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: var(--text-primary);
-    }
-
-    .interval-separator {
-      color: var(--border-color);
-      font-size: 10px;
-    }
-
-    .interval-unit {
-      font-size: 10px;
-      color: var(--text-secondary);
-      margin-left: 2px;
-    }
-
-    .queue-control {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      background-color: var(--bg-secondary);
-      padding: 4px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background-color 0.15s ease;
-    }
-
-    .queue-control:hover {
-      background-color: #e8e8e8;
-    }
-
-    .queue-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .queue-value {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-primary);
-      padding: 2px 6px;
-      border-radius: 3px;
-      background-color: var(--bg-primary);
-      border: 1px solid var(--border-color);
-    }
-
-    .queue-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 0px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    .queue-badge.new {
-      background-color: #e3f2fd;
-      color: #1976d2;
-    }
-
-    .queue-badge.processing {
-      background-color: #fff3e0;
-      color: #f57c00;
-    }
-
-    .queue-badge.intermediate {
-      background-color: #f3e5f5;
-      color: #7b1fa2;
-    }
-
-    .queue-badge.spaced-casual {
-      background-color: #e8f5e9;
-      color: #388e3c;
-    }
-
-    .queue-badge.spaced-standard {
-      background-color: #e1f5fe;
-      color: #0277bd;
-    }
-
-    .queue-badge.spaced-strict {
-      background-color: #fce4ec;
-      color: #c2185b;
-    }
-
-    .queue-badge.archived {
-      background-color: #f5f5f5;
-      color: #757575;
-    }
-
-    .feedback-buttons {
-      display: flex;
-      gap: 8px;
-      margin: 10px;
-    }
-
-    .feedback-btn {
-      flex: 1;
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      border-radius: 6px;
-      border: none;
-      text-align: center;
-      transition: all 0.2s ease;
-      cursor: pointer;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      position: relative;
-      overflow: hidden;
-      color: white;
-    }
-
-    .feedback-btn::before {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 0;
-      height: 0;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.3);
-      transform: translate(-50%, -50%);
-      transition:
-        width 0.3s,
-        height 0.3s;
-    }
-
-    .feedback-btn:active::before {
-      width: 100px;
-      height: 100px;
-    }
-
-    .feedback-btn:active {
-      transform: scale(0.95);
-    }
-
-    .feedback-btn.again {
-      background: linear-gradient(135deg, #ff3b30 0%, #d32f2f 100%);
-    }
-
-    .feedback-btn.again:hover {
-      background: linear-gradient(135deg, #e62e24 0%, #b71c1c 100%);
-      box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.hard {
-      background: linear-gradient(135deg, #ff9500 0%, #f57c00 100%);
-    }
-
-    .feedback-btn.hard:hover {
-      background: linear-gradient(135deg, #e68600 0%, #ef6c00 100%);
-      box-shadow: 0 4px 8px rgba(255, 149, 0, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.good {
-      background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
-    }
-
-    .feedback-btn.good:hover {
-      background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
-      box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.easy {
-      background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
-    }
-
-    .feedback-btn.easy:hover {
-      background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
-      box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.decrease {
-      background: linear-gradient(135deg, #ff3b30 0%, #d32f2f 100%);
-    }
-
-    .feedback-btn.decrease:hover {
-      background: linear-gradient(135deg, #e62e24 0%, #b71c1c 100%);
-      box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.maintain {
-      background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
-    }
-
-    .feedback-btn.maintain:hover {
-      background: linear-gradient(135deg, #0051d5 0%, #0040a8 100%);
-      box-shadow: 0 4px 8px rgba(0, 122, 255, 0.3);
-      transform: translateY(-1px);
-    }
-
-    .feedback-btn.increase {
-      background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
-    }
-
-    .feedback-btn.increase:hover {
-      background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
-      box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
-      transform: translateY(-1px);
     }
   `
 
@@ -428,8 +641,6 @@ export class FeedbackBar extends LitElement {
         if (revisionListElement) {
           await revisionListElement.refreshFileList()
         }
-        // Re-sort files by rank within the same day
-
         // Update current index
         this.requestUpdate()
         this._showToast(`Rank updated to ${clampedRank}`)
@@ -473,7 +684,7 @@ export class FeedbackBar extends LitElement {
         label: 'Interval',
         unit: 'days',
       }
-    } else if (queue && queue.startsWith('spaced-')) {
+    } else {
       return {
         type: 'spaced',
         interval: file.interval || 1,
@@ -482,8 +693,6 @@ export class FeedbackBar extends LitElement {
         label: 'SR',
         unit: 'days',
       }
-    } else {
-      return null
     }
   }
 
@@ -583,163 +792,34 @@ export class FeedbackBar extends LitElement {
       ? this.file.workspacePath.split('/').pop()
       : 'Unknown'
     const rank = Math.round(this.file.rank || 70)
-
-    // Get interval info based on queue
     const intervalInfo = this._getIntervalInfo(this.file)
 
-    // Calculate order number within the same day
-
-    // Set visibility attribute
     this.setAttribute('visible', '')
 
     return html`
       <div id="current-file-name">
-        <div class="current-file-header">
-          <div class="current-file-title">${fileName}</div>
-          <div class="current-file-meta">
-            <span class="file-meta-item">
-              <span class="meta-icon">📁</span>
-              <span>${workspaceName}</span>
-            </span>
-            <span class="file-meta-separator">•</span>
-            <span class="file-meta-separator">•</span>
-            <span class="file-meta-item rank-control" title="Priority rank (1-100)">
-              <span class="meta-icon">⭐</span>
-              <button
-                class="rank-btn rank-decrease"
-                @click=${() => this._handleRankChange(rank - 1)}
-                title="Decrease rank"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                class="rank-input"
-                .value=${rank}
-                min="1"
-                max="100"
-                @change=${(e) => this._handleRankChange(parseInt(e.target.value))}
-                @click=${(e) => e.stopPropagation()}
-                title="Enter rank (1-100)"
-              />
-              <button
-                class="rank-btn rank-increase"
-                @click=${() => this._handleRankChange(rank + 1)}
-                title="Increase rank"
-              >
-                +
-              </button>
-            </span>
-            ${intervalInfo
-              ? html`
-                  <span class="file-meta-separator">•</span>
-                  <span class="file-meta-item interval-control" title="Review interval">
-                    <span class="meta-icon">⏱️</span>
-                    ${intervalInfo.type === 'spaced'
-                      ? html`
-                          <span class="interval-display">
-                            <span title="Current interval">${intervalInfo.interval}d</span>
-                            <span class="interval-separator">|</span>
-                            <span title="Easiness factor">EF:${intervalInfo.easiness}</span>
-                            <span class="interval-separator">|</span>
-                            <span title="Review count">×${intervalInfo.reviewCount}</span>
-                          </span>
-                        `
-                      : html`
-                          <button
-                            class="rank-btn rank-decrease"
-                            @click=${() => this._handleIntervalChange(intervalInfo.value - 1)}
-                            title="Decrease interval"
-                          >
-                            −
-                          </button>
-                          <input
-                            type="number"
-                            class="rank-input"
-                            .value=${intervalInfo.value}
-                            min="1"
-                            max="365"
-                            @change=${(e) => this._handleIntervalChange(parseInt(e.target.value))}
-                            @click=${(e) => e.stopPropagation()}
-                            title="Enter interval in days"
-                          />
-                          <button
-                            class="rank-btn rank-increase"
-                            @click=${() => this._handleIntervalChange(intervalInfo.value + 1)}
-                            title="Increase interval"
-                          >
-                            +
-                          </button>
-                          <span class="interval-unit">${intervalInfo.unit}</span>
-                        `}
-                  </span>
-                `
-              : ''}
-            ${this.currentQueue
-              ? html`
-                  <span class="file-meta-separator">•</span>
-                  <div>
-                    <sl-dropdown @sl-select=${this._handleDropdownSelect}>
-                      <sl-button slot="trigger" caret size="small">
-                        <span class="meta-icon">📂</span>
-                        <span class="queue-badge ${this.currentQueue}"
-                          >${this._getQueueDisplayName(this.currentQueue)}</span
-                        >
-                      </sl-button>
-                      <sl-menu>
-                        <queue-menu .currentQueue=${this.currentQueue}></queue-menu>
-                      </sl-menu>
-                    </sl-dropdown>
-                  </div>
-                `
-              : ''}
-          </div>
-        </div>
+        <feedback-file-header .fileName=${fileName} .workspaceName=${workspaceName}>
+          <span class="file-meta-separator">•</span>
+          <feedback-rank-control
+            .rank=${rank}
+            @rank-change=${(e) => this._handleRankChange(e.detail)}
+          ></feedback-rank-control>
+          <span class="file-meta-separator">•</span>
+          <feedback-interval-control
+            .intervalInfo=${intervalInfo}
+            @interval-change=${(e) => this._handleIntervalChange(e.detail)}
+          ></feedback-interval-control>
+          <span class="file-meta-separator">•</span>
+          <feedback-queue-control
+            .currentQueue=${this.currentQueue}
+            @queue-select=${this._handleDropdownSelect}
+          ></feedback-queue-control>
+        </feedback-file-header>
       </div>
-      ${this.currentQueue === 'processing' || this.currentQueue === 'new'
-        ? html`<processing-feedback-bar></processing-feedback-bar>`
-        : this.currentQueue === 'intermediate'
-          ? html`
-              <div class="feedback-buttons">
-                <button
-                  class="feedback-btn decrease"
-                  @click=${() => this._handleFeedback('decrease')}
-                  title="Review more frequently (interval ÷1.5)"
-                >
-                  More Often
-                </button>
-                <button
-                  class="feedback-btn maintain"
-                  @click=${() => this._handleFeedback('maintain')}
-                  title="Keep same review interval"
-                >
-                  Same
-                </button>
-                <button
-                  class="feedback-btn increase"
-                  @click=${() => this._handleFeedback('increase')}
-                  title="Review less frequently (interval ×1.5)"
-                >
-                  Less Often
-                </button>
-              </div>
-            `
-          : html`
-              <div class="feedback-buttons">
-                <button class="feedback-btn again" @click=${() => this._handleFeedback('again')}>
-                  Again
-                </button>
-                <button class="feedback-btn hard" @click=${() => this._handleFeedback('hard')}>
-                  Hard
-                </button>
-                <button class="feedback-btn good" @click=${() => this._handleFeedback('good')}>
-                  Good
-                </button>
-                <button class="feedback-btn easy" @click=${() => this._handleFeedback('easy')}>
-                  Easy
-                </button>
-              </div>
-            `}
+      <feedback-buttons
+        .currentQueue=${this.currentQueue}
+        @feedback=${(e) => this._handleFeedback(e.detail)}
+      ></feedback-buttons>
     `
   }
 }
