@@ -382,12 +382,17 @@ export class FeedbackBar extends LitElement {
     await this._handleFeedback(feedback)
   }
 
-  async _handleFeedback(currentFile, feedback) {
+  async _handleFeedback(feedback) {
+    if (!this.file) {
+      console.error('No file loaded')
+      return
+    }
+
     try {
       const result = await window.fileManager.updateRevisionFeedback(
-        currentFile.dbPath,
-        currentFile.library_id,
-        currentFile.relative_path,
+        this.file.dbPath,
+        this.file.library_id,
+        this.file.relative_path,
         feedback
       )
 
