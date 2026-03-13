@@ -263,7 +263,7 @@ export class RevisionFileItem extends LitElement {
   }
 }
 
-customElements.define('revision-file-item', RevisionFileItem)
+customElements.define('revision-item', RevisionFileItem)
 
 export class WorkspaceGroupHeader extends LitElement {
   static properties = {
@@ -330,56 +330,6 @@ export class WorkspaceGroupHeader extends LitElement {
 }
 
 customElements.define('workspace-group-header', WorkspaceGroupHeader)
-
-// Workspace group component
-export class RevisionWorkspaceGroup extends LitElement {
-  static properties = {
-    workspace: { type: String },
-    files: { type: Array },
-    allFiles: { type: Array },
-    currentIndex: { type: Number },
-  }
-
-  handleFileClick(e) {
-    this.dispatchEvent(
-      new CustomEvent('file-click', {
-        detail: e.detail,
-        bubbles: true,
-        composed: true,
-      })
-    )
-  }
-
-  handleFileForgotten(e) {
-    this.dispatchEvent(
-      new CustomEvent('file-forgotten', {
-        detail: e.detail,
-        bubbles: true,
-        composed: true,
-      })
-    )
-  }
-
-  render() {
-    return html`
-      ${this.files.map((file) => {
-        const globalIndex = this.allFiles.indexOf(file)
-        const isActive = globalIndex === this.currentIndex
-        return html`
-          <revision-file-item
-            .file=${file}
-            .globalIndex=${globalIndex}
-            .isActive=${isActive}
-            @file-click=${this.handleFileClick}
-            @file-forgotten=${this.handleFileForgotten}
-          ></revision-file-item>
-        `
-      })}
-    `
-  }
-}
-
-customElements.define('revision-workspace-group', RevisionWorkspaceGroup)
 
 // Queue filter dropdown component
 export class RevisionQueueFilter extends LitElement {
@@ -875,8 +825,33 @@ export class RevisionList extends LitElement {
     `
   }
 
+  renderRevisionList() {
+    const filteredFiles = this.getFilteredFiles()
+    return html`
+      <div class="revision-list-container">
+        <workspace-group-header
+          .workspace=${this.currentWorkspace || 'All Workspaces'}
+          .filesCount=${this.files.length}
+          .visible=${filteredFiles.length > 1}
+        ></workspace-group-header>
+        ${filteredFiles.map((file) => {
+          const globalIndex = this.files.indexOf(file)
+          const isActive = globalIndex === this.currentIndex
+          return html`
+            <revision-item
+              .file=${file}
+              .globalIndex=${globalIndex}
+              .isActive=${isActive}
+              @file-click=${this.handleFileClick}
+              @file-forgotten=${this.handleFileForgotten}
+            ></revision-item>
+          `
+        })}
+      </div>
+    `
+  }
+
   render() {
-    const groupedFiles = this.groupFilesByWorkspace()
     const filteredCount = this.getFilteredFiles().length
 
     return html`
@@ -892,29 +867,7 @@ export class RevisionList extends LitElement {
         @view-toggle=${this.handleViewToggle}
         @filter-change=${this.handleQueueFilterChange}
       ></revision-view-toggle-bar>
-      ${filteredCount === 0
-        ? this.renderEmptyState()
-        : html`
-            <div class="revision-list-container">
-              <workspace-group-header
-                .workspace=${this.currentWorkspace || 'All Workspaces'}
-                .filesCount=${this.files.length}
-                .visible=${Object.keys(groupedFiles).length > 1}
-              ></workspace-group-header>
-              ${Object.entries(groupedFiles).map(
-                ([workspace, workspaceFiles]) => html`
-                  <revision-workspace-group
-                    .workspace=${workspace}
-                    .files=${workspaceFiles}
-                    .allFiles=${this.files}
-                    .currentIndex=${this.currentIndex}
-                    @file-click=${this.handleFileClick}
-                    @file-forgotten=${this.handleFileForgotten}
-                  ></revision-workspace-group>
-                `
-              )}
-            </div>
-          `}
+      ${filteredCount === 0 ? this.renderEmptyState() : this.renderRevisionList()}
     `
   }
 }
