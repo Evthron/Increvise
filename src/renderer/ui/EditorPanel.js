@@ -328,11 +328,11 @@ export class EditorPanel extends LitElement {
       }
 
       // Sync fileLibraryId with workspaceLibraryId if needed
-      if (window.currentWorkspaceLibraryId && !window.currentFileLibraryId) {
-        window.currentFileLibraryId = window.currentWorkspaceLibraryId
+      if (window.currentWorkspace.libraryId && !window.currentFile.libraryId) {
+        window.currentFile.libraryId = window.currentWorkspace.libraryId
         console.log(
           'Syncing file library ID with workspace library ID:',
-          window.currentWorkspaceLibraryId
+          window.currentWorkspace.libraryId
         )
       }
 
@@ -341,10 +341,10 @@ export class EditorPanel extends LitElement {
       let flashcardExtractInfo = null
       let videoExtractInfo = null
 
-      if (window.currentFileLibraryId && !this.isMobile) {
+      if (window.currentFile.libraryId && !this.isMobile) {
         const extractInfo = await window.fileManager.getNoteExtractInfo(
           filePath,
-          window.currentFileLibraryId
+          window.currentFile.libraryId
         )
 
         console.log('[openFile] Extract info check:', {
@@ -423,11 +423,11 @@ export class EditorPanel extends LitElement {
 
       // Check if the opened file is in a queue
       // Load queue info to determine if we should show Cloze button
-      if (window.currentFileLibraryId) {
+      if (window.currentFile.libraryId) {
         try {
           const queueResult = await window.fileManager.getFileQueue(
             filePath,
-            window.currentFileLibraryId
+            window.currentFile.libraryId
           )
           if (queueResult && queueResult.queueName) {
             this.currentQueue = queueResult.queueName
@@ -497,7 +497,7 @@ export class EditorPanel extends LitElement {
     // Get extracted ranges for the PDF
     const rangesResult = await window.fileManager.getChildRanges(
       sourcePdfPath,
-      window.currentFileLibraryId
+      window.currentFile.libraryId
     )
 
     // Filter ranges to only those within the current extract range
@@ -550,7 +550,7 @@ export class EditorPanel extends LitElement {
     // Get extracted ranges for the PDF
     const rangesResult = await window.fileManager.getChildRanges(
       filePath,
-      window.currentFileLibraryId
+      window.currentFile.libraryId
     )
 
     // Convert database ranges to pdfViewer format
@@ -646,7 +646,7 @@ export class EditorPanel extends LitElement {
     // Get extracted ranges for the video
     const rangesResult = await window.fileManager.getChildRanges(
       sourceVideoPath,
-      window.currentFileLibraryId
+      window.currentFile.libraryId
     )
 
     // Convert database ranges to videoViewer format
@@ -687,7 +687,7 @@ export class EditorPanel extends LitElement {
     // Get extracted ranges for the video
     const rangesResult = await window.fileManager.getChildRanges(
       filePath,
-      window.currentFileLibraryId
+      window.currentFile.libraryId
     )
 
     // Convert database ranges to videoViewer format
@@ -980,7 +980,7 @@ export class EditorPanel extends LitElement {
         selectedText.pageNum,
         selectedText.lineStart,
         selectedText.lineEnd,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       if (result.success) {
@@ -1023,7 +1023,7 @@ export class EditorPanel extends LitElement {
     const startPage = Math.min(...selectedPages)
     const endPage = Math.max(...selectedPages)
 
-    if (!window.currentFileLibraryId) {
+    if (!window.currentFile.libraryId) {
       this._showToast('Error: Library ID not set. Please reopen the file.', true)
       console.error('currentFileLibraryId is not set')
       return
@@ -1034,7 +1034,7 @@ export class EditorPanel extends LitElement {
         pdfPath,
         startPage,
         endPage,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       if (result.success) {
@@ -1063,7 +1063,7 @@ export class EditorPanel extends LitElement {
     try {
       const rangesResult = await window.fileManager.getChildRanges(
         pdfPath,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
       if (rangesResult) {
         const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult)
@@ -1150,7 +1150,7 @@ export class EditorPanel extends LitElement {
       return
     }
 
-    if (!window.currentFileLibraryId) {
+    if (!window.currentFile.libraryId) {
       this._showToast('Error: Library ID not set. Please reopen the file.', true)
       console.error('currentFileLibraryId is not set')
       return
@@ -1162,7 +1162,7 @@ export class EditorPanel extends LitElement {
         textLength: selectedText.length,
         charStart,
         charEnd,
-        libraryId: window.currentFileLibraryId,
+        libraryId: window.currentFile.libraryId,
       })
 
       const result = await window.fileManager.extractFlashcard(
@@ -1170,7 +1170,7 @@ export class EditorPanel extends LitElement {
         selectedText,
         charStart,
         charEnd,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       console.log('[Cloze] extractFlashcard result:', result)
@@ -1486,7 +1486,7 @@ export class EditorPanel extends LitElement {
       return
     }
 
-    if (!window.currentFileLibraryId) {
+    if (!window.currentFile.libraryId) {
       this._showToast('Error: Library ID not set. Please reopen the file.', true)
       console.error('currentFileLibraryId is not set')
       return
@@ -1497,7 +1497,7 @@ export class EditorPanel extends LitElement {
         videoPath,
         timeRange.start,
         timeRange.end,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       if (result.success) {
@@ -1527,7 +1527,7 @@ export class EditorPanel extends LitElement {
     try {
       const rangesResult = await window.fileManager.getChildRanges(
         videoPath,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
       if (rangesResult) {
         const extractedRanges = processVideoExtractedRanges(rangesResult)

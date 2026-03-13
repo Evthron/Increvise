@@ -1014,7 +1014,7 @@ export class CodeMirrorViewer extends LitElement {
     // Extract line numbers for range tracking
     const rangeStart = selectedLines[0].number
     const rangeEnd = selectedLines[selectedLines.length - 1].number
-    const libraryId = window.currentFileLibraryId
+    const libraryId = window.currentFile.libraryId
 
     if (!libraryId) {
       return { success: false, error: 'Library ID not set' }
@@ -1110,7 +1110,7 @@ export class CodeMirrorViewer extends LitElement {
   async lockLineRanges(filePath, useDynamicContent = true) {
     let ranges
     try {
-      ranges = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+      ranges = await window.fileManager.getChildRanges(filePath, window.currentFile.libraryId)
     } catch (error) {
       console.error('Failed to get child ranges:', error)
       this.clearLockedLines()
@@ -1461,7 +1461,7 @@ export class CodeMirrorViewer extends LitElement {
           await window.fileManager.updateLockedRanges(
             filePath,
             rangeUpdates,
-            window.currentFileLibraryId
+            window.currentFile.libraryId
           )
         }
 

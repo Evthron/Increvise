@@ -179,7 +179,7 @@ export class FileManager extends LitElement {
         // Refresh the directory tree for single workspace
         const result = await window.fileManager.getDirectoryTree(
           this.currentRootPath,
-          window.currentWorkspaceLibraryId
+          window.currentWorkspace.libraryId
         )
 
         if (!result.success) {
@@ -269,7 +269,7 @@ export class FileManager extends LitElement {
     const dbResult = await window.fileManager.createDatabase(folderPath)
     if (dbResult.success) {
       console.log('Database ready at:', dbResult.path)
-      window.currentWorkspaceLibraryId = dbResult.libraryId
+      window.currentWorkspace.libraryId = dbResult.libraryId
       console.log('Workspace Library ID:', dbResult.libraryId)
     } else {
       console.warn('Database setup warning:', dbResult.error)
@@ -281,7 +281,7 @@ export class FileManager extends LitElement {
     try {
       const result = await window.fileManager.getDirectoryTree(
         folderPath,
-        window.currentWorkspaceLibraryId
+        window.currentWorkspace.libraryId
       )
 
       if (!result.success) {
@@ -328,7 +328,7 @@ export class FileManager extends LitElement {
       const db = await import('../../adapters/sqlite-adapter.js')
       const library = await db.getOne(folderPath, 'SELECT library_id FROM library LIMIT 1')
       if (library) {
-        window.currentWorkspaceLibraryId = library.library_id
+        window.currentWorkspace.libraryId = library.library_id
         console.log('Mobile Workspace Library ID:', library.library_id)
       } else {
         console.error('No library found in workspace DB:', folderPath)

@@ -823,7 +823,7 @@ export class MarkdownViewer extends LitElement {
    */
   async loadAndLockExtractedContent(filePath) {
     try {
-      if (!window.currentFileLibraryId) {
+      if (!window.currentFile.libraryId) {
         console.warn('No library ID set, cannot load extracted content')
         this.clearLockedContent()
         return
@@ -831,7 +831,7 @@ export class MarkdownViewer extends LitElement {
 
       const rangesResult = await window.fileManager.getChildRanges(
         filePath,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       if (rangesResult && rangesResult.length > 0) {
@@ -856,7 +856,7 @@ export class MarkdownViewer extends LitElement {
     }
 
     const text = selection.markdown || selection.text
-    const libraryId = window.currentFileLibraryId
+    const libraryId = window.currentFile.libraryId
 
     try {
       // Generate child note filename

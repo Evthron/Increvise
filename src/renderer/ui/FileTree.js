@@ -317,7 +317,7 @@ export class FileTree extends LitElement {
 
       // Set the file's library ID before opening
       if (item.library_id) {
-        window.currentFileLibraryId = item.library_id
+        window.currentFile.libraryId = item.library_id
         console.log('Setting file library ID from tree item:', item.library_id)
       }
 
@@ -335,7 +335,7 @@ export class FileTree extends LitElement {
 
     try {
       // Use the file's own library_id instead of workspace library_id
-      const libraryId = item.library_id || window.currentWorkspaceLibraryId
+      const libraryId = item.library_id || window.currentWorkspace.libraryId
       console.log('Adding file to queue with library ID:', libraryId)
 
       const result = await window.fileManager.addFileToQueue(item.path, libraryId)
@@ -376,7 +376,7 @@ export class FileTree extends LitElement {
         try {
           const result = await window.fileManager.checkFileInQueue(
             item.path,
-            window.currentWorkspaceLibraryId
+            window.currentWorkspace.libraryId
           )
           if (result.inQueue) {
             item._inQueue = true

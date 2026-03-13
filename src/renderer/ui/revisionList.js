@@ -762,7 +762,7 @@ export class RevisionList extends LitElement {
 
     console.log('Starting revision workflow with', files.length, 'files')
 
-    window.currentFileLibraryId = files[0].library_id
+    window.currentFile.libraryId = files[0].library_id
 
     console.log('Opening revision file from library:', files[0].library_id)
 
@@ -787,7 +787,7 @@ export class RevisionList extends LitElement {
     }
 
     // Set the current file's library ID before opening
-    window.currentFileLibraryId = file.library_id
+    window.currentFile.libraryId = file.library_id
 
     // Get feedback bar and check if revision mode is active
     const feedbackBar = document.querySelector('feedback-bar')
