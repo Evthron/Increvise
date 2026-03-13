@@ -28,7 +28,7 @@ export const REVIEW_QUERIES = {
     WHERE f.library_id = ? 
       AND qm.queue_name != 'archived'
       AND date(f.due_time) <= date('now')
-    ORDER BY f.due_time ASC, f.rank ASC
+    ORDER BY f.rank ASC, f.due_time ASC
   `,
 
   /**
@@ -39,7 +39,7 @@ export const REVIEW_QUERIES = {
     FROM file f
     JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
     WHERE f.library_id = ? AND qm.queue_name != 'archived'
-    ORDER BY f.due_time ASC, f.rank ASC
+    ORDER BY f.rank ASC, f.due_time ASC
   `,
 
   /**

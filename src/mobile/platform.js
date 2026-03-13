@@ -168,52 +168,21 @@ export const mobilePlatform = {
             [library.library_id, maxNewPerDay]
           )
 
-          // Get processing queue items (due today)
-          const processingItems = await db.getAll(
-            workspace.db_path,
-            `SELECT f.*, qm.queue_name
-             FROM file f
-             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-             WHERE qm.queue_name = 'processing' 
-               AND f.library_id = ?
-               AND date(f.due_time) <= date('now')
-             ORDER BY f.due_time ASC, f.rank ASC`,
-            [library.library_id]
-          )
-
-          // Get intermediate queue items (due today)
-          const intermediateItems = await db.getAll(
-            workspace.db_path,
-            `SELECT f.*, qm.queue_name
-             FROM file f
-             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-             WHERE qm.queue_name = 'intermediate'
-               AND f.library_id = ?
-               AND date(f.due_time) <= date('now')
-             ORDER BY f.due_time ASC, f.rank ASC`,
-            [library.library_id]
-          )
-
           // Get spaced queue items (due today) - all three sub-queues
-          const spacedItems = await db.getAll(
+          const revisionItems = await db.getAll(
             workspace.db_path,
             `SELECT f.*, qm.queue_name
              FROM file f
              JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-             WHERE qm.queue_name IN ('spaced-casual', 'spaced-standard', 'spaced-strict')
+             WHERE qm.queue_name IN ('processing', 'intermediate', 'spaced-casual', 'spaced-standard', 'spaced-strict')
                AND f.library_id = ?
                AND date(f.due_time) <= date('now')
-             ORDER BY f.due_time ASC, f.rank ASC`,
+             ORDER BY f.rank ASC, f.due_time ASC`,
             [library.library_id]
           )
 
           // Combine all items and add workspace metadata
-          const workspaceFiles = [
-            ...newItems,
-            ...processingItems,
-            ...intermediateItems,
-            ...spacedItems,
-          ]
+          const workspaceFiles = [...newItems, ...revisionItems]
 
           allFiles.push(
             ...workspaceFiles.map((row) => ({
@@ -230,10 +199,10 @@ export const mobilePlatform = {
       allFiles.sort((a, b) => {
         const dateA = new Date(a.due_time)
         const dateB = new Date(b.due_time)
-        if (dateA.toDateString() === dateB.toDateString()) {
-          return (a.rank || 70) - (b.rank || 70)
+        if (a.rank === b.rank) {
+          return dateA - dateB
         }
-        return dateA - dateB
+        return a.rank - b.rank
       })
 
       return allFiles
@@ -276,10 +245,10 @@ export const mobilePlatform = {
       allFiles.sort((a, b) => {
         const dateA = new Date(a.due_time)
         const dateB = new Date(b.due_time)
-        if (dateA.toDateString() === dateB.toDateString()) {
-          return (a.rank || 70) - (b.rank || 70)
+        if (a.rank === b.rank) {
+          return dateA - dateB
         }
-        return dateA - dateB
+        return a.rank - b.rank
       })
 
       return allFiles

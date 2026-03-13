@@ -326,44 +326,14 @@ async function getAllFilesForRevision(getCentralDbPath) {
           )
           .all(libraryId, maxNewPerDay)
 
-        // Get processing queue items (due today)
-        const processingItems = db
-          .prepare(
-            `
-            SELECT f.*, qm.queue_name
-            FROM file f
-            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-            WHERE qm.queue_name = 'processing' 
-              AND f.library_id = ?
-              AND date(f.due_time) <= date('now')
-            ORDER BY f.rank ASC, f.due_time ASC
-          `
-          )
-          .all(libraryId)
-
-        // Get intermediate queue items (due today)
-        const intermediateItems = db
-          .prepare(
-            `
-            SELECT f.*, qm.queue_name
-            FROM file f
-            JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-            WHERE qm.queue_name = 'intermediate'
-              AND f.library_id = ?
-              AND date(f.due_time) <= date('now')
-            ORDER BY f.rank ASC, f.due_time ASC
-          `
-          )
-          .all(libraryId)
-
         // Get spaced queue items (due today) - all three sub-queues
-        const spacedItems = db
+        const revisionItems = db
           .prepare(
             `
             SELECT f.*, qm.queue_name
             FROM file f
             JOIN queue_membership qm ON f.library_id = qm.library_id AND f.relative_path = qm.relative_path
-            WHERE qm.queue_name IN ('spaced-casual', 'spaced-standard', 'spaced-strict')
+            WHERE qm.queue_name IN ('processing', 'intermediate', 'spaced-casual', 'spaced-standard', 'spaced-strict')
               AND f.library_id = ?
               AND date(f.due_time) <= date('now')
             ORDER BY f.rank ASC, f.due_time ASC
@@ -372,12 +342,8 @@ async function getAllFilesForRevision(getCentralDbPath) {
           .all(libraryId)
 
         // Combine all items
-        const workspaceFiles = [
-          ...newItems,
-          ...processingItems,
-          ...intermediateItems,
-          ...spacedItems,
-        ]
+        // new items are on top
+        const workspaceFiles = [...newItems, ...revisionItems]
 
         allFiles.push(
           ...workspaceFiles.map((row) => ({
@@ -397,10 +363,10 @@ async function getAllFilesForRevision(getCentralDbPath) {
     allFiles.sort((a, b) => {
       const dateA = new Date(a.due_time)
       const dateB = new Date(b.due_time)
-      if (dateA.toDateString() === dateB.toDateString()) {
-        return (a.rank || 70) - (b.rank || 70)
+      if (a.rank === b.rank) {
+        return dateA - dateB
       }
-      return dateA - dateB
+      return a.rank - b.rank
     })
 
     return { success: true, files: allFiles }
@@ -465,10 +431,10 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
     allFiles.sort((a, b) => {
       const dateA = new Date(a.due_time)
       const dateB = new Date(b.due_time)
-      if (dateA.toDateString() === dateB.toDateString()) {
-        return (a.rank || 70) - (b.rank || 70)
+      if (a.rank === b.rank) {
+        return dateA - dateB
       }
-      return dateA - dateB
+      return a.rank - b.rank
     })
 
     return { success: true, files: allFiles }
