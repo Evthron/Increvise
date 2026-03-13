@@ -151,9 +151,11 @@ export class FileManager extends LitElement {
     const { folderPath, isAllWorkspacesMode } = event.detail
 
     if (isAllWorkspacesMode) {
-      await this.openAllWorkspaces()
+      await this._openAllWorkspaces()
+    } else if (this.isMobile) {
+      await this._mobileOpenSingleWorkspace(folderPath)
     } else {
-      await this.openWorkspace(folderPath)
+      await this._openSingleWorkspace(folderPath)
     }
   }
 
@@ -161,74 +163,6 @@ export class FileManager extends LitElement {
     return html`
       <file-tree .treeData="${this.treeData}" .disabled="${this.isAllWorkspacesMode}"></file-tree>
     `
-  }
-
-  async openWorkspace(folderPath) {
-    try {
-      // Stop current revision workflow before switching workspace
-      const feedbackBar = document.querySelector('feedback-bar')
-      if (feedbackBar) {
-        feedbackBar.stopRevisionWorkflow()
-      }
-
-      // Update state
-      this.currentRootPath = folderPath
-      this.isAllWorkspacesMode = false
-
-      // Update global window properties
-      window.currentRootPath = folderPath
-      window.isAllWorkspacesMode = false
-
-      // Dispatch event
-      window.dispatchEvent(
-        new CustomEvent('workspace-mode-changed', {
-          detail: { isAll: false, path: folderPath },
-        })
-      )
-
-      // Single workspace mode
-      await this._openSingleWorkspace(folderPath)
-    } catch (error) {
-      console.error('Error opening workspace:', error)
-      alert(`Error opening workspace: ${error.message}`)
-    }
-
-    // Register add button guard for ALL workspaces mode
-    this._registerAddButtonGuard()
-  }
-
-  async openAllWorkspaces() {
-    try {
-      // Stop current revision workflow before switching workspace
-      const feedbackBar = document.querySelector('feedback-bar')
-      if (feedbackBar) {
-        feedbackBar.stopRevisionWorkflow()
-      }
-
-      // Update state
-      this.currentRootPath = null
-      this.isAllWorkspacesMode = true
-
-      // Update global window properties
-      window.currentRootPath = null
-      window.isAllWorkspacesMode = true
-
-      // Dispatch event
-      window.dispatchEvent(
-        new CustomEvent('workspace-mode-changed', {
-          detail: { isAll: true, path: null },
-        })
-      )
-
-      // Open all workspaces combined view
-      await this._openAllWorkspaces()
-    } catch (error) {
-      console.error('Error opening all workspaces:', error)
-      alert(`Error opening all workspaces: ${error.message}`)
-    }
-
-    // Register add button guard for ALL workspaces mode
-    this._registerAddButtonGuard()
   }
 
   async refreshCurrentWorkspace() {
@@ -267,6 +201,15 @@ export class FileManager extends LitElement {
   }
 
   async _openAllWorkspaces() {
+    // Stop current revision workflow before switching workspace
+    window.mode.revision = false
+
+    this.currentRootPath = null
+    this.isAllWorkspacesMode = true
+
+    window.currentRootPath = null
+    window.isAllWorkspacesMode = true
+
     try {
       const workspaces = await window.fileManager.getRecentWorkspaces()
       const combined = []
@@ -292,94 +235,114 @@ export class FileManager extends LitElement {
           continue
         }
       }
-
       this.treeData = combined
-
-      // Refresh workspace list in WorkspaceManager (sibling)
-      const workspaceManager = document.querySelector('workspace-manager')
-      if (workspaceManager) {
-        await workspaceManager.loadRecentWorkspaces()
-      }
 
       const revisionList = document.querySelector('revision-list')
 
       if (revisionList) {
         // Use refreshFileList to respect the current view mode
         await revisionList.refreshFileList()
-
-        // Auto-start revision workflow if files are available
-        const filteredFiles = revisionList.getFilteredFiles()
-        if (filteredFiles.length > 0) {
-          const feedbackBar = document.querySelector('feedback-bar')
-          if (feedbackBar) {
-            await feedbackBar.startRevisionWorkflow(filteredFiles)
-          }
-        }
       }
     } catch (error) {
       console.error('Error loading combined workspace view:', error)
       alert(`Error loading combined view: ${error.message}`)
     }
+
+    // Register add button guard for ALL workspaces mode
+    this._registerAddButtonGuard()
   }
 
   async _openSingleWorkspace(folderPath) {
+    // Stop current revision workflow before switching workspace
+    window.mode.revision = false
+
+    // Update state
+    this.currentRootPath = folderPath
+    this.isAllWorkspacesMode = false
+
+    // Update global window properties
+    window.currentRootPath = folderPath
+    window.isAllWorkspacesMode = false
+
+    // Database and tree setup
+    const dbResult = await window.fileManager.createDatabase(folderPath)
+    if (dbResult.success) {
+      console.log('Database ready at:', dbResult.path)
+      window.currentWorkspaceLibraryId = dbResult.libraryId
+      console.log('Workspace Library ID:', dbResult.libraryId)
+    } else {
+      console.warn('Database setup warning:', dbResult.error)
+    }
+
+    await window.fileManager.recordWorkspace(folderPath)
+    console.log('Workspace recorded in central database')
+
+    try {
+      const result = await window.fileManager.getDirectoryTree(
+        folderPath,
+        window.currentWorkspaceLibraryId
+      )
+
+      if (!result.success) {
+        console.error('Failed to load directory tree:', result.error)
+        alert(`Failed to load directory tree: ${result.error}`)
+        this.treeData = []
+      } else {
+        console.log('Directory tree received:', result.data)
+        this.treeData = result.data
+      }
+    } catch (error) {
+      console.error('Error fetching directory tree:', error)
+      alert(`Error fetching directory tree:：${error.message}`)
+      this.treeData = []
+    }
+
+    const revisionList = document.querySelector('revision-list')
+
+    if (revisionList) {
+      // Use refreshFileList to respect the current view mode
+      await revisionList.refreshFileList()
+    }
+
+    this._registerAddButtonGuard()
+  }
+
+  async _mobileOpenSingleWorkspace(folderPath) {
+    // Stop current revision workflow before switching workspace
+    window.mode.revision = false
+
+    // Update state
+    this.currentRootPath = folderPath
+    this.isAllWorkspacesMode = false
+
+    // Update global window properties
+    window.currentRootPath = folderPath
+    window.isAllWorkspacesMode = false
+
     // Database and tree setup
     // On mobile, skip createDatabase as workspace DB is already opened during import
-    if (!this.isMobile) {
-      const dbResult = await window.fileManager.createDatabase(folderPath)
-      if (dbResult.success) {
-        console.log('Database ready at:', dbResult.path)
-        window.currentWorkspaceLibraryId = dbResult.libraryId
-        console.log('Workspace Library ID:', dbResult.libraryId)
+    // On mobile, folderPath is actually the DB name
+    // Extract library_id from the workspace DB
+    try {
+      const db = await import('../../adapters/sqlite-adapter.js')
+      const library = await db.getOne(folderPath, 'SELECT library_id FROM library LIMIT 1')
+      if (library) {
+        window.currentWorkspaceLibraryId = library.library_id
+        console.log('Mobile Workspace Library ID:', library.library_id)
       } else {
-        console.warn('Database setup warning:', dbResult.error)
+        console.error('No library found in workspace DB:', folderPath)
       }
-    } else {
-      // On mobile, folderPath is actually the DB name
-      // Extract library_id from the workspace DB
-      try {
-        const db = await import('../../adapters/sqlite-adapter.js')
-        const library = await db.getOne(folderPath, 'SELECT library_id FROM library LIMIT 1')
-        if (library) {
-          window.currentWorkspaceLibraryId = library.library_id
-          console.log('Mobile Workspace Library ID:', library.library_id)
-        } else {
-          console.error('No library found in workspace DB:', folderPath)
-        }
-      } catch (error) {
-        console.error('Error getting library ID from workspace:', error)
-      }
+    } catch (error) {
+      console.error('Error getting library ID from workspace:', error)
     }
 
     await window.fileManager.recordWorkspace(folderPath)
     console.log('Workspace recorded in central database')
 
     // On mobile, skip directory tree loading (read-only mode)
-    if (!this.isMobile) {
-      try {
-        const result = await window.fileManager.getDirectoryTree(
-          folderPath,
-          window.currentWorkspaceLibraryId
-        )
-
-        if (!result.success) {
-          console.error('Failed to load directory tree:', result.error)
-          alert(`Failed to load directory tree: ${result.error}`)
-          this.treeData = []
-        } else {
-          console.log('Directory tree received:', result.data)
-          this.treeData = result.data
-        }
-      } catch (error) {
-        console.error('Error fetching directory tree:', error)
-        alert(`Error fetching directory tree:：${error.message}`)
-        this.treeData = []
-      }
-    } else {
-      // Mobile: no directory tree, just empty array
-      this.treeData = []
-      console.log('[Mobile] Skipped directory tree loading (read-only mode)')
-    }
+    // Mobile: no directory tree, just empty array
+    this.treeData = []
+    console.log('[Mobile] Skipped directory tree loading (read-only mode)')
 
     // Refresh workspace list in WorkspaceManager (sibling)
     const workspaceManager = document.querySelector('workspace-manager')
@@ -392,16 +355,9 @@ export class FileManager extends LitElement {
     if (revisionList) {
       // Use refreshFileList to respect the current view mode
       await revisionList.refreshFileList()
-
-      // Auto-start revision workflow if files are available
-      const filteredFiles = revisionList.getFilteredFiles()
-      if (filteredFiles.length > 0) {
-        const feedbackBar = document.querySelector('feedback-bar')
-        if (feedbackBar) {
-          await feedbackBar.startRevisionWorkflow(filteredFiles)
-        }
-      }
     }
+
+    this._registerAddButtonGuard()
   }
 
   _registerAddButtonGuard() {
