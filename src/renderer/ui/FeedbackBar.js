@@ -11,10 +11,11 @@ import './ProcessingFeedbackBar.js'
 
 export class FeedbackBar extends LitElement {
   static properties = {
-    revisionFiles: { type: Array, state: true },
-    currentIndex: { type: Number, state: true },
     isRevisionMode: { type: Boolean, state: true },
     currentQueue: { type: String, state: true },
+    file: { type: Object, state: true },
+    rank: { type: Number, state: true },
+    intervalInfo: { type: Object, state: true },
   }
 
   static styles = css`
@@ -352,49 +353,31 @@ export class FeedbackBar extends LitElement {
 
   constructor() {
     super()
-    this.revisionFiles = []
-    this.currentIndex = 0
-    this.isRevisionMode = false
     this.currentQueue = null
+    this.isRevisionMode = false
+    this.file = null
+    this.rank = null
+    this.intervalInfo = null
   }
 
   connectedCallback() {
     super.connectedCallback()
-    // Listen for file selection from revision list
-    document.addEventListener('file-selected', this._handleFileSelected.bind(this))
-    // Listen for file forgotten event
-    document.addEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     // Listen for processing queue feedback
     document.addEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    document.removeEventListener('file-selected', this._handleFileSelected.bind(this))
-    document.removeEventListener('file-forgotten', this._handleFileForgotten.bind(this))
     document.removeEventListener('processing-feedback', this._handleProcessingFeedback.bind(this))
     if (this._clickOutsideHandler) {
       document.removeEventListener('click', this._clickOutsideHandler)
     }
   }
 
-  async _handleFileSelected(e) {
-    const { index } = e.detail
-    await this.openRevisionFile(index)
-  }
-
-  _handleFileForgotten(e) {
-    const { file, resetValues } = e.detail
-    // Find the file in our array and update it
-    const fileInArray = this.revisionFiles.find(
-      (f) => f.file_path === file.file_path && f.library_id === file.library_id
-    )
-    if (fileInArray) {
-      Object.assign(fileInArray, resetValues)
-      // Re-render the current file display
-      this.showRevisionFile(this.currentIndex)
-      this.requestUpdate()
-    }
+  async reloadFile(file) {
+    this.isRevisionMode = window.mode.revision
+    this.file = file
+    this.currentQueue = file.queue_name
   }
 
   async _handleProcessingFeedback(e) {
@@ -402,111 +385,7 @@ export class FeedbackBar extends LitElement {
     await this._handleFeedback(feedback)
   }
 
-  // Public API: Start revision workflow
-  async startRevisionWorkflow(files) {
-    if (!files || files.length === 0) {
-      console.log('No files to review')
-      return
-    }
-
-    this.revisionFiles = files
-    this.currentIndex = 0
-    this.isRevisionMode = true
-
-    console.log('Starting revision workflow with', files.length, 'files')
-
-    // Update the revision list component
-    const revisionListElement = document.querySelector('revision-list')
-    if (revisionListElement) {
-      revisionListElement.files = files
-      revisionListElement.currentIndex = 0
-    }
-
-    // Update workspace stats
-    const workspaceCounts = {}
-    for (const file of files) {
-      if (file.workspacePath) {
-        workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
-      }
-    }
-    for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
-      await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
-    }
-
-    // Automatically open the first file
-    await this.openRevisionFile(0)
-  }
-
-  // Public API: Stop revision workflow
-  stopRevisionWorkflow() {
-    console.log('Stopping revision workflow')
-
-    this.revisionFiles = []
-    this.currentIndex = 0
-    this.isRevisionMode = false
-  }
-
-  // Public API: Check if in revision mode
-  isInRevisionMode() {
-    return this.isRevisionMode
-  }
-
-  // Public API: Check if a file is in the queue and show feedback
-  checkAndShowFeedbackIfInQueue(filePath) {
-    if (!this.isRevisionMode) return
-
-    // Find if the file is in the current revision queue
-    const fileIndex = this.revisionFiles.findIndex((f) => f.file_path === filePath)
-
-    if (fileIndex !== -1) {
-      // File is in queue, update index and show feedback
-      console.log('File is in revision queue at index:', fileIndex)
-      this.currentIndex = fileIndex
-
-      // Update revision list component
-      const revisionListElement = document.querySelector('revision-list')
-      if (revisionListElement) {
-        revisionListElement.currentIndex = fileIndex
-      }
-
-      this.requestUpdate()
-    }
-  }
-
-  // Internal: Open a revision file
-  async openRevisionFile(index) {
-    if (index >= this.revisionFiles.length || index < 0) return
-
-    const file = this.revisionFiles[index]
-    this.currentIndex = index
-
-    // Set the current file's library ID before opening
-    window.currentFileLibraryId = file.library_id
-    console.log('Opening revision file from library:', file.library_id)
-
-    // Load the current file's queue
-    await this._loadCurrentQueue()
-
-    // Update revision list component
-    const revisionListElement = document.querySelector('revision-list')
-    if (revisionListElement) {
-      revisionListElement.currentIndex = index
-    }
-
-    // Trigger render
-    this.requestUpdate()
-
-    // Open the file in editor
-    const editorPanel = document.querySelector('editor-panel')
-    if (editorPanel) {
-      await editorPanel.openFile(file.file_path)
-    }
-  }
-
-  async _handleFeedback(feedback) {
-    const currentFile = this.revisionFiles[this.currentIndex]
-    if (!currentFile) return
-
+  async _handleFeedback(currentFile, feedback) {
     try {
       const result = await window.fileManager.updateRevisionFeedback(
         currentFile.dbPath,
@@ -516,68 +395,10 @@ export class FeedbackBar extends LitElement {
       )
 
       if (result.success) {
-        // Update current queue if returned from backend (handles automatic queue transitions)
-        const oldQueue = this.currentQueue
-        if (result.queueName) {
-          this.currentQueue = result.queueName
-
-          // Dispatch queue-changed event if queue was changed automatically
-          if (oldQueue && oldQueue !== result.queueName) {
-            window.dispatchEvent(
-              new CustomEvent('queue-changed', {
-                detail: {
-                  filePath: currentFile.file_path,
-                  libraryId: currentFile.library_id,
-                  oldQueue: oldQueue,
-                  newQueue: result.queueName,
-                },
-              })
-            )
-          }
-        }
-
         // Notify revision list to refresh its data
         const revisionListElement = document.querySelector('revision-list')
         if (revisionListElement) {
           await revisionListElement.refreshFileList()
-        }
-
-        // Update local revisionFiles from the refreshed list
-        if (revisionListElement) {
-          this.revisionFiles = revisionListElement.getFilteredFiles()
-        }
-
-        // Update workspace stats
-        const workspaceCounts = {}
-        for (const file of this.revisionFiles) {
-          workspaceCounts[file.workspacePath] = (workspaceCounts[file.workspacePath] || 0) + 1
-        }
-        for (const [workspacePath, count] of Object.entries(workspaceCounts)) {
-          await window.fileManager.updateWorkspaceStats(workspacePath, count, count)
-        }
-
-        if (this.revisionFiles.length > 0) {
-          // Adjust index if needed
-          if (this.currentIndex >= this.revisionFiles.length) {
-            this.currentIndex = this.revisionFiles.length - 1
-          }
-
-          // Update component index and open next file
-          if (revisionListElement) {
-            revisionListElement.currentIndex = this.currentIndex
-          }
-
-          await this.openRevisionFile(this.currentIndex)
-        } else {
-          // All files reviewed
-          this._showToast('All files reviewed! Great job! 🎉')
-          this.isRevisionMode = false
-          const { hideToolbar } = await import('./toolbar.js')
-          hideToolbar()
-          const filePreview = document.getElementById('file-preview')
-          if (filePreview) {
-            filePreview.textContent = ''
-          }
         }
       } else {
         this._showToast(`Error: ${result.error}`, true)
@@ -589,41 +410,25 @@ export class FeedbackBar extends LitElement {
   }
 
   async _handleRankChange(newRank) {
-    const file = this.revisionFiles[this.currentIndex]
-    if (!file) return
-
     const clampedRank = Math.max(1, Math.min(100, Math.round(newRank)))
 
     try {
       const result = await window.fileManager.updateFileRank(
-        file.file_path,
-        file.library_id,
+        this.file.file_path,
+        this.file.library_id,
         clampedRank
       )
 
       if (result && result.success) {
-        file.rank = clampedRank
+        this.file.rank = clampedRank
 
-        // Re-sort files by rank within the same day
-        this.revisionFiles.sort((a, b) => {
-          const dateA = new Date(a.due_time)
-          const dateB = new Date(b.due_time)
-          if (dateA.toDateString() === dateB.toDateString()) {
-            return (a.rank || 70) - (b.rank || 70)
-          }
-          return dateA - dateB
-        })
-
-        // Update the revision list component
         const revisionListElement = document.querySelector('revision-list')
         if (revisionListElement) {
-          revisionListElement.files = this.revisionFiles
-          revisionListElement.currentIndex = this.revisionFiles.indexOf(file)
+          await revisionListElement.refreshFileList()
         }
+        // Re-sort files by rank within the same day
 
         // Update current index
-        this.currentIndex = this.revisionFiles.indexOf(file)
-
         this.requestUpdate()
         this._showToast(`Rank updated to ${clampedRank}`)
       } else {
@@ -636,11 +441,11 @@ export class FeedbackBar extends LitElement {
   }
 
   async _loadCurrentQueue() {
-    const file = this.revisionFiles[this.currentIndex]
-    if (!file) return
-
     try {
-      const result = await window.fileManager.getFileQueue(file.file_path, file.library_id)
+      const result = await window.fileManager.getFileQueue(
+        this.file.file_path,
+        this.file.library_id
+      )
       if (result && result.queueName) {
         this.currentQueue = result.queueName
       }
@@ -681,23 +486,20 @@ export class FeedbackBar extends LitElement {
   }
 
   async _handleIntervalChange(newInterval) {
-    const file = this.revisionFiles[this.currentIndex]
-    if (!file) return
-
     const clampedInterval = Math.max(1, Math.min(365, Math.round(newInterval)))
 
     try {
       let result
       if (this.currentQueue === 'intermediate') {
         result = await window.fileManager.updateIntermediateInterval(
-          file.file_path,
-          file.library_id,
+          this.file.file_path,
+          this.file.library_id,
           clampedInterval
         )
       } else if (this.currentQueue === 'processing') {
         result = await window.fileManager.updateRotationInterval(
-          file.file_path,
-          file.library_id,
+          this.file.file_path,
+          this.file.library_id,
           clampedInterval
         )
       }
@@ -705,9 +507,9 @@ export class FeedbackBar extends LitElement {
       if (result && result.success) {
         // Update local data
         if (this.currentQueue === 'intermediate') {
-          file.intermediate_interval = clampedInterval
+          this.file.intermediate_interval = clampedInterval
         } else if (this.currentQueue === 'processing') {
-          file.rotation_interval = clampedInterval
+          this.file.rotation_interval = clampedInterval
         }
 
         this.requestUpdate()
@@ -739,35 +541,14 @@ export class FeedbackBar extends LitElement {
       return
     }
 
-    const file = this.revisionFiles[this.currentIndex]
-
-    if (!file || newQueue === this.currentQueue) {
-      return
-    }
-
     try {
       const result = await window.fileManager.moveFileToQueue(
-        file.file_path,
-        file.library_id,
+        this.file.file_path,
+        this.file.library_id,
         newQueue
       )
 
       if (result && result.success) {
-        this.currentQueue = newQueue
-        this._showToast(`Moved to ${this._getQueueDisplayName(newQueue)} queue`)
-
-        // Dispatch event to notify other components that queue was changed
-        window.dispatchEvent(
-          new CustomEvent('queue-changed', {
-            detail: {
-              filePath: file.file_path,
-              libraryId: file.library_id,
-              oldQueue: this.currentQueue,
-              newQueue: newQueue,
-            },
-          })
-        )
-
         this.requestUpdate()
       } else {
         this._showToast(`Failed to move to ${newQueue} queue`, true)
@@ -790,27 +571,20 @@ export class FeedbackBar extends LitElement {
   }
 
   render() {
-    if (!this.isRevisionMode || this.revisionFiles.length === 0) {
+    if (!window.mode.revision || !this.file) {
       return html``
     }
 
-    const file = this.revisionFiles[this.currentIndex]
-    if (!file) return html``
-
-    const fileName = file.file_path.split('/').pop()
-    const workspaceName = file.workspacePath ? file.workspacePath.split('/').pop() : 'Unknown'
-    const rank = Math.round(file.rank || 70)
+    const fileName = this.file.file_path.split('/').pop()
+    const workspaceName = this.file.workspacePath
+      ? this.file.workspacePath.split('/').pop()
+      : 'Unknown'
+    const rank = Math.round(this.file.rank || 70)
 
     // Get interval info based on queue
-    const intervalInfo = this._getIntervalInfo(file)
+    const intervalInfo = this._getIntervalInfo(this.file)
 
     // Calculate order number within the same day
-    const dueDate = new Date(file.due_time).toDateString()
-    const sameDayFiles = this.revisionFiles.filter(
-      (f) => new Date(f.due_time).toDateString() === dueDate
-    )
-    sameDayFiles.sort((a, b) => (a.rank || 70) - (b.rank || 70))
-    const orderNumber = sameDayFiles.indexOf(file) + 1
 
     // Set visibility attribute
     this.setAttribute('visible', '')
@@ -825,15 +599,6 @@ export class FeedbackBar extends LitElement {
               <span>${workspaceName}</span>
             </span>
             <span class="file-meta-separator">•</span>
-            <span class="file-meta-item">
-              <span class="meta-icon">📊</span>
-              <span>${this.currentIndex + 1} of ${this.revisionFiles.length}</span>
-            </span>
-            <span class="file-meta-separator">•</span>
-            <span class="file-meta-item" title="Order within today's revisions">
-              <span class="meta-icon">🔢</span>
-              <span>Order #${orderNumber}</span>
-            </span>
             <span class="file-meta-separator">•</span>
             <span class="file-meta-item rank-control" title="Priority rank (1-100)">
               <span class="meta-icon">⭐</span>

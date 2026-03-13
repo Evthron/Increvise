@@ -319,9 +319,6 @@ export class RevisionList extends LitElement {
 
     // Listen for file-added-to-queue event
     window.addEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-
-    // Listen for queue-changed event
-    window.addEventListener('queue-changed', this._handleQueueChanged.bind(this))
   }
 
   disconnectedCallback() {
@@ -329,16 +326,10 @@ export class RevisionList extends LitElement {
 
     // Clean up event listeners
     window.removeEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-    window.removeEventListener('queue-changed', this._handleQueueChanged.bind(this))
   }
 
   async _handleFileAddedToQueue(event) {
     console.log('RevisionList: File added to queue, refreshing...', event.detail)
-    await this.refreshFileList()
-  }
-
-  async _handleQueueChanged(event) {
-    console.log('RevisionList: Queue changed, refreshing...', event.detail)
     await this.refreshFileList()
   }
 
@@ -377,13 +368,47 @@ export class RevisionList extends LitElement {
       if (result && result.success) {
         console.log('Files received:', result.files.length)
         this.files = result.files
+        if (this.files.length == 0) {
+          // All files reviewed
+          this._showToast('All files reviewed! Great job! 🎉')
+          window.mode.revision = false
+          const { hideToolbar } = await import('./toolbar.js')
+          hideToolbar()
+          const filePreview = document.getElementById('file-preview')
+          if (filePreview) {
+            filePreview.textContent = ''
+          }
+        }
+
+        // Auto-start revision workflow if files are available
+        const filteredFiles = this.getFilteredFiles()
+        window.mode.revision = filteredFiles.length > 0
+
+        const feedbackBar = document.querySelector('feedback-bar')
+        if (feedbackBar && window.mode.revision) {
+          await feedbackBar.reloadFile(filteredFiles[this.currentIndex])
+          console.log('reload file')
+        }
         this.requestUpdate()
       }
     } catch (error) {
       console.error('Error refreshing file list:', error)
     }
   }
+  checkAndShowFeedbackIfInQueue(filePath) {
+    if (!window.mode.revision) return
 
+    // Find if the file is in the current revision queue, before filtering
+    const fileIndex = this.files.findIndex((f) => f.file_path === filePath)
+
+    if (fileIndex !== -1) {
+      // File is in queue, update index and show feedback
+      console.log('File is in revision queue at index:', fileIndex)
+      this.currentIndex = fileIndex
+
+      this.requestUpdate()
+    }
+  }
   groupFilesByWorkspace() {
     const grouped = {}
     const filteredFiles = this.getFilteredFiles()
@@ -525,6 +550,27 @@ export class RevisionList extends LitElement {
     `
   }
 
+  async startRevisionWorkflow(files) {
+    if (!files || files.length === 0) {
+      console.log('No files to review')
+      return
+    }
+
+    this.currentIndex = 0
+    window.mode.revision = true
+
+    console.log('Starting revision workflow with', files.length, 'files')
+
+    window.currentFileLibraryId = files[0].library_id
+
+    console.log('Opening revision file from library:', files[0].library_id)
+
+    const feedbackBar = this.querySelector('feedback-bar')
+    if (feedbackBar) {
+      await feedbackBar.reloadFile(files[0])
+    }
+  }
+
   async handleFileClick(file, globalIndex) {
     this.currentIndex = globalIndex
     this.requestUpdate()
@@ -533,22 +579,17 @@ export class RevisionList extends LitElement {
     const feedbackBar = document.querySelector('feedback-bar')
 
     // If feedback bar exists and revision mode is NOT active, start it
-    if (feedbackBar && !feedbackBar.isInRevisionMode()) {
+    if (feedbackBar && !window.mode.revision) {
       const filteredFiles = this.getFilteredFiles()
       if (filteredFiles.length > 0) {
         console.log('Auto-starting revision workflow from file click')
-        await feedbackBar.startRevisionWorkflow(filteredFiles)
+        await this.startRevisionWorkflow(filteredFiles)
       }
     }
 
-    // Dispatch a custom event so feedback bar updates
-    this.dispatchEvent(
-      new CustomEvent('file-selected', {
-        detail: { index: globalIndex },
-        bubbles: true,
-        composed: true,
-      })
-    )
+    if (feedbackBar) {
+      await feedbackBar.reloadFile(file)
+    }
 
     // Get editor panel and call openFile
     const editorPanel = document.querySelector('editor-panel')
