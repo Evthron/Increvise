@@ -677,6 +677,9 @@ export class RevisionList extends LitElement {
 
       if (result && result.success) {
         console.log('Files received:', result.files.length)
+        const newWorkspace = fileManager.isAllWorkspacesMode
+          ? 'All Workspaces'
+          : fileManager.currentRootPath
         this.files = result.files
         if (this.files.length == 0) {
           // All files reviewed
@@ -688,6 +691,21 @@ export class RevisionList extends LitElement {
           if (filePreview) {
             filePreview.textContent = ''
           }
+        }
+
+        // reload the same workspace, keep the current file if it still exists, search for its index otherwise reset to first file
+        if (
+          newWorkspace === this.currentWorkspace &&
+          this.files.find((f) => f.file_path === this.currentFile?.file_path)
+        ) {
+          this.currentIndex = this.files.findIndex(
+            (f) => f.file_path === this.currentFile.file_path
+          )
+        } else {
+          // switch workspace, set currentIndex and currentFile to first file in new workspace
+          this.currentWorkspace = newWorkspace
+          this.currentIndex = 0
+          this.currentFile = this.files.length > 0 ? this.files[0] : null
         }
 
         // Auto-start revision workflow if files are available
