@@ -803,11 +803,8 @@ export class RevisionList extends LitElement {
     this.currentIndex = globalIndex
     this.requestUpdate()
 
-    // Get feedback bar and check if revision mode is active
-    const feedbackBar = document.querySelector('feedback-bar')
-
     // If feedback bar exists and revision mode is NOT active, start it
-    if (feedbackBar && !window.mode.revision) {
+    if (!window.mode.revision) {
       const filteredFiles = this.getFilteredFiles()
       if (filteredFiles.length > 0) {
         console.log('Auto-starting revision workflow from file click')
@@ -815,6 +812,11 @@ export class RevisionList extends LitElement {
       }
     }
 
+    // Set the current file's library ID before opening
+    window.currentFileLibraryId = file.library_id
+
+    // Get feedback bar and check if revision mode is active
+    const feedbackBar = document.querySelector('feedback-bar')
     if (feedbackBar) {
       await feedbackBar.reloadFile(file)
     }
