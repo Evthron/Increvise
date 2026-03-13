@@ -11,6 +11,7 @@ import '@lion/ui/button.js'
 import '@lion/ui/define/lion-icon.js'
 import '@shoelace-style/shoelace/dist/components/split-panel/split-panel.js'
 import './WorkspaceManager.js'
+import './states.js'
 
 const EVENT = {
   TRANSITION_END: 'transitionend',
@@ -207,8 +208,8 @@ export class FileManager extends LitElement {
     this.currentRootPath = null
     this.isAllWorkspacesMode = true
 
-    window.currentRootPath = null
-    window.isAllWorkspacesMode = true
+    window.currentFile.rootPath = null
+    window.mode.allWorkspace = true
 
     try {
       const workspaces = await window.fileManager.getRecentWorkspaces()
@@ -261,8 +262,8 @@ export class FileManager extends LitElement {
     this.isAllWorkspacesMode = false
 
     // Update global window properties
-    window.currentRootPath = folderPath
-    window.isAllWorkspacesMode = false
+    window.currentFile.rootPath = folderPath
+    window.mode.allWorkspace = false
 
     // Database and tree setup
     const dbResult = await window.fileManager.createDatabase(folderPath)
@@ -316,8 +317,8 @@ export class FileManager extends LitElement {
     this.isAllWorkspacesMode = false
 
     // Update global window properties
-    window.currentRootPath = folderPath
-    window.isAllWorkspacesMode = false
+    window.currentFile.rootPath = folderPath
+    window.mode.allWorkspace = false
 
     // Database and tree setup
     // On mobile, skip createDatabase as workspace DB is already opened during import
@@ -365,7 +366,7 @@ export class FileManager extends LitElement {
       document.addEventListener('click', (e) => {
         const btn = e.target.closest('.add-file-btn, [data-action="add-file"]')
         if (!btn) return
-        if (window.isAllWorkspacesMode) {
+        if (window.mode.allWorkspace) {
           e.preventDefault()
           this._showToast('Cannot add files in All Workspaces view')
         }

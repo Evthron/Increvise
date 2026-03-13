@@ -30,7 +30,7 @@ function extname(filePath) {
  * @returns {string} - Relative path from root folder
  */
 function relative(filePath) {
-  const rootPath = window.currentRootPath || ''
+  const rootPath = window.currentFile.rootPath || ''
   return filePath.startsWith(rootPath)
     ? filePath.slice(rootPath.length).replace(/^\/+/, '')
     : filePath

@@ -516,6 +516,7 @@ export class RevisionList extends LitElement {
     currentIndex: { type: Number },
     currentFile: { type: Object },
     currentWorkspace: { type: String },
+    isAllWorkspacesMode: { type: Boolean },
     queueFilter: { type: String, state: true },
     showAllFiles: { type: Boolean, state: true },
   }
@@ -588,6 +589,7 @@ export class RevisionList extends LitElement {
     this.files = []
     this.currentFile = null
     this.currentWorkspace = null
+    this.isAllWorkspacesMode = false
     this.currentIndex = 0
     this.queueFilter = 'all'
     this.showAllFiles = false
@@ -600,8 +602,9 @@ export class RevisionList extends LitElement {
       const fileManager = document.querySelector('file-manager')
       if (!fileManager) return
 
+      this.isAllWorkspacesMode = window.mode.allWorkspace
       let result
-      if (fileManager.isAllWorkspacesMode) {
+      if (this.isAllWorkspacesMode) {
         console.log('Using All Workspaces mode')
         // Use showAllFiles to determine which API to call
         if (this.showAllFiles) {
@@ -611,7 +614,7 @@ export class RevisionList extends LitElement {
           console.log('Calling getAllFilesForRevision()')
           result = await window.fileManager.getAllFilesForRevision()
         }
-      } else if (fileManager.currentRootPath) {
+      } else {
         console.log('Using single workspace mode:', fileManager.currentRootPath)
         // Single workspace mode - also check showAllFiles
         if (this.showAllFiles) {
@@ -621,8 +624,6 @@ export class RevisionList extends LitElement {
           console.log('Calling getFilesForRevision()')
           result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
         }
-      } else {
-        return
       }
 
       if (result && result.success) {

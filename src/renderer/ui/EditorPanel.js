@@ -211,12 +211,12 @@ export class EditorPanel extends LitElement {
         console.log('Jumping to note:', notePath)
 
         let absolutePath = notePath
-        if (!window.currentRootPath) {
+        if (!window.currentFile.rootPath) {
           console.error('Cannot jump to note: no workspace root path set')
           this._showToast('Cannot jump to note: no workspace open', true)
           return
         }
-        absolutePath = `${window.currentRootPath}/${notePath}`
+        absolutePath = `${window.currentFile.rootPath}/${notePath}`
         console.log('Resolved absolute path:', absolutePath)
 
         await this.openFile(absolutePath)
@@ -233,14 +233,14 @@ export class EditorPanel extends LitElement {
         return
       }
 
-      if (!window.currentRootPath) {
+      if (!window.currentFile.rootPath) {
         console.error('[open-child-note] No workspace root path set')
         this._showToast('Cannot open child note: no workspace open', true)
         return
       }
 
       try {
-        const absolutePath = `${window.currentRootPath}/${childPath}`
+        const absolutePath = `${window.currentFile.rootPath}/${childPath}`
         await this.openFile(absolutePath)
       } catch (error) {
         console.error('[open-child-note] Error:', error)
@@ -439,7 +439,6 @@ export class EditorPanel extends LitElement {
           this.currentQueue = null
         }
       }
-
     } catch (error) {
       console.error('[openFile] Error opening file:', error)
       alert(`Error opening file: ${error.message}`)
