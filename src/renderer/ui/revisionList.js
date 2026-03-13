@@ -724,20 +724,6 @@ export class RevisionList extends LitElement {
     }
   }
 
-  checkAndShowFeedbackIfInQueue(filePath) {
-    if (!window.mode.revision) return
-
-    // Find if the file is in the current revision queue, before filtering
-    const fileIndex = this.files.findIndex((f) => f.file_path === filePath)
-
-    if (fileIndex !== -1) {
-      // File is in queue, update index and show feedback
-      console.log('File is in revision queue at index:', fileIndex)
-      this.currentIndex = fileIndex
-
-      this.requestUpdate()
-    }
-  }
   groupFilesByWorkspace() {
     const grouped = {}
     const filteredFiles = this.getFilteredFiles()
