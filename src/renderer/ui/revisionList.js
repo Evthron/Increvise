@@ -265,13 +265,11 @@ export class RevisionFileItem extends LitElement {
 
 customElements.define('revision-file-item', RevisionFileItem)
 
-// Workspace group component
-export class RevisionWorkspaceGroup extends LitElement {
+export class WorkspaceGroupHeader extends LitElement {
   static properties = {
     workspace: { type: String },
-    files: { type: Array },
-    allFiles: { type: Array },
-    currentIndex: { type: Number },
+    filesCount: { type: Number },
+    visible: { type: Boolean },
   }
 
   static styles = css`
@@ -318,6 +316,30 @@ export class RevisionWorkspaceGroup extends LitElement {
     }
   `
 
+  render() {
+    const workspaceName = this.workspace.split('/').pop()
+
+    return html`
+      <div class="workspace-group-header">
+        <span class="workspace-icon">📁</span>
+        <span class="workspace-group-name">${workspaceName}</span>
+        <span class="workspace-file-count">${this.filesCount}</span>
+      </div>
+    `
+  }
+}
+
+customElements.define('workspace-group-header', WorkspaceGroupHeader)
+
+// Workspace group component
+export class RevisionWorkspaceGroup extends LitElement {
+  static properties = {
+    workspace: { type: String },
+    files: { type: Array },
+    allFiles: { type: Array },
+    currentIndex: { type: Number },
+  }
+
   handleFileClick(e) {
     this.dispatchEvent(
       new CustomEvent('file-click', {
@@ -339,14 +361,7 @@ export class RevisionWorkspaceGroup extends LitElement {
   }
 
   render() {
-    const workspaceName = this.workspace.split('/').pop()
-
     return html`
-      <div class="workspace-group-header">
-        <span class="workspace-icon">📁</span>
-        <span class="workspace-group-name">${workspaceName}</span>
-        <span class="workspace-file-count">${this.files.length}</span>
-      </div>
       ${this.files.map((file) => {
         const globalIndex = this.allFiles.indexOf(file)
         const isActive = globalIndex === this.currentIndex
@@ -549,6 +564,8 @@ export class RevisionList extends LitElement {
   static properties = {
     files: { type: Array },
     currentIndex: { type: Number },
+    currentFile: { type: Object },
+    currentWorkspace: { type: String },
     queueFilter: { type: String, state: true },
     showAllFiles: { type: Boolean, state: true },
   }
@@ -619,6 +636,8 @@ export class RevisionList extends LitElement {
   constructor() {
     super()
     this.files = []
+    this.currentFile = null
+    this.currentWorkspace = null
     this.currentIndex = 0
     this.queueFilter = 'all'
     this.showAllFiles = false
@@ -873,6 +892,11 @@ export class RevisionList extends LitElement {
         ? this.renderEmptyState()
         : html`
             <div class="revision-list-container">
+              <workspace-group-header
+                .workspace=${this.currentWorkspace || 'All Workspaces'}
+                .filesCount=${this.files.length}
+                .visible=${Object.keys(groupedFiles).length > 1}
+              ></workspace-group-header>
               ${Object.entries(groupedFiles).map(
                 ([workspace, workspaceFiles]) => html`
                   <revision-workspace-group
