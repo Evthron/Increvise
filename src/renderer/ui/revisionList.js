@@ -659,10 +659,16 @@ export class RevisionList extends LitElement {
         const filteredFiles = this.getFilteredFiles()
         window.mode.revision = filteredFiles.length > 0
 
+        window.currentFile.libraryId = filteredFiles[this.currentIndex].library_id
         const feedbackBar = document.querySelector('feedback-bar')
         if (feedbackBar && window.mode.revision) {
           await feedbackBar.reloadFile(filteredFiles[this.currentIndex])
           console.log('reload file')
+        }
+        const editorPanel = document.querySelector('editor-panel')
+        if (editorPanel && window.mode.revision) {
+          await editorPanel.openFile(filteredFiles[this.currentIndex].file_path)
+          console.log('open file')
         }
         this.requestUpdate()
       }
