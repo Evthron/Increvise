@@ -549,6 +549,7 @@ export class FeedbackBar extends LitElement {
       )
 
       if (result && result.success) {
+        this.currentQueue = newQueue
         this.requestUpdate()
       } else {
         this._showToast(`Failed to move to ${newQueue} queue`, true)
