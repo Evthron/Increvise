@@ -516,7 +516,6 @@ export class RevisionList extends LitElement {
     currentIndex: { type: Number },
     currentFile: { type: Object },
     currentWorkspace: { type: String },
-    isAllWorkspacesMode: { type: Boolean },
     queueFilter: { type: String, state: true },
     showAllFiles: { type: Boolean, state: true },
   }
@@ -589,7 +588,6 @@ export class RevisionList extends LitElement {
     this.files = []
     this.currentFile = null
     this.currentWorkspace = null
-    this.isAllWorkspacesMode = false
     this.currentIndex = 0
     this.queueFilter = 'all'
     this.showAllFiles = false
@@ -600,11 +598,9 @@ export class RevisionList extends LitElement {
       console.log('Refreshing file list, showAllFiles:', this.showAllFiles)
       // Check if we're in All Workspaces mode or single workspace mode
       const fileManager = document.querySelector('file-manager')
-      if (!fileManager) return
 
-      this.isAllWorkspacesMode = window.mode.allWorkspace
       let result
-      if (this.isAllWorkspacesMode) {
+      if (window.mode.allWorkspace) {
         console.log('Using All Workspaces mode')
         // Use showAllFiles to determine which API to call
         if (this.showAllFiles) {
@@ -615,14 +611,14 @@ export class RevisionList extends LitElement {
           result = await window.fileManager.getAllFilesForRevision()
         }
       } else {
-        console.log('Using single workspace mode:', fileManager.currentRootPath)
+        console.log('Using single workspace mode:', window.currentFile.rootPath)
         // Single workspace mode - also check showAllFiles
         if (this.showAllFiles) {
           console.log('Calling getFilesIncludingFuture()')
-          result = await window.fileManager.getFilesIncludingFuture(fileManager.currentRootPath)
+          result = await window.fileManager.getFilesIncludingFuture(window.currentFile.rootPath)
         } else {
           console.log('Calling getFilesForRevision()')
-          result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
+          result = await window.fileManager.getFilesForRevision(window.currentFile.rootPath)
         }
       }
 
@@ -630,7 +626,7 @@ export class RevisionList extends LitElement {
         console.log('Files received:', result.files.length)
         const newWorkspace = fileManager.isAllWorkspacesMode
           ? 'All Workspaces'
-          : fileManager.currentRootPath
+          : window.currentFile.rootPath
         this.files = result.files
         if (this.files.length == 0) {
           // All files reviewed

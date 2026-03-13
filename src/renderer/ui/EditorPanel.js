@@ -165,23 +165,6 @@ export class EditorPanel extends LitElement {
     this.currentDisplayMode = 'preview'
     this.currentQueue = null
     this.isMobile = typeof window !== 'undefined' && window.Capacitor !== undefined
-    this._currentRootPath = null
-  }
-
-  connectedCallback() {
-    super.connectedCallback()
-    // Listen for workspace changes
-    window.addEventListener('workspace-changed', this._handleWorkspaceChanged)
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback()
-    window.removeEventListener('workspace-changed', this._handleWorkspaceChanged)
-  }
-
-  _handleWorkspaceChanged = (event) => {
-    const { currentRootPath } = event.detail
-    this._currentRootPath = currentRootPath
   }
 
   firstUpdated() {

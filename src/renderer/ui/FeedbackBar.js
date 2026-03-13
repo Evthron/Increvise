@@ -11,7 +11,6 @@ import './ProcessingFeedbackBar.js'
 
 export class FeedbackBar extends LitElement {
   static properties = {
-    isRevisionMode: { type: Boolean, state: true },
     currentQueue: { type: String, state: true },
     file: { type: Object, state: true },
     rank: { type: Number, state: true },
@@ -354,7 +353,6 @@ export class FeedbackBar extends LitElement {
   constructor() {
     super()
     this.currentQueue = null
-    this.isRevisionMode = false
     this.file = null
     this.rank = null
     this.intervalInfo = null
@@ -375,7 +373,6 @@ export class FeedbackBar extends LitElement {
   }
 
   async reloadFile(file) {
-    this.isRevisionMode = window.mode.revision
     this.file = file
     this.currentQueue = file.queue_name
   }

@@ -98,8 +98,6 @@ class SidebarDrawer extends LionDrawer {
 
 export class FileManager extends LitElement {
   static properties = {
-    currentRootPath: { type: String, state: true },
-    isAllWorkspacesMode: { type: Boolean, state: true },
     treeData: { type: Array, state: true },
   }
 
@@ -130,8 +128,6 @@ export class FileManager extends LitElement {
 
   constructor() {
     super()
-    this.currentRootPath = null
-    this.isAllWorkspacesMode = false
     this.treeData = []
     // Detect if running on mobile (Capacitor)
     this.isMobile = typeof window !== 'undefined' && window.Capacitor !== undefined
@@ -162,23 +158,23 @@ export class FileManager extends LitElement {
 
   render() {
     return html`
-      <file-tree .treeData="${this.treeData}" .disabled="${this.isAllWorkspacesMode}"></file-tree>
+      <file-tree .treeData="${this.treeData}" .disabled="${window.mode.allWorkspace}"></file-tree>
     `
   }
 
   async refreshCurrentWorkspace() {
-    if (!this.isAllWorkspacesMode && !this.currentRootPath) {
+    if (!window.mode.allWorkspace && !window.currentFile.rootPath) {
       console.warn('No workspace is currently open')
       return
     }
 
     try {
-      if (this.isAllWorkspacesMode) {
+      if (window.mode.allWorkspace) {
         await this._openAllWorkspaces()
       } else {
         // Refresh the directory tree for single workspace
         const result = await window.fileManager.getDirectoryTree(
-          this.currentRootPath,
+          window.currentFile.rootPath,
           window.currentWorkspace.libraryId
         )
 
@@ -204,9 +200,6 @@ export class FileManager extends LitElement {
   async _openAllWorkspaces() {
     // Stop current revision workflow before switching workspace
     window.mode.revision = false
-
-    this.currentRootPath = null
-    this.isAllWorkspacesMode = true
 
     window.currentFile.rootPath = null
     window.mode.allWorkspace = true
@@ -256,10 +249,6 @@ export class FileManager extends LitElement {
   async _openSingleWorkspace(folderPath) {
     // Stop current revision workflow before switching workspace
     window.mode.revision = false
-
-    // Update state
-    this.currentRootPath = folderPath
-    this.isAllWorkspacesMode = false
 
     // Update global window properties
     window.currentFile.rootPath = folderPath
@@ -311,10 +300,6 @@ export class FileManager extends LitElement {
   async _mobileOpenSingleWorkspace(folderPath) {
     // Stop current revision workflow before switching workspace
     window.mode.revision = false
-
-    // Update state
-    this.currentRootPath = folderPath
-    this.isAllWorkspacesMode = false
 
     // Update global window properties
     window.currentFile.rootPath = folderPath
