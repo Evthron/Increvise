@@ -873,6 +873,15 @@ export class RevisionList extends LitElement {
       ${filteredCount === 0 ? this.renderEmptyState() : this.renderRevisionList()}
     `
   }
+
+  _showToast(message) {
+    const toast = document.getElementById('toast')
+    if (toast) {
+      toast.textContent = message
+      toast.classList.add('show')
+      setTimeout(() => toast.classList.remove('show'), 1800)
+    }
+  }
 }
 
 customElements.define('revision-list', RevisionList)
