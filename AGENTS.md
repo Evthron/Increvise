@@ -61,3 +61,10 @@ Electron app with:
 - **Import Order**: Node built-ins → third-party → local modules
 - **Test Files**: Add test files to `test/` directory
 - **HTML Parsing**: Do not use regex to match HTML nodes; use specific tools instead (e.g., DOM parsers, JSDOM, etc.)
+
+## Coding Style Guidelines
+
+- **Avoid Defensive Coding**: Don't use layered try-catch blocks when one is sufficient, or redundant null checks when values are not supposed to be null. Write code that assumes valid inputs unless there's a specific need for validation.
+- **Simple Styling**: Avoid complicated handcrafted CSS styling. Keep styles simple and maintainable.
+- **Event Handling**: Avoid event handling when data updates are involved - use direct function calls instead. Only use events when no data update is needed (e.g., pure UI interactions).
+- **State Management**: Check `src/renderer/ui/states.js` to directly modify global variables (e.g., `window.mode`, `window.currentWorkspace`, `window.currentFile`). Use `querySelector` to tell other components to update their states. Avoid keeping local state copies when possible - prefer direct global state access.
