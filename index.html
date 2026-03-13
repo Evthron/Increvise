@@ -18,54 +18,54 @@
 
     <main>
       <div class="user-panel">
-        <sidebar-drawer opened>
-          <div class="headline" slot="headline">
-            <h3 class="headline-title">File Manager</h3>
-          </div>
-          <lion-button slot="invoker">
-            <lion-icon
-              icon-id="increvise:misc:arrowLeft"
-              style="width: 16px; height: 16px"
-            ></lion-icon>
-          </lion-button>
-          <div slot="content">
-            <sl-split-panel vertical style="height: 100%">
-              <div
-                slot="start"
-                style="
-                  height: 100%;
-                  width: 100%;
-                  background: var(--sl-color-neutral-50);
-                  display: flex;
-                  overflow: hidden;
-                "
-              >
-                <file-manager></file-manager>
+        <sl-split-panel style="width: 100%; height: 100%" position="30">
+          <div
+            slot="start"
+            style="background: var(--sl-color-neutral-50); height: 100%; overflow: hidden"
+          >
+            <sl-split-panel style="height: 100%" position="50">
+              <div slot="start" style="background: var(--sl-color-neutral-50); overflow: hidden">
+                <sl-split-panel vertical style="height: 100%">
+                  <div
+                    slot="start"
+                    style="
+                      height: 100%;
+                      width: 100%;
+                      background: var(--sl-color-neutral-50);
+                      display: flex;
+                      overflow: hidden;
+                    "
+                  >
+                    <file-manager></file-manager>
+                  </div>
+                  <div
+                    slot="end"
+                    style="
+                      height: 100%;
+                      width: 100%;
+                      background: var(--sl-color-neutral-50);
+                      display: flex;
+                      overflow: hidden;
+                    "
+                  >
+                    <workspace-manager></workspace-manager>
+                  </div>
+                </sl-split-panel>
               </div>
               <div
                 slot="end"
                 style="
-                  height: 100%;
-                  width: 100%;
                   background: var(--sl-color-neutral-50);
                   display: flex;
                   overflow: hidden;
+                  flex: 1;
                 "
               >
-                <workspace-manager></workspace-manager>
+                <div class="list-panel">
+                  <revision-list></revision-list>
+                </div>
               </div>
             </sl-split-panel>
-          </div>
-        </sidebar-drawer>
-
-        <sl-split-panel style="flex: 1" position="75">
-          <div
-            slot="start"
-            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
-          >
-            <div class="list-panel">
-              <revision-list></revision-list>
-            </div>
           </div>
           <div
             slot="end"
