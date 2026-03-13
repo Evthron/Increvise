@@ -11,115 +11,17 @@ import '@shoelace-style/shoelace/dist/components/button/button.js'
 import '@shoelace-style/shoelace/dist/components/menu/menu.js'
 import '@shoelace-style/shoelace/dist/components/menu-item/menu-item.js'
 
-export class RevisionList extends LitElement {
+// File item component
+export class RevisionFileItem extends LitElement {
   static properties = {
-    files: { type: Array },
-    currentIndex: { type: Number },
-    queueFilter: { type: String, state: true },
-    showAllFiles: { type: Boolean, state: true },
+    file: { type: Object },
+    globalIndex: { type: Number },
+    isActive: { type: Boolean },
   }
 
   static styles = css`
     :host {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    .revision-list-header {
-      padding: 16px;
-      background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
-      border-bottom: 1px solid var(--border-color);
-      flex-shrink: 0;
-    }
-
-    .revision-count {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--accent-color);
-      margin-bottom: 4px;
-    }
-
-    .revision-subtitle {
-      font-size: 12px;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 48px 24px;
-      text-align: center;
-      flex: 1;
-    }
-
-    .empty-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-    }
-
-    .empty-text {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-    }
-
-    .empty-subtext {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    .revision-list-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-    }
-
-    .workspace-group {
-      margin-bottom: 16px;
-    }
-
-    .workspace-group-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background-color: var(--bg-secondary);
-      border-radius: 6px;
-      margin-bottom: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .workspace-icon {
-      font-size: 14px;
-    }
-
-    .workspace-group-name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .workspace-file-count {
-      background-color: var(--accent-color);
-      color: white;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 700;
-      min-width: 20px;
-      text-align: center;
+      display: block;
     }
 
     .revision-item {
@@ -189,31 +91,6 @@ export class RevisionList extends LitElement {
       font-size: 12px;
     }
 
-    .meta-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      display: inline-block;
-    }
-
-    .queue-filter-bar {
-      display: flex;
-      gap: 12px;
-      padding: 12px 16px;
-      background-color: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-color);
-      flex-shrink: 0;
-      align-items: center;
-    }
-
-    .queue-filter-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
     .queue-badge-inline {
       display: inline-flex;
       align-items: center;
@@ -259,6 +136,304 @@ export class RevisionList extends LitElement {
     .queue-badge-inline.archived {
       background-color: #f5f5f5;
       color: #757575;
+    }
+
+    .forget-file-btn {
+      color: #888;
+      background: transparent;
+      border: 1px solid #666;
+      border-radius: 3px;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s ease;
+    }
+
+    .forget-file-btn:hover {
+      background: #555;
+      color: #fff;
+    }
+  `
+
+  getQueueDisplayName(queueName) {
+    const names = {
+      new: 'New',
+      processing: 'Processing',
+      intermediate: 'Intermediate',
+      'spaced-casual': 'Casual',
+      'spaced-standard': 'Standard',
+      'spaced-strict': 'Strict',
+      archived: 'Archived',
+    }
+    return names[queueName] || queueName
+  }
+
+  async handleForget(e) {
+    e.stopPropagation()
+    if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
+      return
+
+    const result = await window.fileManager.forgetFile(this.file.file_path, this.file.library_id)
+    if (result && result.success) {
+      this.dispatchEvent(
+        new CustomEvent('file-forgotten', {
+          detail: { file: this.file, resetValues: result.resetValues },
+          bubbles: true,
+          composed: true,
+        })
+      )
+    } else {
+      alert('Failed to forget file: ' + (result?.error || 'Unknown error'))
+      console.error('Failed to forget file:', result?.error || 'Unknown error')
+    }
+  }
+
+  handleClick() {
+    this.dispatchEvent(
+      new CustomEvent('file-click', {
+        detail: { file: this.file, globalIndex: this.globalIndex },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    const fileName = this.file.file_path.split('/').pop()
+    const filePath = this.file.file_path
+
+    // Calculate if file is due in the future
+    const dueDate = new Date(this.file.due_time)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    dueDate.setHours(0, 0, 0, 0)
+    const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))
+    const isDueFuture = daysDiff > 0
+
+    return html`
+      <div
+        class="revision-item ${this.isActive ? 'active' : ''}"
+        @click=${this.handleClick}
+        title="${filePath}"
+      >
+        <div class="revision-item-main">
+          <div class="revision-item-icon">📄</div>
+          <div class="revision-item-content">
+            <div class="revision-item-name">${fileName}</div>
+            <div class="revision-item-meta">
+              <span class="revision-meta-item">
+                <span class="meta-icon">🔄</span>
+                <span
+                  >${this.file.review_count} review${this.file.review_count !== 1 ? 's' : ''}</span
+                >
+              </span>
+              <span class="revision-meta-item"> </span>
+              ${isDueFuture
+                ? html`
+                    <span class="revision-meta-item" style="color: #ff9500;">
+                      <span class="meta-icon">📅</span>
+                      <span>in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
+                    </span>
+                  `
+                : ''}
+              ${this.file.queue_name
+                ? html`
+                    <span class="queue-badge-inline ${this.file.queue_name}">
+                      ${this.getQueueDisplayName(this.file.queue_name)}
+                    </span>
+                  `
+                : ''}
+            </div>
+          </div>
+          <button
+            class="forget-file-btn"
+            title="Forget this file (erase revision data)"
+            @click=${this.handleForget}
+          >
+            ↻
+          </button>
+        </div>
+      </div>
+    `
+  }
+}
+
+customElements.define('revision-file-item', RevisionFileItem)
+
+// Workspace group component
+export class RevisionWorkspaceGroup extends LitElement {
+  static properties = {
+    workspace: { type: String },
+    files: { type: Array },
+    allFiles: { type: Array },
+    currentIndex: { type: Number },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
+      margin-bottom: 16px;
+    }
+
+    .workspace-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .workspace-icon {
+      font-size: 14px;
+    }
+
+    .workspace-group-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .workspace-file-count {
+      background-color: var(--accent-color);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 20px;
+      text-align: center;
+    }
+  `
+
+  handleFileClick(e) {
+    this.dispatchEvent(
+      new CustomEvent('file-click', {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  handleFileForgotten(e) {
+    this.dispatchEvent(
+      new CustomEvent('file-forgotten', {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    const workspaceName = this.workspace.split('/').pop()
+
+    return html`
+      <div class="workspace-group-header">
+        <span class="workspace-icon">📁</span>
+        <span class="workspace-group-name">${workspaceName}</span>
+        <span class="workspace-file-count">${this.files.length}</span>
+      </div>
+      ${this.files.map((file) => {
+        const globalIndex = this.allFiles.indexOf(file)
+        const isActive = globalIndex === this.currentIndex
+        return html`
+          <revision-file-item
+            .file=${file}
+            .globalIndex=${globalIndex}
+            .isActive=${isActive}
+            @file-click=${this.handleFileClick}
+            @file-forgotten=${this.handleFileForgotten}
+          ></revision-file-item>
+        `
+      })}
+    `
+  }
+}
+
+customElements.define('revision-workspace-group', RevisionWorkspaceGroup)
+
+export class RevisionList extends LitElement {
+  static properties = {
+    files: { type: Array },
+    currentIndex: { type: Number },
+    queueFilter: { type: String, state: true },
+    showAllFiles: { type: Boolean, state: true },
+  }
+
+  static styles = css`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .revision-list-header {
+      padding: 16px;
+      background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .revision-count {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-color);
+      margin-bottom: 4px;
+    }
+
+    .revision-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+      text-align: center;
+      flex: 1;
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .empty-subtext {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .revision-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
     }
 
     .view-toggle-bar {
@@ -571,7 +746,8 @@ export class RevisionList extends LitElement {
     }
   }
 
-  async handleFileClick(file, globalIndex) {
+  async handleFileClick(e) {
+    const { file, globalIndex } = e.detail
     this.currentIndex = globalIndex
     this.requestUpdate()
 
@@ -598,116 +774,26 @@ export class RevisionList extends LitElement {
     }
   }
 
+  handleFileForgotten(e) {
+    const { file, resetValues } = e.detail
+    // Apply reset values from backend response
+    Object.assign(file, resetValues)
+    this.requestUpdate()
+
+    // Dispatch event so FeedbackBar can update its copy
+    this.dispatchEvent(
+      new CustomEvent('file-forgotten', {
+        detail: { file, resetValues },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
   renderEmptyState() {
     return html`
       <div class="empty-state">
         <div class="empty-subtext">Select a file to start revision</div>
-      </div>
-    `
-  }
-
-  renderFileItem(file, globalIndex) {
-    const fileName = file.file_path.split('/').pop()
-    const filePath = file.file_path
-    const isActive = globalIndex === this.currentIndex
-
-    // Calculate if file is due in the future
-    const dueDate = new Date(file.due_time)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    dueDate.setHours(0, 0, 0, 0)
-    const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))
-    const isDueFuture = daysDiff > 0
-
-    // Handler for forget button
-    const handleForget = async (e) => {
-      e.stopPropagation()
-      // Confirm with user
-      if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
-        return
-
-      const result = await window.fileManager.forgetFile(filePath, file.library_id)
-      if (result && result.success) {
-        // Apply reset values from backend response
-        Object.assign(file, result.resetValues)
-        this.requestUpdate()
-
-        // Dispatch event so FeedbackBar can update its copy
-        this.dispatchEvent(
-          new CustomEvent('file-forgotten', {
-            detail: { file, resetValues: result.resetValues },
-            bubbles: true,
-            composed: true,
-          })
-        )
-      } else {
-        alert('Failed to forget file: ' + (result?.error || 'Unknown error'))
-        console.error('Failed to forget file:', result?.error || 'Unknown error')
-      }
-    }
-
-    return html`
-      <div
-        class="revision-item ${isActive ? 'active' : ''}"
-        @click=${() => this.handleFileClick(file, globalIndex)}
-        title="${filePath}"
-      >
-        <div class="revision-item-main">
-          <div class="revision-item-icon">📄</div>
-          <div class="revision-item-content">
-            <div class="revision-item-name">${fileName}</div>
-            <div class="revision-item-meta">
-              <span class="revision-meta-item">
-                <span class="meta-icon">🔄</span>
-                <span>${file.review_count} review${file.review_count !== 1 ? 's' : ''}</span>
-              </span>
-              <span class="revision-meta-item"> </span>
-              ${isDueFuture
-                ? html`
-                    <span class="revision-meta-item" style="color: #ff9500;">
-                      <span class="meta-icon">📅</span>
-                      <span>in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
-                    </span>
-                  `
-                : ''}
-              ${file.queue_name
-                ? html`
-                    <span class="queue-badge-inline ${file.queue_name}">
-                      ${this.getQueueDisplayName(file.queue_name)}
-                    </span>
-                  `
-                : ''}
-            </div>
-          </div>
-          <button
-            class="forget-file-btn"
-            title="Forget this file (erase revision data)"
-            @click=${handleForget}
-            style="color: #888; background: transparent; border: 1px solid #666; border-radius: 3px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin-left: 8px; cursor: pointer; font-size: 12px; transition: all 0.15s ease;"
-            onmouseover="this.style.background='#555'; this.style.color='#fff'"
-            onmouseout="this.style.background='transparent'; this.style.color='#888'"
-          >
-            ↻
-          </button>
-        </div>
-      </div>
-    `
-  }
-
-  renderWorkspaceGroup(workspace, workspaceFiles) {
-    const workspaceName = workspace.split('/').pop()
-
-    return html`
-      <div class="workspace-group">
-        <div class="workspace-group-header">
-          <span class="workspace-icon">📁</span>
-          <span class="workspace-group-name">${workspaceName}</span>
-          <span class="workspace-file-count">${workspaceFiles.length}</span>
-        </div>
-        ${workspaceFiles.map((file) => {
-          const globalIndex = this.files.indexOf(file)
-          return this.renderFileItem(file, globalIndex)
-        })}
       </div>
     `
   }
@@ -728,8 +814,17 @@ export class RevisionList extends LitElement {
         ? this.renderEmptyState()
         : html`
             <div class="revision-list-container">
-              ${Object.entries(groupedFiles).map(([workspace, workspaceFiles]) =>
-                this.renderWorkspaceGroup(workspace, workspaceFiles)
+              ${Object.entries(groupedFiles).map(
+                ([workspace, workspaceFiles]) => html`
+                  <revision-workspace-group
+                    .workspace=${workspace}
+                    .files=${workspaceFiles}
+                    .allFiles=${this.files}
+                    .currentIndex=${this.currentIndex}
+                    @file-click=${this.handleFileClick}
+                    @file-forgotten=${this.handleFileForgotten}
+                  ></revision-workspace-group>
+                `
               )}
             </div>
           `}
