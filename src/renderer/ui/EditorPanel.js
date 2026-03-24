@@ -79,6 +79,7 @@ export class EditorPanel extends LitElement {
     currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video' | 'flashcard'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
     currentQueue: { type: String, state: true }, // Current file's queue name
+    isNotesMode: { type: Boolean, state: false }, // Whether we're in notes mode (PDF extracts)
   }
 
   static styles = css`
@@ -255,11 +256,30 @@ export class EditorPanel extends LitElement {
 
   _renderToolbarButtons() {
     if (this.currentViewerType === 'pdf') {
-      // PDF mode: [Extract Text] [Extract Page]
-      return html`
-        <button @click=${this._handleExtractText}>Extract Text</button>
-        <button @click=${this._handleExtractPage}>Extract Page</button>
-      `
+      if (this.isNotesMode) {
+        // In notes mode - show appropriate buttons based on edit state
+        if (this.isEditMode) {
+          // Notes editing mode: [Save] [Select] [Back to PDF]
+          return html`
+            <button @click=${this._handleSave}>Save</button>
+            <button @click=${this._handleEditSource}>Select</button>
+            <button @click=${this._handlePanelSwitch}>Back to PDF</button>
+          `
+        } else {
+          // Notes readonly mode: [Edit] [Back to PDF]
+          return html`
+            <button @click=${this._handleEditSource}>Edit</button>
+            <button @click=${this._handlePanelSwitch}>Back to PDF</button>
+          `
+        }
+      } else {
+        // In PDF view mode: [Extract Text] [Extract Page] [View Notes]
+        return html`
+          <button @click=${this._handleExtractText}>Extract Text</button>
+          <button @click=${this._handleExtractPage}>Extract Page</button>
+          <button @click=${this._handlePanelSwitch}>View Notes</button>
+        `
+      }
     } else if (this.currentViewerType === 'video') {
       // Video mode: [Extract Clip]
       return html`<button @click=${this._handleExtractVideoClip}>Extract Clip</button>`
@@ -859,7 +879,7 @@ export class EditorPanel extends LitElement {
    */
   async _handleEditSource() {
     if (!this.currentFilePath) return
-    if (this.currentDisplayMode !== 'source') return
+    // if (this.currentDisplayMode !== 'source') return
 
     if (this.isEditMode) {
       // Switch from editable to readonly (Select mode)
@@ -1033,6 +1053,64 @@ export class EditorPanel extends LitElement {
       console.error('Error extracting pages:', error)
       this._showToast(`Error extracting pages: ${error.message}`, true)
     }
+  }
+
+  async _handlePanelSwitch() {
+    this.isNotesMode = !this.isNotesMode
+
+    if (this.isNotesMode) {
+      // Switching from PDF to notes mode - load the note content
+      try {
+        // Read the current file (which should be the PDF extract note)
+        const result = await window.fileManager.readFile(this.currentFilePath)
+        if (!result.success) {
+          this._showToast(`Error reading note file: ${result.error}`, true)
+          this.isNotesMode = false // Revert state
+          return
+        }
+
+        // Show CodeMirror and set up for viewing (readonly mode initially)
+        this._showViewer('codemirror')
+
+        // Load content into CodeMirror
+        this.codeMirrorEditor.setContent(result.content)
+
+        // Start in readonly mode - user needs to click "Edit" to enable editing
+        this.isEditMode = false
+        this.codeMirrorEditor.disableEditing()
+
+        // Load and lock extracted ranges for the note file
+        await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
+
+        console.log('[_handlePanelSwitch] Switched to notes viewing mode (readonly)')
+      } catch (error) {
+        console.error('[_handlePanelSwitch] Error loading note content:', error)
+        this._showToast(`Error loading note content: ${error.message}`, true)
+        this.isNotesMode = false // Revert state
+      }
+    } else {
+      // Switching from notes mode back to PDF
+      // Save any unsaved changes first
+      if (this.codeMirrorEditor.hasUnsavedChanges) {
+        const proceed = confirm(
+          'You have unsaved changes. Save them before switching back to PDF view?'
+        )
+        if (proceed) {
+          await this._handleSave()
+        }
+      }
+
+      // Disable editing mode
+      this.isEditMode = false
+      this.codeMirrorEditor.disableEditing()
+
+      // Switch back to PDF viewer
+      this._showViewer('pdf')
+
+      console.log('[_handlePanelSwitch] Switched back to PDF view')
+    }
+
+    this.requestUpdate()
   }
 
   /**
