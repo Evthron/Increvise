@@ -70,7 +70,7 @@ export function insertInitialData(db, libraryId, libraryName) {
 
     // Global configs (not a real queue, just a config namespace)
     insertConfig.run(libraryId, 'global', 'rank_penalty', '5')
-  })
+  })()
 
   console.log(`Initialized workspace with library_id: ${libraryId}`)
 }
