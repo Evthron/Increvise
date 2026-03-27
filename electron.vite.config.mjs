@@ -113,7 +113,8 @@ export default defineConfig(({ command, mode }) => {
       ...(isDev
         ? {
             optimizeDeps: {
-              disabled: true,
+              noDiscovery: true,
+              include: undefined,
             },
           }
         : {}),

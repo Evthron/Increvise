@@ -22,6 +22,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { basicSetup } from 'codemirror'
 import { isolateHistory } from '@codemirror/commands'
+import { basename, extname } from './path.js'
 
 class LockedRange {
   constructor(
@@ -153,32 +154,6 @@ class ChildContentWidget extends WidgetType {
   ignoreEvent() {
     return false
   }
-}
-
-/**
- * Helper: Get basename of a file path
- * @param {string} filePath - Full file path
- * @param {string} ext - Optional extension to remove
- * @returns {string} - Base name
- */
-function basename(filePath, ext) {
-  const parts = filePath.replace(/\\/g, '/').split('/')
-  let name = parts[parts.length - 1] || ''
-  if (ext && name.endsWith(ext)) {
-    name = name.slice(0, -ext.length)
-  }
-  return name
-}
-
-/**
- * Helper: Get file extension
- * @param {string} filePath - Full file path
- * @returns {string} - Extension including dot (e.g., '.md')
- */
-function extname(filePath) {
-  const name = basename(filePath)
-  const lastDot = name.lastIndexOf('.')
-  return lastDot === -1 ? '' : name.slice(lastDot)
 }
 
 /**
@@ -1039,7 +1014,7 @@ export class CodeMirrorViewer extends LitElement {
     // Extract line numbers for range tracking
     const rangeStart = selectedLines[0].number
     const rangeEnd = selectedLines[selectedLines.length - 1].number
-    const libraryId = window.currentFileLibraryId
+    const libraryId = window.currentFile.libraryId
 
     if (!libraryId) {
       return { success: false, error: 'Library ID not set' }
@@ -1135,7 +1110,7 @@ export class CodeMirrorViewer extends LitElement {
   async lockLineRanges(filePath, useDynamicContent = true) {
     let ranges
     try {
-      ranges = await window.fileManager.getChildRanges(filePath, window.currentFileLibraryId)
+      ranges = await window.fileManager.getChildRanges(filePath, window.currentFile.libraryId)
     } catch (error) {
       console.error('Failed to get child ranges:', error)
       this.clearLockedLines()
@@ -1486,7 +1461,7 @@ export class CodeMirrorViewer extends LitElement {
           await window.fileManager.updateLockedRanges(
             filePath,
             rangeUpdates,
-            window.currentFileLibraryId
+            window.currentFile.libraryId
           )
         }
 

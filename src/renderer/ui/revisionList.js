@@ -11,115 +11,17 @@ import '@shoelace-style/shoelace/dist/components/button/button.js'
 import '@shoelace-style/shoelace/dist/components/menu/menu.js'
 import '@shoelace-style/shoelace/dist/components/menu-item/menu-item.js'
 
-export class RevisionList extends LitElement {
+// File item component
+export class RevisionFileItem extends LitElement {
   static properties = {
-    files: { type: Array },
-    currentIndex: { type: Number },
-    selectedQueueFilter: { type: String, state: true },
-    showAllFiles: { type: Boolean, state: true },
+    file: { type: Object },
+    globalIndex: { type: Number },
+    isActive: { type: Boolean },
   }
 
   static styles = css`
     :host {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    .revision-list-header {
-      padding: 16px;
-      background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
-      border-bottom: 1px solid var(--border-color);
-      flex-shrink: 0;
-    }
-
-    .revision-count {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--accent-color);
-      margin-bottom: 4px;
-    }
-
-    .revision-subtitle {
-      font-size: 12px;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 48px 24px;
-      text-align: center;
-      flex: 1;
-    }
-
-    .empty-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-    }
-
-    .empty-text {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-    }
-
-    .empty-subtext {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    .revision-list-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-    }
-
-    .workspace-group {
-      margin-bottom: 16px;
-    }
-
-    .workspace-group-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background-color: var(--bg-secondary);
-      border-radius: 6px;
-      margin-bottom: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .workspace-icon {
-      font-size: 14px;
-    }
-
-    .workspace-group-name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .workspace-file-count {
-      background-color: var(--accent-color);
-      color: white;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 700;
-      min-width: 20px;
-      text-align: center;
+      display: block;
     }
 
     .revision-item {
@@ -189,31 +91,6 @@ export class RevisionList extends LitElement {
       font-size: 12px;
     }
 
-    .meta-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      display: inline-block;
-    }
-
-    .queue-filter-bar {
-      display: flex;
-      gap: 12px;
-      padding: 12px 16px;
-      background-color: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-color);
-      flex-shrink: 0;
-      align-items: center;
-    }
-
-    .queue-filter-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
     .queue-badge-inline {
       display: inline-flex;
       align-items: center;
@@ -259,6 +136,278 @@ export class RevisionList extends LitElement {
     .queue-badge-inline.archived {
       background-color: #f5f5f5;
       color: #757575;
+    }
+
+    .forget-file-btn {
+      color: #888;
+      background: transparent;
+      border: 1px solid #666;
+      border-radius: 3px;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s ease;
+    }
+
+    .forget-file-btn:hover {
+      background: #555;
+      color: #fff;
+    }
+  `
+
+  getQueueDisplayName(queueName) {
+    const names = {
+      new: 'New',
+      processing: 'Processing',
+      intermediate: 'Intermediate',
+      'spaced-casual': 'Casual',
+      'spaced-standard': 'Standard',
+      'spaced-strict': 'Strict',
+      archived: 'Archived',
+    }
+    return names[queueName] || queueName
+  }
+
+  async handleForget(e) {
+    e.stopPropagation()
+    if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
+      return
+
+    const result = await window.fileManager.forgetFile(this.file.file_path, this.file.library_id)
+    if (result && result.success) {
+      this.dispatchEvent(
+        new CustomEvent('file-forgotten', {
+          detail: { file: this.file, resetValues: result.resetValues },
+          bubbles: true,
+          composed: true,
+        })
+      )
+    } else {
+      alert('Failed to forget file: ' + (result?.error || 'Unknown error'))
+      console.error('Failed to forget file:', result?.error || 'Unknown error')
+    }
+  }
+
+  handleClick() {
+    this.dispatchEvent(
+      new CustomEvent('file-click', {
+        detail: { file: this.file, globalIndex: this.globalIndex },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    const fileName = this.file.file_path.split('/').pop()
+    const filePath = this.file.file_path
+
+    // Calculate if file is due in the future
+    const dueDate = new Date(this.file.due_time)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    dueDate.setHours(0, 0, 0, 0)
+    const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))
+    const isDueFuture = daysDiff > 0
+
+    return html`
+      <div
+        class="revision-item ${this.isActive ? 'active' : ''}"
+        @click=${this.handleClick}
+        title="${filePath}"
+      >
+        <div class="revision-item-main">
+          <div class="revision-item-icon">📄</div>
+          <div class="revision-item-content">
+            <div class="revision-item-name">${fileName}</div>
+            <div class="revision-item-meta">
+              <span class="revision-meta-item">
+                <span class="meta-icon">🔄</span>
+                <span
+                  >${this.file.review_count} review${this.file.review_count !== 1 ? 's' : ''}</span
+                >
+              </span>
+              <span class="revision-meta-item"> </span>
+              ${isDueFuture
+                ? html`
+                    <span class="revision-meta-item" style="color: #ff9500;">
+                      <span class="meta-icon">📅</span>
+                      <span>in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
+                    </span>
+                  `
+                : ''}
+              ${this.file.queue_name
+                ? html`
+                    <span class="queue-badge-inline ${this.file.queue_name}">
+                      ${this.getQueueDisplayName(this.file.queue_name)}
+                    </span>
+                  `
+                : ''}
+            </div>
+          </div>
+          <button
+            class="forget-file-btn"
+            title="Forget this file (erase revision data)"
+            @click=${this.handleForget}
+          >
+            ↻
+          </button>
+        </div>
+      </div>
+    `
+  }
+}
+
+customElements.define('revision-item', RevisionFileItem)
+
+export class WorkspaceGroupHeader extends LitElement {
+  static properties = {
+    workspace: { type: String },
+    filesCount: { type: Number },
+    visible: { type: Boolean },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
+      margin-bottom: 16px;
+    }
+
+    .workspace-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .workspace-icon {
+      font-size: 14px;
+    }
+
+    .workspace-group-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .workspace-file-count {
+      background-color: var(--accent-color);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 20px;
+      text-align: center;
+    }
+  `
+
+  render() {
+    const workspaceName = this.workspace.split('/').pop()
+
+    return html`
+      <div class="workspace-group-header">
+        <span class="workspace-icon">📁</span>
+        <span class="workspace-group-name">${workspaceName}</span>
+        <span class="workspace-file-count">${this.filesCount}</span>
+      </div>
+    `
+  }
+}
+
+customElements.define('workspace-group-header', WorkspaceGroupHeader)
+
+// Queue filter dropdown component
+export class RevisionQueueFilter extends LitElement {
+  static properties = {
+    currentFilter: { type: String },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
+    }
+  `
+
+  constructor() {
+    super()
+    this.currentFilter = 'all'
+  }
+
+  getFilters() {
+    return [
+      { id: 'all', label: 'All', icon: '📋' },
+      { id: 'new', label: 'New', icon: '📥' },
+      { id: 'processing', label: 'Processing', icon: '🔄' },
+      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
+      { id: 'spaced', label: 'Spaced', icon: '🧠' },
+      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
+      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
+      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
+      { id: 'archived', label: 'Archived', icon: '📦' },
+    ]
+  }
+
+  handleSelect(event) {
+    const selectedItem = event.detail.item
+    this.dispatchEvent(
+      new CustomEvent('filter-change', {
+        detail: { filter: selectedItem.value },
+        bubbles: true,
+        composed: true,
+      })
+    )
+  }
+
+  render() {
+    const filters = this.getFilters()
+    const currentFilterObj = filters.find((f) => f.id === this.currentFilter)
+
+    return html`
+      <sl-dropdown @sl-select=${this.handleSelect}>
+        <sl-button slot="trigger" caret size="small">
+          ${currentFilterObj?.icon} ${currentFilterObj?.label}
+        </sl-button>
+        <sl-menu>
+          ${filters.map(
+            (filter) => html`
+              <sl-menu-item value="${filter.id}" ?checked=${this.currentFilter === filter.id}>
+                ${filter.icon} ${filter.label}
+              </sl-menu-item>
+            `
+          )}
+        </sl-menu>
+      </sl-dropdown>
+    `
+  }
+}
+
+customElements.define('revision-queue-filter', RevisionQueueFilter)
+
+// View toggle bar component
+export class RevisionViewToggleBar extends LitElement {
+  static properties = {
+    showAllFiles: { type: Boolean },
+    currentFilter: { type: String },
+  }
+
+  static styles = css`
+    :host {
+      display: block;
     }
 
     .view-toggle-bar {
@@ -308,38 +457,140 @@ export class RevisionList extends LitElement {
 
   constructor() {
     super()
-    this.files = []
-    this.currentIndex = 0
-    this.selectedQueueFilter = 'all'
     this.showAllFiles = false
+    this.currentFilter = 'all'
   }
 
-  connectedCallback() {
-    super.connectedCallback()
-
-    // Listen for file-added-to-queue event
-    window.addEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-
-    // Listen for queue-changed event
-    window.addEventListener('queue-changed', this._handleQueueChanged.bind(this))
+  handleViewToggle(showAll) {
+    this.dispatchEvent(
+      new CustomEvent('view-toggle', {
+        detail: { showAll },
+        bubbles: true,
+        composed: true,
+      })
+    )
   }
 
-  disconnectedCallback() {
-    super.disconnectedCallback()
-
-    // Clean up event listeners
-    window.removeEventListener('file-added-to-queue', this._handleFileAddedToQueue.bind(this))
-    window.removeEventListener('queue-changed', this._handleQueueChanged.bind(this))
+  handleFilterChange(e) {
+    this.dispatchEvent(
+      new CustomEvent('filter-change', {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      })
+    )
   }
 
-  async _handleFileAddedToQueue(event) {
-    console.log('RevisionList: File added to queue, refreshing...', event.detail)
-    await this.refreshFileList()
+  render() {
+    return html`
+      <div class="view-toggle-bar">
+        <div>
+          <span class="view-toggle-label">Show:</span>
+          <button
+            class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(false)}
+          >
+            📅 Due Today
+          </button>
+          <button
+            class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
+            @click=${() => this.handleViewToggle(true)}
+          >
+            📋 All Files
+          </button>
+        </div>
+        <revision-queue-filter
+          .currentFilter=${this.currentFilter}
+          @filter-change=${this.handleFilterChange}
+        ></revision-queue-filter>
+      </div>
+    `
+  }
+}
+
+customElements.define('revision-view-toggle-bar', RevisionViewToggleBar)
+
+export class RevisionList extends LitElement {
+  static properties = {
+    files: { type: Array },
+    currentIndex: { type: Number },
+    currentFile: { type: Object },
+    currentWorkspace: { type: String },
+    queueFilter: { type: String, state: true },
+    showAllFiles: { type: Boolean, state: true },
   }
 
-  async _handleQueueChanged(event) {
-    console.log('RevisionList: Queue changed, refreshing...', event.detail)
-    await this.refreshFileList()
+  static styles = css`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .revision-list-header {
+      padding: 16px;
+      background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .revision-count {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-color);
+      margin-bottom: 4px;
+    }
+
+    .revision-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+      text-align: center;
+      flex: 1;
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .empty-subtext {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .revision-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+  `
+
+  constructor() {
+    super()
+    this.files = []
+    this.currentFile = null
+    this.currentWorkspace = null
+    this.currentIndex = 0
+    this.queueFilter = 'all'
+    this.showAllFiles = false
   }
 
   async refreshFileList() {
@@ -347,10 +598,9 @@ export class RevisionList extends LitElement {
       console.log('Refreshing file list, showAllFiles:', this.showAllFiles)
       // Check if we're in All Workspaces mode or single workspace mode
       const fileManager = document.querySelector('file-manager')
-      if (!fileManager) return
 
       let result
-      if (fileManager.isAllWorkspacesMode) {
+      if (window.mode.allWorkspace) {
         console.log('Using All Workspaces mode')
         // Use showAllFiles to determine which API to call
         if (this.showAllFiles) {
@@ -360,23 +610,66 @@ export class RevisionList extends LitElement {
           console.log('Calling getAllFilesForRevision()')
           result = await window.fileManager.getAllFilesForRevision()
         }
-      } else if (fileManager.currentRootPath) {
-        console.log('Using single workspace mode:', fileManager.currentRootPath)
+      } else {
+        console.log('Using single workspace mode:', window.currentFile.rootPath)
         // Single workspace mode - also check showAllFiles
         if (this.showAllFiles) {
           console.log('Calling getFilesIncludingFuture()')
-          result = await window.fileManager.getFilesIncludingFuture(fileManager.currentRootPath)
+          result = await window.fileManager.getFilesIncludingFuture(window.currentFile.rootPath)
         } else {
           console.log('Calling getFilesForRevision()')
-          result = await window.fileManager.getFilesForRevision(fileManager.currentRootPath)
+          result = await window.fileManager.getFilesForRevision(window.currentFile.rootPath)
         }
-      } else {
-        return
       }
 
       if (result && result.success) {
         console.log('Files received:', result.files.length)
+        const newWorkspace = fileManager.isAllWorkspacesMode
+          ? 'All Workspaces'
+          : window.currentFile.rootPath
         this.files = result.files
+        if (this.files.length == 0) {
+          // All files reviewed
+          this._showToast('All files reviewed! Great job! 🎉')
+          window.mode.revision = false
+          const { hideToolbar } = await import('./toolbar.js')
+          hideToolbar()
+          const filePreview = document.getElementById('file-preview')
+          if (filePreview) {
+            filePreview.textContent = ''
+          }
+        }
+
+        // reload the same workspace, keep the current file if it still exists, search for its index otherwise reset to first file
+        if (
+          newWorkspace === this.currentWorkspace &&
+          this.files.find((f) => f.file_path === this.currentFile?.file_path)
+        ) {
+          this.currentIndex = this.files.findIndex(
+            (f) => f.file_path === this.currentFile.file_path
+          )
+        } else {
+          // switch workspace, set currentIndex and currentFile to first file in new workspace
+          this.currentWorkspace = newWorkspace
+          this.currentIndex = 0
+          this.currentFile = this.files.length > 0 ? this.files[0] : null
+        }
+
+        // Auto-start revision workflow if files are available
+        const filteredFiles = this.getFilteredFiles()
+        window.mode.revision = filteredFiles.length > 0
+
+        window.currentFile.libraryId = filteredFiles[this.currentIndex]?.library_id || null
+        const feedbackBar = document.querySelector('feedback-bar')
+        if (feedbackBar && window.mode.revision) {
+          await feedbackBar.reloadFile(filteredFiles[this.currentIndex])
+          console.log('reload file')
+        }
+        const editorPanel = document.querySelector('editor-panel')
+        if (editorPanel && window.mode.revision) {
+          await editorPanel.openFile(filteredFiles[this.currentIndex].file_path)
+          console.log('open file')
+        }
         this.requestUpdate()
       }
     } catch (error) {
@@ -410,19 +703,19 @@ export class RevisionList extends LitElement {
     }
 
     // Then filter by queue if not "all"
-    if (this.selectedQueueFilter === 'all') {
+    if (this.queueFilter === 'all') {
       return filtered
     }
 
     return filtered.filter((file) => {
-      if (this.selectedQueueFilter === 'spaced') {
+      if (this.queueFilter === 'spaced') {
         return (
           file.queue_name === 'spaced-casual' ||
           file.queue_name === 'spaced-standard' ||
           file.queue_name === 'spaced-strict'
         )
       }
-      return file.queue_name === this.selectedQueueFilter
+      return file.queue_name === this.queueFilter
     })
   }
 
@@ -439,8 +732,9 @@ export class RevisionList extends LitElement {
     return names[queueName] || queueName
   }
 
-  handleQueueFilterChange(filter) {
-    this.selectedQueueFilter = filter
+  handleQueueFilterChange(e) {
+    const { filter } = e.detail
+    this.queueFilter = filter
 
     // Reset to first file after filtering
     const filteredFiles = this.getFilteredFiles()
@@ -449,112 +743,81 @@ export class RevisionList extends LitElement {
     }
 
     this.requestUpdate()
-
-    // Close the dropdown
-    const dropdown = this.shadowRoot?.querySelector('sl-dropdown')
-    if (dropdown) {
-      dropdown.hide()
-    }
   }
 
-  _handleDropdownSelect(event) {
-    const selectedItem = event.detail.item
-    this.handleQueueFilterChange(selectedItem.value)
-  }
-
-  async handleViewToggle(showAll) {
+  async handleViewToggle(e) {
+    const { showAll } = e.detail
     console.log('View toggle:', showAll ? 'All Files' : 'Due Today')
     this.showAllFiles = showAll
     await this.refreshFileList()
     console.log('Files loaded:', this.files.length)
   }
 
-  _renderViewToggleBar() {
-    return html`
-      <div class="view-toggle-bar">
-        <div>
-          <span class="view-toggle-label">Show:</span>
-          <button
-            class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
-            @click=${() => this.handleViewToggle(false)}
-          >
-            📅 Due Today
-          </button>
-          <button
-            class="view-toggle-btn ${this.showAllFiles ? 'active' : ''}"
-            @click=${() => this.handleViewToggle(true)}
-          >
-            📋 All Files
-          </button>
-        </div>
-        ${this._renderQueueFilterBar()}
-      </div>
-    `
+  async startRevisionWorkflow(files) {
+    if (!files || files.length === 0) {
+      console.log('No files to review')
+      return
+    }
+
+    this.currentIndex = 0
+    window.mode.revision = true
+
+    console.log('Starting revision workflow with', files.length, 'files')
+
+    window.currentFile.libraryId = files[0].library_id
+
+    console.log('Opening revision file from library:', files[0].library_id)
+
+    const feedbackBar = this.querySelector('feedback-bar')
+    if (feedbackBar) {
+      await feedbackBar.reloadFile(files[0])
+    }
   }
 
-  _renderQueueFilterBar() {
-    const filters = [
-      { id: 'all', label: 'All', icon: '📋' },
-      { id: 'new', label: 'New', icon: '📥' },
-      { id: 'processing', label: 'Processing', icon: '🔄' },
-      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
-      { id: 'spaced', label: 'Spaced', icon: '🧠' },
-      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
-      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
-      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
-      { id: 'archived', label: 'Archived', icon: '📦' },
-    ]
-
-    const currentFilter = filters.find((f) => f.id === this.selectedQueueFilter)
-
-    return html`
-      <sl-dropdown @sl-select=${this._handleDropdownSelect}>
-        <sl-button slot="trigger" caret size="small">
-          ${currentFilter?.icon} ${currentFilter?.label}
-        </sl-button>
-        <sl-menu>
-          ${filters.map(
-            (filter) => html`
-              <sl-menu-item value="${filter.id}" ?checked=${this.selectedQueueFilter === filter.id}>
-                ${filter.icon} ${filter.label}
-              </sl-menu-item>
-            `
-          )}
-        </sl-menu>
-      </sl-dropdown>
-    `
-  }
-
-  async handleFileClick(file, globalIndex) {
+  async handleFileClick(e) {
+    const { file, globalIndex } = e.detail
     this.currentIndex = globalIndex
     this.requestUpdate()
 
-    // Get feedback bar and check if revision mode is active
-    const feedbackBar = document.querySelector('feedback-bar')
-
     // If feedback bar exists and revision mode is NOT active, start it
-    if (feedbackBar && !feedbackBar.isInRevisionMode()) {
+    if (!window.mode.revision) {
       const filteredFiles = this.getFilteredFiles()
       if (filteredFiles.length > 0) {
         console.log('Auto-starting revision workflow from file click')
-        await feedbackBar.startRevisionWorkflow(filteredFiles)
+        await this.startRevisionWorkflow(filteredFiles)
       }
     }
 
-    // Dispatch a custom event so feedback bar updates
-    this.dispatchEvent(
-      new CustomEvent('file-selected', {
-        detail: { index: globalIndex },
-        bubbles: true,
-        composed: true,
-      })
-    )
+    // Set the current file's library ID before opening
+    window.currentFile.libraryId = file.library_id
+
+    // Get feedback bar and check if revision mode is active
+    const feedbackBar = document.querySelector('feedback-bar')
+    if (feedbackBar) {
+      await feedbackBar.reloadFile(file)
+    }
 
     // Get editor panel and call openFile
     const editorPanel = document.querySelector('editor-panel')
     if (editorPanel) {
       await editorPanel.openFile(file.file_path)
     }
+  }
+
+  handleFileForgotten(e) {
+    const { file, resetValues } = e.detail
+    // Apply reset values from backend response
+    Object.assign(file, resetValues)
+    this.requestUpdate()
+
+    // Dispatch event so FeedbackBar can update its copy
+    this.dispatchEvent(
+      new CustomEvent('file-forgotten', {
+        detail: { file, resetValues },
+        bubbles: true,
+        composed: true,
+      })
+    )
   }
 
   renderEmptyState() {
@@ -565,114 +828,33 @@ export class RevisionList extends LitElement {
     `
   }
 
-  renderFileItem(file, globalIndex) {
-    const fileName = file.file_path.split('/').pop()
-    const filePath = file.file_path
-    const isActive = globalIndex === this.currentIndex
-
-    // Calculate if file is due in the future
-    const dueDate = new Date(file.due_time)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    dueDate.setHours(0, 0, 0, 0)
-    const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))
-    const isDueFuture = daysDiff > 0
-
-    // Handler for forget button
-    const handleForget = async (e) => {
-      e.stopPropagation()
-      // Confirm with user
-      if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
-        return
-
-      const result = await window.fileManager.forgetFile(filePath, file.library_id)
-      if (result && result.success) {
-        // Apply reset values from backend response
-        Object.assign(file, result.resetValues)
-        this.requestUpdate()
-
-        // Dispatch event so FeedbackBar can update its copy
-        this.dispatchEvent(
-          new CustomEvent('file-forgotten', {
-            detail: { file, resetValues: result.resetValues },
-            bubbles: true,
-            composed: true,
-          })
-        )
-      } else {
-        alert('Failed to forget file: ' + (result?.error || 'Unknown error'))
-        console.error('Failed to forget file:', result?.error || 'Unknown error')
-      }
-    }
-
+  renderRevisionList() {
+    const filteredFiles = this.getFilteredFiles()
     return html`
-      <div
-        class="revision-item ${isActive ? 'active' : ''}"
-        @click=${() => this.handleFileClick(file, globalIndex)}
-        title="${filePath}"
-      >
-        <div class="revision-item-main">
-          <div class="revision-item-icon">📄</div>
-          <div class="revision-item-content">
-            <div class="revision-item-name">${fileName}</div>
-            <div class="revision-item-meta">
-              <span class="revision-meta-item">
-                <span class="meta-icon">🔄</span>
-                <span>${file.review_count} review${file.review_count !== 1 ? 's' : ''}</span>
-              </span>
-              <span class="revision-meta-item"> </span>
-              ${isDueFuture
-                ? html`
-                    <span class="revision-meta-item" style="color: #ff9500;">
-                      <span class="meta-icon">📅</span>
-                      <span>in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
-                    </span>
-                  `
-                : ''}
-              ${file.queue_name
-                ? html`
-                    <span class="queue-badge-inline ${file.queue_name}">
-                      ${this.getQueueDisplayName(file.queue_name)}
-                    </span>
-                  `
-                : ''}
-            </div>
-          </div>
-          <button
-            class="forget-file-btn"
-            title="Forget this file (erase revision data)"
-            @click=${handleForget}
-            style="color: #888; background: transparent; border: 1px solid #666; border-radius: 3px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin-left: 8px; cursor: pointer; font-size: 12px; transition: all 0.15s ease;"
-            onmouseover="this.style.background='#555'; this.style.color='#fff'"
-            onmouseout="this.style.background='transparent'; this.style.color='#888'"
-          >
-            ↻
-          </button>
-        </div>
-      </div>
-    `
-  }
-
-  renderWorkspaceGroup(workspace, workspaceFiles) {
-    const workspaceName = workspace.split('/').pop()
-
-    return html`
-      <div class="workspace-group">
-        <div class="workspace-group-header">
-          <span class="workspace-icon">📁</span>
-          <span class="workspace-group-name">${workspaceName}</span>
-          <span class="workspace-file-count">${workspaceFiles.length}</span>
-        </div>
-        ${workspaceFiles.map((file) => {
+      <div class="revision-list-container">
+        <workspace-group-header
+          .workspace=${this.currentWorkspace || 'All Workspaces'}
+          .filesCount=${this.files.length}
+          .visible=${filteredFiles.length > 1}
+        ></workspace-group-header>
+        ${filteredFiles.map((file) => {
           const globalIndex = this.files.indexOf(file)
-          return this.renderFileItem(file, globalIndex)
+          const isActive = globalIndex === this.currentIndex
+          return html`
+            <revision-item
+              .file=${file}
+              .globalIndex=${globalIndex}
+              .isActive=${isActive}
+              @file-click=${this.handleFileClick}
+              @file-forgotten=${this.handleFileForgotten}
+            ></revision-item>
+          `
         })}
       </div>
     `
   }
 
   render() {
-    const groupedFiles = this.groupFilesByWorkspace()
     const filteredCount = this.getFilteredFiles().length
 
     return html`
@@ -682,17 +864,23 @@ export class RevisionList extends LitElement {
           ${this.showAllFiles ? 'All files in queues' : 'Due for review'}
         </div>
       </div>
-      ${this._renderViewToggleBar()}
-      ${filteredCount === 0
-        ? this.renderEmptyState()
-        : html`
-            <div class="revision-list-container">
-              ${Object.entries(groupedFiles).map(([workspace, workspaceFiles]) =>
-                this.renderWorkspaceGroup(workspace, workspaceFiles)
-              )}
-            </div>
-          `}
+      <revision-view-toggle-bar
+        .showAllFiles=${this.showAllFiles}
+        .currentFilter=${this.queueFilter}
+        @view-toggle=${this.handleViewToggle}
+        @filter-change=${this.handleQueueFilterChange}
+      ></revision-view-toggle-bar>
+      ${filteredCount === 0 ? this.renderEmptyState() : this.renderRevisionList()}
     `
+  }
+
+  _showToast(message) {
+    const toast = document.getElementById('toast')
+    if (toast) {
+      toast.textContent = message
+      toast.classList.add('show')
+      setTimeout(() => toast.classList.remove('show'), 1800)
+    }
   }
 }
 

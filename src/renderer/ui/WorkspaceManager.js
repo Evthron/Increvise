@@ -10,8 +10,6 @@ import { LitElement, html, css } from 'lit'
 export class WorkspaceManager extends LitElement {
   static properties = {
     workspaces: { type: Array, state: true },
-    currentRootPath: { type: String, state: true },
-    isAllWorkspacesMode: { type: Boolean, state: true },
   }
 
   static styles = css`
@@ -129,8 +127,6 @@ export class WorkspaceManager extends LitElement {
   constructor() {
     super()
     this.workspaces = []
-    this.currentRootPath = null
-    this.isAllWorkspacesMode = false
     this._fileManagerReady = false
 
     // Listen for fileManager ready event (mobile)
@@ -161,7 +157,7 @@ export class WorkspaceManager extends LitElement {
       </div>
       <div id="workspace-history-list">
         <div
-          class="workspace-item all-workspaces-item ${this.isAllWorkspacesMode ? 'selected' : ''}"
+          class="workspace-item all-workspaces-item ${window.mode.allWorkspace ? 'selected' : ''}"
           @click=${() => this._handleAllWorkspacesClick()}
         >
           All Workspaces
@@ -173,7 +169,8 @@ export class WorkspaceManager extends LitElement {
   }
 
   _renderWorkspaceItem(workspace) {
-    const isSelected = !this.isAllWorkspacesMode && this.currentRootPath === workspace.folder_path
+    const isSelected =
+      !window.mode.allWorkspace && window.currentFile.rootPath === workspace.folder_path
     const timeAgo = this._getTimeAgo(new Date(workspace.last_opened))
 
     return html`
@@ -246,17 +243,6 @@ export class WorkspaceManager extends LitElement {
     if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
     if (seconds < 2592000) return `${Math.floor(seconds / 604800)}w ago`
     return `${Math.floor(seconds / 2592000)}mo ago`
-  }
-
-  // Methods to update workspace state from parent
-  selectSingleWorkspace(folderPath) {
-    this.currentRootPath = folderPath
-    this.isAllWorkspacesMode = false
-  }
-
-  selectAllWorkspaces() {
-    this.currentRootPath = null
-    this.isAllWorkspacesMode = true
   }
 }
 

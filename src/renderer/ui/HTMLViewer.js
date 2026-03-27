@@ -5,32 +5,7 @@
 import { LitElement, html, css } from 'lit'
 import DOMPurify from 'dompurify'
 import { normalizeHTML, findMatchingNode } from './html-matching.js'
-
-/**
- * Helper: Get basename of a file path
- * @param {string} filePath - Full file path
- * @param {string} ext - Optional extension to remove
- * @returns {string} - Base name
- */
-function basename(filePath, ext) {
-  const parts = filePath.replace(/\\/g, '/').split('/')
-  let name = parts[parts.length - 1] || ''
-  if (ext && name.endsWith(ext)) {
-    name = name.slice(0, -ext.length)
-  }
-  return name
-}
-
-/**
- * Helper: Get file extension
- * @param {string} filePath - Full file path
- * @returns {string} - Extension including dot (e.g., '.md')
- */
-function extname(filePath) {
-  const name = basename(filePath)
-  const lastDot = name.lastIndexOf('.')
-  return lastDot === -1 ? '' : name.slice(lastDot)
-}
+import { basename, extname, relative } from './path.js'
 
 /**
  * Parse a hierarchical note filename
@@ -212,25 +187,14 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 
   const words = generateNameFromText(plainText)
 
-  // Check if parent is truly a top-level file (no layers with ranges, or only null range)
-  const isTopLevel =
-    !parentLayers ||
-    (parentLayers.length === 1 &&
-      parentLayers[0].rangeStart === null &&
-      parentLayers[0].rangeEnd === null)
+  // Check if parent is a top-level file (inside root folder)
+  const isTopLevel = relative(parentFilePath) === basename(parentFilePath)
 
   if (isTopLevel) {
-    // Parent is a top-level file - extract name from filename (as fallback)
+    // extract name from parent filename as fallback
+    // Probably not useful since extraction from HTML should contain words?
     const parentName = generateNameFromText(parentFileName) || parentFileName.substring(0, 20)
-
-    // For HTML/semantic extractions (rangeStart/rangeEnd = 0), use words from content with 0-0 prefix
-    // For text-line extractions, use range-based naming with parent name as fallback
-    // For null ranges, omit the range prefix entirely
-    if (rangeStart === null && rangeEnd === null) {
-      return words || parentName || 'note'
-    } else {
-      return `${rangeStart}-${rangeEnd}_${words || parentName || 'note'}`
-    }
+    return words || parentName || 'note'
   } else {
     // Flat structure: keep all parent layers, append new layer
     const allLayers = [...parentLayers, { rangeStart, rangeEnd, name: words || 'note' }]
@@ -616,14 +580,14 @@ export class HTMLViewer extends LitElement {
    */
   async loadAndLockExtractedContent(filePath) {
     try {
-      if (!window.currentFileLibraryId) {
+      if (!window.currentFile.libraryId) {
         console.warn('No library ID set, cannot load extracted content')
         return
       }
 
       const rangesResult = await window.fileManager.getChildRanges(
         filePath,
-        window.currentFileLibraryId
+        window.currentFile.libraryId
       )
 
       if (!rangesResult || rangesResult.length === 0) {
@@ -740,7 +704,7 @@ export class HTMLViewer extends LitElement {
       }
     }
 
-    const libraryId = window.currentFileLibraryId
+    const libraryId = window.currentFile.libraryId
 
     try {
       // Extract note with generated filename

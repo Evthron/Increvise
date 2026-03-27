@@ -6,6 +6,7 @@
 // Displays flashcards with cloze deletion
 
 import { LitElement, html, css } from 'lit'
+import './states.js'
 
 export class FlashcardViewer extends LitElement {
   static properties = {
@@ -183,8 +184,8 @@ export class FlashcardViewer extends LitElement {
 
       // Construct absolute parent path
       let absoluteParentPath = parentPath
-      if (!parentPath.startsWith('/') && window.currentRootPath) {
-        absoluteParentPath = `${window.currentRootPath}/${parentPath}`
+      if (!parentPath.startsWith('/') && window.currentFile.rootPath) {
+        absoluteParentPath = `${window.currentFile.rootPath}/${parentPath}`
       }
 
       console.log('[FlashcardViewer] Reading parent file:', absoluteParentPath)
