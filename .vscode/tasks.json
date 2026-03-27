@@ -12,6 +12,20 @@
           "VITE_DEV_MODE": "true"
         }
       }
+    },
+    {
+      "label": "android:build",
+      "type": "shell",
+      "command": "npm run android:build",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
     }
   ]
 }

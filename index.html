@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: http: https:; connect-src 'self' http: https:; frame-src http: https: data:; media-src 'self' http: https:;"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: http: https:; connect-src 'self' data: blob: http: https:; frame-src http: https: data:; media-src 'self' data: blob: http: https:;"
     />
     <title>Increvise</title>
     <link rel="stylesheet" href="./style.css" />
@@ -18,31 +18,75 @@
 
     <main>
       <div class="user-panel">
-        <file-manager class="sidebar"></file-manager>
-
-        <div class="resize-handle" data-resize="sidebar"></div>
-
-        <div class="list-panel">
-          <div class="list-header">
-            <h3>Files for Revision</h3>
+        <sidebar-drawer opened>
+          <div class="headline" slot="headline">
+            <h3 class="headline-title">File Manager</h3>
           </div>
-          <revision-list></revision-list>
-        </div>
+          <lion-button slot="invoker">
+            <lion-icon
+              icon-id="increvise:misc:arrowLeft"
+              style="width: 16px; height: 16px"
+            ></lion-icon>
+          </lion-button>
+          <div slot="content">
+            <sl-split-panel vertical style="height: 100%">
+              <div
+                slot="start"
+                style="
+                  height: 100%;
+                  width: 100%;
+                  background: var(--sl-color-neutral-50);
+                  display: flex;
+                  overflow: hidden;
+                "
+              >
+                <div style="flex: 1" class="sidebar-content">
+                  <file-manager></file-manager>
+                </div>
+              </div>
+              <div
+                slot="end"
+                style="
+                  height: 100%;
+                  width: 100%;
+                  background: var(--sl-color-neutral-50);
+                  display: flex;
+                  overflow: hidden;
+                "
+              >
+                <workspace-manager></workspace-manager>
+              </div>
+            </sl-split-panel>
+          </div>
+        </sidebar-drawer>
 
-        <div class="resize-handle" data-resize="list-panel"></div>
-
-        <div class="editor-panel">
-          <editor-panel>
-            <codemirror-viewer slot="codemirror" content="Select a file to revise">
-            </codemirror-viewer>
-            <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
-            <html-viewer slot="html" class="hidden"></html-viewer>
-            <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
-            <video-viewer slot="video" class="hidden"></video-viewer>
-            <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
-          </editor-panel>
-          <feedback-bar></feedback-bar>
-        </div>
+        <sl-split-panel style="flex: 1" position="75">
+          <div
+            slot="start"
+            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
+          >
+            <div class="list-panel">
+              <revision-list></revision-list>
+            </div>
+          </div>
+          <div
+            slot="end"
+            style="background: var(--sl-color-neutral-50); display: flex; overflow: hidden; flex: 1"
+          >
+            <div class="editor-panel">
+              <editor-panel>
+                <codemirror-viewer slot="codemirror" content="Select a file to revise">
+                </codemirror-viewer>
+                <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
+                <html-viewer slot="html" class="hidden"></html-viewer>
+                <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
+                <video-viewer slot="video" class="hidden"></video-viewer>
+                <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
+              </editor-panel>
+              <feedback-bar></feedback-bar>
+            </div>
+          </div>
+        </sl-split-panel>
       </div>
     </main>
 

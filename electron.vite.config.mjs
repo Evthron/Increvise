@@ -105,10 +105,18 @@ export default defineConfig(({ command, mode }) => {
                 entryFileNames: '[name].js',
                 chunkFileNames: '[name].js',
                 assetFileNames: '[name].[ext]',
+                manualChunks: undefined,
               }
             : {},
         },
       },
+      ...(isDev
+        ? {
+            optimizeDeps: {
+              disabled: true,
+            },
+          }
+        : {}),
     },
   }
 })

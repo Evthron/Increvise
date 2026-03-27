@@ -144,8 +144,14 @@ vite.config.ts.timestamp-*
 out/
 dist-electron/
 
+# Mobile build output
+dist-mobile/
+
 # Test
 *.sqlite
 test/test-workspace
 test/temp-test-workspace
 .increvise/
+
+# Android Studio
+.idea/

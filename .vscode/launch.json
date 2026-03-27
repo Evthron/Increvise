@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Main (IPC)",
+      "name": "Debug Electron (Main Process)",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
@@ -19,6 +19,25 @@
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "resolveSourceMapLocations": ["${workspaceFolder}/**", "!**/node_modules/**"],
       "sourceMaps": true
+    },
+    {
+      "name": "Debug Android (Launch & Debug)",
+      "type": "android",
+      "request": "launch",
+      "appSrcRoot": "${workspaceFolder}/android/app/src/main",
+      "apkFile": "${workspaceFolder}/android/app/build/outputs/apk/debug/app-debug.apk",
+      "launchActivity": "com.increvise.app.MainActivity",
+      "adbPort": 5037,
+      "preLaunchTask": "android:build"
+    },
+    {
+      "name": "Debug Android (Attach Only)",
+      "type": "android",
+      "request": "attach",
+      "appSrcRoot": "${workspaceFolder}/android/app/src/main",
+      "apkFile": "${workspaceFolder}/android/app/build/outputs/apk/debug/app-debug.apk",
+      "adbPort": 5037,
+      "processId": "${command:PickAndroidProcess}"
     }
   ]
 }

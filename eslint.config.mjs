@@ -28,6 +28,9 @@ export default [
         setTimeout: 'readonly',
         getComputedStyle: 'readonly',
         DOMParser: 'readonly',
+        fetch: 'readonly',
+        Blob: 'readonly',
+        FileReader: 'readonly',
       },
     },
     rules: {
