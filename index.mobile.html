@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Increvise Mobile</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body>
+    <header>
+      <h1>Increvise</h1>
+    </header>
+
+    <main>
+      <div class="user-panel">
+        <sl-tab-group placement="top" class="mobile-tabs">
+          <sl-tab slot="nav" panel="workspace">Workspace</sl-tab>
+
+          <sl-tab slot="nav" panel="review">Review</sl-tab>
+
+          <sl-tab slot="nav" panel="files">Files</sl-tab>
+
+          <sl-tab-panel name="workspace">
+            <workspace-manager></workspace-manager>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="review">
+            <div class="mobile-review-panel">
+              <div class="revision-list-container">
+                <revision-list></revision-list>
+              </div>
+              <div class="editor-panel">
+                <editor-panel>
+                  <codemirror-viewer slot="codemirror" content="Select a file to revise">
+                  </codemirror-viewer>
+                  <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
+                  <html-viewer slot="html" class="hidden"></html-viewer>
+                  <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
+                  <video-viewer slot="video" class="hidden"></video-viewer>
+                  <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
+                </editor-panel>
+                <feedback-bar></feedback-bar>
+              </div>
+            </div>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="files">
+            <file-manager></file-manager>
+          </sl-tab-panel>
+        </sl-tab-group>
+      </div>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script type="module" src="/src/renderer/index.js"></script>
+  </body>
+</html>
