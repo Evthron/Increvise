@@ -6,6 +6,9 @@ import { LitElement, html, css } from 'lit'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { TextLayer, setLayerDimensions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { marked } from 'marked'
+import '@shoelace-style/shoelace/dist/components/dialog/dialog.js'
+import '@shoelace-style/shoelace/dist/components/input/input.js'
+import '@shoelace-style/shoelace/dist/components/button/button.js'
 // Configure PDF.js worker for Electron
 const workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
 GlobalWorkerOptions.workerSrc = workerSrc
@@ -906,186 +909,6 @@ class PdfCanvas extends LitElement {
 }
 
 // ============================================================================
-// PageRangeDialog Component
-// ============================================================================
-class PageRangeDialog extends LitElement {
-  static properties = {
-    pdfDocument: { type: Object },
-    currentPage: { type: Number },
-    totalPages: { type: Number },
-    scale: { type: Number },
-    isLoading: { type: Boolean },
-    errorMessage: { type: String },
-    selectionMode: { type: String },
-    selectedPages: { type: Array },
-    selectedLineRange: { type: Object },
-    showRangeDialog: { type: Boolean },
-    rangeStart: { type: Number },
-    rangeEnd: { type: Number },
-    restrictedRange: { type: Object },
-    extractedPages: { type: Array },
-    extractedLineRanges: { type: Object },
-  }
-
-  static styles = css`
-    .dialog-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .dialog-content {
-      background: #2e3338;
-      border: 1px solid #1a1d20;
-      border-radius: 8px;
-      padding: 1.5rem;
-      min-width: 300px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    }
-
-    .dialog-title {
-      color: #e0e0e0;
-      font-size: 1.125rem;
-      font-weight: 600;
-      margin-bottom: 1rem;
-    }
-
-    .dialog-form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .form-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .form-row label {
-      color: #b0b0b0;
-      font-size: 0.875rem;
-    }
-
-    .form-row input {
-      padding: 0.5rem;
-      background: #3d4449;
-      color: #e0e0e0;
-      border: 1px solid #1a1d20;
-      border-radius: 4px;
-      font-size: 0.875rem;
-    }
-
-    .form-row input:focus {
-      outline: none;
-      border-color: #3b82f6;
-    }
-
-    .dialog-actions {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-end;
-      margin-top: 1rem;
-    }
-
-    .dialog-actions button {
-      padding: 0.5rem 1rem;
-      border: 1px solid #1a1d20;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      cursor: pointer;
-    }
-
-    .btn-cancel {
-      background: #3d4449;
-      color: #e0e0e0;
-    }
-
-    .btn-confirm {
-      background: #3b82f6;
-      color: white;
-    }
-
-    .dialog-actions button:hover {
-      opacity: 0.9;
-    }
-  `
-
-  handleClose() {
-    this.dispatchEvent(new CustomEvent('close'))
-  }
-
-  handleConfirm() {
-    this.dispatchEvent(
-      new CustomEvent('confirm', {
-        detail: { rangeStart: this.rangeStart, rangeEnd: this.rangeEnd },
-      })
-    )
-  }
-
-  handleRangeStartChange(e) {
-    this.dispatchEvent(
-      new CustomEvent('range-start-change', {
-        detail: { value: parseInt(e.target.value) },
-      })
-    )
-  }
-
-  handleRangeEndChange(e) {
-    this.dispatchEvent(
-      new CustomEvent('range-end-change', {
-        detail: { value: parseInt(e.target.value) },
-      })
-    )
-  }
-
-  render() {
-    if (!this.show) return html``
-
-    return html`
-      <div class="dialog-overlay" @click=${this.handleClose}>
-        <div class="dialog-content" @click=${(e) => e.stopPropagation()}>
-          <div class="dialog-title">Select Page Range</div>
-          <div class="dialog-form">
-            <div class="form-row">
-              <label>From Page:</label>
-              <input
-                type="number"
-                min="1"
-                max="${this.totalPages}"
-                .value="${this.rangeStart}"
-                @input=${this.handleRangeStartChange}
-              />
-            </div>
-            <div class="form-row">
-              <label>To Page:</label>
-              <input
-                type="number"
-                min="1"
-                max="${this.totalPages}"
-                .value="${this.rangeEnd}"
-                @input=${this.handleRangeEndChange}
-              />
-            </div>
-            <div class="dialog-actions">
-              <button class="btn-cancel" @click=${this.handleClose}>Cancel</button>
-              <button class="btn-confirm" @click=${this.handleConfirm}>Confirm</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `
-  }
-}
-
-// ============================================================================
 // PdfViewer Main Component
 // ============================================================================
 export class PdfViewer extends LitElement {
@@ -1351,7 +1174,7 @@ export class PdfViewer extends LitElement {
   }
 
   handleRangeStartChange(e) {
-    const value = e.detail.value
+    const value = parseInt(e.target.value)
     if (value >= 1 && value <= this.totalPages) {
       this.rangeStart = value
       if (this.rangeStart > this.rangeEnd) {
@@ -1361,7 +1184,7 @@ export class PdfViewer extends LitElement {
   }
 
   handleRangeEndChange(e) {
-    const value = e.detail.value
+    const value = parseInt(e.target.value)
     if (value >= 1 && value <= this.totalPages) {
       this.rangeEnd = value
       if (this.rangeEnd < this.rangeStart) {
@@ -1370,11 +1193,10 @@ export class PdfViewer extends LitElement {
     }
   }
 
-  handleRangeConfirm(e) {
-    const { rangeStart, rangeEnd } = e.detail
+  handleRangeConfirm() {
     // Create array of page numbers from rangeStart to rangeEnd
     this.selectedPages = []
-    for (let i = rangeStart; i <= rangeEnd; i++) {
+    for (let i = this.rangeStart; i <= this.rangeEnd; i++) {
       this.selectedPages.push(i)
     }
     this.showRangeDialog = false
@@ -1580,16 +1402,34 @@ export class PdfViewer extends LitElement {
         @jump-to-note=${this.handleJumpToNote}
       ></pdf-canvas>
 
-      <page-range-dialog
-        .show=${this.showRangeDialog}
-        .rangeStart=${this.rangeStart}
-        .rangeEnd=${this.rangeEnd}
-        .totalPages=${this.totalPages}
-        @close=${this.closeRangeDialog}
-        @confirm=${this.handleRangeConfirm}
-        @range-start-change=${this.handleRangeStartChange}
-        @range-end-change=${this.handleRangeEndChange}
-      ></page-range-dialog>
+      <sl-dialog
+        label="Select Page Range"
+        .open=${this.showRangeDialog}
+        @sl-hide=${this.closeRangeDialog}
+      >
+        <sl-input
+          type="number"
+          label="From Page"
+          min="1"
+          max="${this.totalPages}"
+          .value="${String(this.rangeStart)}"
+          @sl-input=${(e) => this.handleRangeStartChange(e)}
+        ></sl-input>
+        <sl-input
+          type="number"
+          label="To Page"
+          min="1"
+          max="${this.totalPages}"
+          .value="${String(this.rangeEnd)}"
+          @sl-input=${(e) => this.handleRangeEndChange(e)}
+        ></sl-input>
+        <sl-button slot="footer" variant="default" @click=${this.closeRangeDialog}
+          >Cancel</sl-button
+        >
+        <sl-button slot="footer" variant="primary" @click=${this.handleRangeConfirm}
+          >Confirm</sl-button
+        >
+      </sl-dialog>
     `
   }
 }
@@ -1597,5 +1437,4 @@ export class PdfViewer extends LitElement {
 // Register custom elements
 customElements.define('pdf-toolbar', PdfToolbar)
 customElements.define('pdf-canvas', PdfCanvas)
-customElements.define('page-range-dialog', PageRangeDialog)
 customElements.define('pdf-viewer', PdfViewer)
