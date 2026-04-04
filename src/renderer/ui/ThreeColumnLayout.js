@@ -24,7 +24,7 @@ export class ThreeColumnLayout extends LitElement {
         >
           <sl-split-panel style="height: 100%" position="50">
             <div slot="start" style="background: var(--sl-color-neutral-50); overflow: hidden">
-              <sl-split-panel vertical style="height: 100%">
+              <sl-split-panel disabled vertical style="height: 100%" position="80">
                 <div
                   slot="start"
                   style="

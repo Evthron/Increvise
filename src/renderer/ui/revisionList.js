@@ -37,7 +37,6 @@ export class RevisionFileItem extends LitElement {
     .revision-item:hover {
       background-color: var(--bg-secondary);
       border-color: var(--accent-color);
-      transform: translateX(2px);
     }
 
     .revision-item.active {
@@ -77,6 +76,7 @@ export class RevisionFileItem extends LitElement {
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
       font-size: 11px;
       color: var(--text-secondary);
     }

@@ -10,6 +10,7 @@ import { LitElement, html, css } from 'lit'
 export class WorkspaceManager extends LitElement {
   static properties = {
     workspaces: { type: Array, state: true },
+    currentWorkspaceName: { type: String, state: true },
   }
 
   static styles = css`
@@ -64,6 +65,57 @@ export class WorkspaceManager extends LitElement {
       background-color: #e5e5e5;
     }
 
+    .workspace-dropdown {
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    sl-dropdown {
+      width: 100%;
+    }
+
+    sl-button {
+      width: 100%;
+    }
+
+    .open-folder-btn {
+      width: 100%;
+    }
+
+    sl-menu-item::part(base) {
+      font-size: 13px;
+    }
+
+    sl-menu-item::part(label) {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .workspace-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .workspace-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .workspace-stats {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .workspace-item-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
     #workspace-history-list {
       flex: 1;
       overflow-y: auto;
@@ -94,29 +146,6 @@ export class WorkspaceManager extends LitElement {
       background-color: var(--bg-primary);
     }
 
-    .workspace-name {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-primary);
-      margin-bottom: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .workspace-meta {
-      font-size: 10px;
-      color: var(--text-secondary);
-      display: flex;
-      justify-content: space-between;
-      margin-top: 4px;
-    }
-
-    .workspace-stats {
-      font-size: 10px;
-      color: var(--text-secondary);
-    }
-
     .workspace-separator {
       height: 1px;
       background: var(--border-color);
@@ -127,6 +156,7 @@ export class WorkspaceManager extends LitElement {
   constructor() {
     super()
     this.workspaces = []
+    this.currentWorkspaceName = 'Select Workspace'
     this._fileManagerReady = false
 
     // Listen for fileManager ready event (mobile)
@@ -134,6 +164,11 @@ export class WorkspaceManager extends LitElement {
       window.addEventListener('filemanager-ready', () => {
         this._fileManagerReady = true
         this.loadRecentWorkspaces()
+      })
+
+      // Listen for workspace changes
+      window.addEventListener('workspace-changed', () => {
+        this._updateCurrentWorkspaceName()
       })
     }
   }
@@ -144,10 +179,19 @@ export class WorkspaceManager extends LitElement {
     if (window.fileManager) {
       this._fileManagerReady = true
       await this.loadRecentWorkspaces()
+      this._updateCurrentWorkspaceName()
     }
   }
 
   render() {
+    if (this.hasAttribute('mobile')) {
+      return this._renderMobile()
+    } else {
+      return this._renderDesktop()
+    }
+  }
+
+  _renderMobile() {
     return html`
       <div class="workspace-history-header">
         <h3>Recent Workspaces</h3>
@@ -157,7 +201,7 @@ export class WorkspaceManager extends LitElement {
       </div>
       <div id="workspace-history-list">
         <div
-          class="workspace-item all-workspaces-item ${window.mode.allWorkspace ? 'selected' : ''}"
+          class="workspace-item all-workspaces-item ${window.mode?.allWorkspace ? 'selected' : ''}"
           @click=${() => this._handleAllWorkspacesClick()}
         >
           All Workspaces
@@ -168,9 +212,34 @@ export class WorkspaceManager extends LitElement {
     `
   }
 
+  _renderDesktop() {
+    return html`
+      <div class="workspace-history-header">
+        <h3>Workspace</h3>
+      </div>
+      <div class="workspace-dropdown">
+        <sl-dropdown>
+          <sl-button slot="trigger" caret>${this.currentWorkspaceName}</sl-button>
+          <sl-menu @sl-select=${this._handleMenuSelect}>
+            <sl-menu-item value="all-workspaces" ?checked=${window.mode?.allWorkspace}>
+              <div class="workspace-item-label">
+                <span class="workspace-name">All Workspaces</span>
+              </div>
+            </sl-menu-item>
+            <sl-divider></sl-divider>
+            ${this.workspaces.map((workspace) => this._renderDropdownItem(workspace))}
+          </sl-menu>
+        </sl-dropdown>
+        <sl-button class="open-folder-btn" @click=${this._handleOpenFolder}>
+          Open Folder
+        </sl-button>
+      </div>
+    `
+  }
+
   _renderWorkspaceItem(workspace) {
     const isSelected =
-      !window.mode.allWorkspace && window.currentFile.rootPath === workspace.folder_path
+      !window.mode?.allWorkspace && window.currentFile?.rootPath === workspace.folder_path
     const timeAgo = this._getTimeAgo(new Date(workspace.last_opened))
 
     return html`
@@ -188,6 +257,52 @@ export class WorkspaceManager extends LitElement {
     `
   }
 
+  _renderDropdownItem(workspace) {
+    const isSelected =
+      !window.mode?.allWorkspace && window.currentFile?.rootPath === workspace.folder_path
+
+    return html`
+      <sl-menu-item
+        value=${workspace.folder_path}
+        ?checked=${isSelected}
+        title=${workspace.folder_path}
+      >
+        <div class="workspace-item-label">
+          <span class="workspace-name">${workspace.folder_name}</span>
+          <span class="workspace-meta">
+            ${workspace.files_due_today > 0
+              ? html` · <span class="workspace-stats">${workspace.files_due_today} due</span>`
+              : ''}
+          </span>
+        </div>
+      </sl-menu-item>
+    `
+  }
+
+  _updateCurrentWorkspaceName() {
+    if (window.mode?.allWorkspace) {
+      this.currentWorkspaceName = 'All Workspaces'
+    } else {
+      const currentPath = window.currentFile?.rootPath
+      if (!currentPath) {
+        this.currentWorkspaceName = 'Select Workspace'
+      } else {
+        const workspace = this.workspaces.find((ws) => ws.folder_path === currentPath)
+        this.currentWorkspaceName = workspace ? workspace.folder_name : 'Select Workspace'
+      }
+    }
+  }
+
+  _handleMenuSelect(event) {
+    const value = event.detail.item.value
+
+    if (value === 'all-workspaces') {
+      this._handleAllWorkspacesClick()
+    } else {
+      this._handleSingleWorkspaceClick(value)
+    }
+  }
+
   async loadRecentWorkspaces() {
     try {
       if (!window.fileManager) {
@@ -196,6 +311,7 @@ export class WorkspaceManager extends LitElement {
       }
       const workspaces = await window.fileManager.getRecentWorkspaces()
       this.workspaces = workspaces || []
+      this._updateCurrentWorkspaceName()
     } catch (error) {
       console.error('Error loading recent workspaces:', error)
     }
@@ -222,6 +338,7 @@ export class WorkspaceManager extends LitElement {
         composed: true,
       })
     )
+    this._updateCurrentWorkspaceName()
   }
 
   _handleSingleWorkspaceClick(folderPath) {
@@ -233,6 +350,7 @@ export class WorkspaceManager extends LitElement {
         composed: true,
       })
     )
+    this._updateCurrentWorkspaceName()
   }
 
   _getTimeAgo(date) {

@@ -5,27 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Increvise Mobile</title>
     <link rel="stylesheet" href="./style.css" />
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/@ionic/core@8/dist/ionic/ionic.esm.js"
+    ></script>
+    <script nomodule src="https://cdn.jsdelivr.net/npm/@ionic/core@8/dist/ionic/ionic.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ionic/core@8/css/ionic.bundle.css" />
   </head>
 
   <body>
-    <header>
-      <h1>Increvise</h1>
-    </header>
+    <ion-app>
+      <ion-tabs>
+        <ion-tab tab="workspace">
+          <ion-header>
+            <ion-toolbar>
+              <ion-title>Increvise</ion-title>
+            </ion-toolbar>
+          </ion-header>
+          <ion-content>
+            <workspace-manager mobile></workspace-manager>
+          </ion-content>
+        </ion-tab>
 
-    <main>
-      <div class="user-panel">
-        <sl-tab-group placement="top" class="mobile-tabs">
-          <sl-tab slot="nav" panel="workspace">Workspace</sl-tab>
-
-          <sl-tab slot="nav" panel="review">Review</sl-tab>
-
-          <sl-tab slot="nav" panel="files">Files</sl-tab>
-
-          <sl-tab-panel name="workspace">
-            <workspace-manager></workspace-manager>
-          </sl-tab-panel>
-
-          <sl-tab-panel name="review">
+        <ion-tab tab="review">
+          <ion-header>
+            <ion-toolbar>
+              <ion-title>Review</ion-title>
+            </ion-toolbar>
+          </ion-header>
+          <ion-content>
             <div class="mobile-review-panel">
               <div class="revision-list-container">
                 <revision-list></revision-list>
@@ -43,14 +51,38 @@
                 <feedback-bar></feedback-bar>
               </div>
             </div>
-          </sl-tab-panel>
+          </ion-content>
+        </ion-tab>
 
-          <sl-tab-panel name="files">
+        <ion-tab tab="files">
+          <ion-header>
+            <ion-toolbar>
+              <ion-title>Files</ion-title>
+            </ion-toolbar>
+          </ion-header>
+          <ion-content>
             <file-manager></file-manager>
-          </sl-tab-panel>
-        </sl-tab-group>
-      </div>
-    </main>
+          </ion-content>
+        </ion-tab>
+
+        <ion-tab-bar slot="bottom">
+          <ion-tab-button tab="workspace">
+            <ion-icon name="folder"></ion-icon>
+            <ion-label>Workspace</ion-label>
+          </ion-tab-button>
+
+          <ion-tab-button tab="review">
+            <ion-icon name="book"></ion-icon>
+            <ion-label>Review</ion-label>
+          </ion-tab-button>
+
+          <ion-tab-button tab="files">
+            <ion-icon name="document"></ion-icon>
+            <ion-label>Files</ion-label>
+          </ion-tab-button>
+        </ion-tab-bar>
+      </ion-tabs>
+    </ion-app>
 
     <div id="toast" class="toast"></div>
 
