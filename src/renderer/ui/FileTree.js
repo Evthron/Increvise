@@ -11,168 +11,17 @@ export class FileTree extends LitElement {
   static properties = {
     treeData: { type: Array },
     disabled: { type: Boolean },
-    expandedNodes: { type: Map, state: true },
     selectedPath: { type: String, state: true },
   }
 
   static styles = css`
-    :host {
-      width: 100%;
-      margin-top: 12px;
-      font-size: 12px;
-      min-height: 100px;
+    sl-icon,
+    sl-icon-button {
+      flex-shrink: 0;
     }
 
-    ul {
-      list-style: none;
+    sl-icon-button::part(base) {
       padding-left: 0;
-      margin: 0;
-    }
-
-    ul ul {
-      padding-left: 16px;
-    }
-
-    li {
-      margin: 0;
-      padding: 0;
-    }
-
-    .tree-item {
-      display: flex;
-      align-items: center;
-      padding: 4px 8px;
-      margin: 1px 0;
-      border-radius: 4px;
-      cursor: pointer;
-      user-select: none;
-      transition: background-color 0.1s ease;
-      gap: 6px;
-    }
-
-    .tree-item:hover {
-      background-color: rgba(0, 0, 0, 0.05);
-    }
-
-    .tree-item.selected {
-      background-color: rgba(0, 122, 255, 0.1);
-    }
-
-    .tree-item.directory .tree-label {
-      font-weight: 500;
-    }
-
-    .tree-item.file .tree-label {
-      font-weight: 400;
-    }
-
-    .tree-item.note-parent {
-      background-color: rgba(255, 204, 0, 0.08);
-      border-radius: 4px;
-    }
-
-    .tree-item.note-parent .tree-label {
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .tree-item.note-parent:hover {
-      background-color: rgba(255, 204, 0, 0.15);
-    }
-
-    .tree-item.note-child {
-      background-color: rgba(0, 122, 255, 0.05);
-      border-radius: 4px;
-    }
-
-    .tree-item.note-child .tree-label {
-      color: var(--text-primary);
-    }
-
-    .tree-item.note-child:hover {
-      background-color: rgba(0, 122, 255, 0.12);
-    }
-
-    .note-children {
-      border-left: 2px solid rgba(0, 122, 255, 0.3);
-      margin-left: 24px;
-      padding-left: 8px;
-    }
-
-    .tree-icon {
-      flex-shrink: 0;
-      width: 16px;
-      height: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: var(--text-secondary);
-    }
-
-    .tree-expand-icon {
-      flex-shrink: 0;
-      width: 12px;
-      height: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 8px;
-      color: var(--text-secondary);
-      transition: transform 0.15s ease;
-    }
-
-    .tree-expand-icon.expanded {
-      transform: rotate(90deg);
-    }
-
-    .tree-label {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      color: var(--text-primary);
-    }
-
-    .note-child-prefix {
-      color: var(--accent-color);
-      font-weight: 600;
-      font-size: 11px;
-    }
-
-    .add-file-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      width: 20px;
-      height: 20px;
-      padding: 0;
-      font-size: 14px;
-      font-weight: 600;
-      background-color: var(--accent-color);
-      color: white;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      margin-left: auto;
-    }
-
-    .add-file-btn:hover:not(:disabled) {
-      background-color: var(--accent-hover);
-      transform: scale(1.05);
-    }
-
-    .add-file-btn:disabled {
-      background-color: #34c759;
-      cursor: not-allowed;
-      opacity: 0.8;
-    }
-
-    .add-file-btn.hidden {
-      display: none;
     }
   `
 
@@ -180,7 +29,6 @@ export class FileTree extends LitElement {
     super()
     this.treeData = []
     this.disabled = false
-    this.expandedNodes = new Map()
     this.selectedPath = null
   }
 
@@ -191,125 +39,78 @@ export class FileTree extends LitElement {
       </div>`
     }
 
-    return html`<ul>
-      ${this.treeData.map((item) => this._renderTreeItem(item))}
-    </ul>`
+    return html`
+      <sl-tree @sl-selection-change=${this._handleItemClick} @sl-lazy-load=${this._handleLazyLoad}>
+        ${this.treeData.map((item) => this._renderTreeItem(item))}
+      </sl-tree>
+    `
+  }
+
+  _handleSelect(e) {
+    const selectedItem = e.detail.item
+    console.log('Selected dropdown item:', selectedItem)
   }
 
   _renderTreeItem(item) {
-    const isExpanded = this.expandedNodes.has(item.path)
-    const isSelected = this.selectedPath === item.path
     const hasChildren = item.children && item.children.length > 0
+    const isLazyDirectory =
+      item.type === 'directory' && (!item.children || item.children.length === 0)
 
     return html`
-      <li>
-        ${this._renderTreeNode(item, isExpanded, isSelected, hasChildren)}
-        ${isExpanded && hasChildren
-          ? html`<ul>
-              ${item.children.map((child) => this._renderTreeItem(child))}
-            </ul>`
-          : ''}
-      </li>
-    `
-  }
-
-  _renderTreeNode(item, isExpanded, isSelected, hasChildren) {
-    const itemClass = `tree-item ${isSelected ? 'selected' : ''} ${item.type || ''}`
-
-    return html`
-      <div class=${itemClass} @click=${(e) => this._handleItemClick(e, item)}>
-        ${this._renderExpandIcon(item, isExpanded, hasChildren)} ${this._renderIcon(item)}
-        ${item.type === 'note-child' ? html`<span class="note-child-prefix">↳ </span>` : ''}
+      <sl-tree-item ?lazy=${isLazyDirectory} .__itemData=${item}>
+        ${this._renderIcon(item)}
         <span class="tree-label">${item.name}</span>
-        ${this._renderAddButton(item)}
-      </div>
+        ${hasChildren ? html` ${item.children.map((child) => this._renderTreeItem(child))} ` : ''}
+      </sl-tree-item>
     `
-  }
-
-  _renderExpandIcon(item, isExpanded, hasChildren) {
-    if (item.type === 'directory' || item.type === 'pdf-parent' || item.type === 'note-parent') {
-      return html`<span
-        class="tree-expand-icon ${isExpanded ? 'expanded' : ''}"
-        @click=${(e) => this._handleExpandClick(e, item)}
-        >▶</span
-      >`
-    } else if (item.type === 'note-child' && hasChildren) {
-      return html`<span
-        class="tree-expand-icon ${isExpanded ? 'expanded' : ''}"
-        @click=${(e) => this._handleExpandClick(e, item)}
-        >▶</span
-      >`
-    }
-    return html`<span class="tree-expand-icon"></span>`
   }
 
   _renderIcon(item) {
-    let icon = '📄'
     if (item.type === 'directory') {
-      icon = this.expandedNodes.has(item.path) ? '📂' : '📁'
-    } else if (item.type === 'pdf-parent') {
-      icon = '📝'
-    } else if (item.type === 'note-parent' || item.type === 'note-child') {
-      icon = '📄'
-    }
-    return html`<span class="tree-icon">${icon}</span>`
-  }
-
-  _renderAddButton(item) {
-    // Don't show add button for directories or if disabled
-    if (item.type === 'directory' || this.disabled) {
-      return ''
-    }
-
-    // Check if file is already in queue
-    const inQueue = item._inQueue || false
-    const buttonText = inQueue ? '✓' : '+'
-
-    return html`
-      <button
-        class="add-file-btn ${this.disabled ? 'hidden' : ''}"
-        ?disabled=${inQueue}
+      return html`<sl-icon name="folder-fill" style="color: #FFC107"></sl-icon>`
+    } else if (!item.inQueue) {
+      return html`<sl-icon-button
+        name="plus-square-fill"
+        style="color: #4354d8"
         @click=${(e) => this._handleAddClick(e, item)}
-      >
-        ${buttonText}
-      </button>
-    `
-  }
-
-  async _handleExpandClick(e, item) {
-    e.stopPropagation()
-
-    const isExpanded = this.expandedNodes.has(item.path)
-
-    if (!isExpanded) {
-      // Load children if not loaded (for directories)
-      if (item.type === 'directory' && (!item.children || item.children.length === 0)) {
-        try {
-          const result = await window.fileManager.getDirectoryTree(item.path, item.library_id)
-
-          if (!result.success) {
-            console.error('Failed to load directory:', result.error)
-            alert(`Failed to load directory: ${result.error}`)
-            return
-          }
-
-          item.children = result.data
-        } catch (error) {
-          console.error('Error loading children:', error)
-          alert(`Error loading children: ${error.message}`)
-          return
-        }
-      }
-      this.expandedNodes.set(item.path, true)
+      ></sl-icon-button>`
+    } else if (item.type === 'pdf-parent') {
+      return html`<sl-icon name="file-earmark-pdf-fill" style="color: #b61812"></sl-icon>`
+    } else if (item.type === 'note-parent' || item.type === 'file') {
+      return html`<sl-icon name="file-earmark-fill" style="color: #70affb"></sl-icon>`
+    } else if (item.type === 'note-child') {
+      return html`<sl-icon name="arrow-return-right" style="color: #70affb"></sl-icon>`
     } else {
-      this.expandedNodes.delete(item.path)
+      return html`<sl-icon name="file-earmark-fill" style="color: #ffffff"></sl-icon>`
     }
-
-    this.requestUpdate()
   }
 
-  async _handleItemClick(e, item) {
-    e.stopPropagation()
+  async _handleLazyLoad(e) {
+    const treeItem = e.target
+    const item = treeItem.__itemData
+    if (!item) return
+
+    try {
+      const result = await window.fileManager.getDirectoryTree(item.path, item.library_id)
+
+      if (!result.success) {
+        console.error('Failed to load directory:', result.error)
+        return
+      }
+
+      item.children = result.data
+      this.requestUpdate()
+    } catch (error) {
+      console.error('Error loading children:', error)
+    }
+  }
+
+  async _handleItemClick(e) {
+    const [treeItem] = e.detail.selection
+    if (!treeItem) return
+
+    const item = treeItem.__itemData
+    if (!item) return
 
     // Only open files, not directories
     if (item.type !== 'directory') {
@@ -341,9 +142,6 @@ export class FileTree extends LitElement {
       const result = await window.fileManager.addFileToQueue(item.path, libraryId)
 
       if (result.success || result.alreadyExists) {
-        item._inQueue = true
-        this.requestUpdate()
-
         // Notify revision list to refresh if file was added to queue
         const revisionList = document.querySelector('revision-list')
         if (revisionList) {
@@ -359,38 +157,6 @@ export class FileTree extends LitElement {
       alert(`Error: ${error.message}`)
       console.error('Error adding file to queue:', error)
     }
-  }
-
-  async updated(changedProperties) {
-    super.updated(changedProperties)
-
-    // Check queue status for all items when tree data changes
-    if (changedProperties.has('treeData') && this.treeData.length > 0) {
-      await this._checkQueueStatus(this.treeData)
-    }
-  }
-
-  async _checkQueueStatus(items) {
-    for (const item of items) {
-      if (item.type !== 'directory' && item.path) {
-        try {
-          const result = await window.fileManager.checkFileInQueue(
-            item.path,
-            window.currentWorkspace.libraryId
-          )
-          if (result.inQueue) {
-            item._inQueue = true
-          }
-        } catch (error) {
-          console.error('Error checking queue status:', error)
-        }
-      }
-
-      if (item.children && item.children.length > 0) {
-        await this._checkQueueStatus(item.children)
-      }
-    }
-    this.requestUpdate()
   }
 }
 

@@ -6,6 +6,7 @@
 import { dialog } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import { checkFileInQueue } from './spaced.js'
 
 async function selectFolder() {
   try {
@@ -21,7 +22,7 @@ async function selectFolder() {
   }
 }
 
-async function getDirectoryTree(dirPath, libraryId = null) {
+async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = null) {
   /**
    * Parse hierarchical note filename
    * Tenative Format: rangeStart-rangeEnd-name.rangeStart-rangeEnd-name.{ext}
@@ -143,6 +144,13 @@ async function getDirectoryTree(dirPath, libraryId = null) {
         displayName = `${lastLayer.rangeStart}-${lastLayer.rangeEnd}_${lastLayer.name}`
       }
 
+      // Check if file is in queue
+      let inQueue = false
+      if (libraryId && getCentralDbPath) {
+        const queueResult = await checkFileInQueue(note.path, libraryId, getCentralDbPath)
+        inQueue = queueResult.inQueue || false
+      }
+
       const noteNode = {
         name: displayName,
         path: note.path,
@@ -150,6 +158,7 @@ async function getDirectoryTree(dirPath, libraryId = null) {
         children: [],
         type: 'note-child',
         library_id: libraryId,
+        inQueue: inQueue,
       }
 
       // Store node by filename
@@ -195,8 +204,14 @@ async function getDirectoryTree(dirPath, libraryId = null) {
   const fileMap = new Map()
 
   // Build file map: basename -> file item
+  // Filter out compressed files (they should not be treated as parent files)
+  const compressedExtensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
   items
     .filter((item) => item.isFile())
+    .filter((item) => {
+      const ext = path.extname(item.name).toLowerCase()
+      return !compressedExtensions.includes(ext)
+    })
     .forEach((item) => {
       const baseName = path.basename(item.name, path.extname(item.name))
       fileMap.set(baseName, item)
@@ -209,11 +224,19 @@ async function getDirectoryTree(dirPath, libraryId = null) {
     if (item.isDirectory()) {
       // Skip the database folder
       if (item.name === '.increvise') continue
+      if (item.name.endsWith('_files')) continue
 
       // Check if this is a hierarchy folder (folder name matching existing file basename)
       if (fileMap.has(item.name)) {
         const fileItem = fileMap.get(item.name)
         const filePath = path.join(dirPath, fileItem.name)
+
+        // Check if parent file is in queue
+        let parentInQueue = false
+        if (libraryId && getCentralDbPath) {
+          const queueResult = await checkFileInQueue(filePath, libraryId, getCentralDbPath)
+          parentInQueue = queueResult.inQueue || false
+        }
 
         // Try to build note hierarchy
         const result = await buildNoteHierarchy(fullPath)
@@ -228,6 +251,7 @@ async function getDirectoryTree(dirPath, libraryId = null) {
             path: filePath,
             children: result.data,
             library_id: libraryId,
+            inQueue: parentInQueue,
           })
           fileMap.delete(item.name)
         } else {
@@ -240,6 +264,7 @@ async function getDirectoryTree(dirPath, libraryId = null) {
             type: 'file',
             path: filePath,
             library_id: libraryId,
+            inQueue: parentInQueue,
           })
           fileMap.delete(item.name)
         }
@@ -261,15 +286,33 @@ async function getDirectoryTree(dirPath, libraryId = null) {
   for (const [, item] of fileMap) {
     const fullPath = path.join(dirPath, item.name)
 
+    // Check if file is in queue
+    let inQueue = false
+    if (libraryId && getCentralDbPath) {
+      const queueResult = await checkFileInQueue(fullPath, libraryId, getCentralDbPath)
+      inQueue = queueResult.inQueue || false
+    }
+
     // Detect flashcard files
     const isFlashcard = item.name.endsWith('.flashcard')
 
-    tree.push({
-      name: item.name,
-      type: isFlashcard ? 'flashcard' : 'file',
-      path: fullPath,
-      library_id: libraryId,
-    })
+    if (isFlashcard) {
+      tree.push({
+        name: item.name,
+        type: 'flashcard',
+        path: fullPath,
+        library_id: libraryId,
+        inQueue: inQueue,
+      })
+    } else {
+      tree.push({
+        name: item.name,
+        type: 'file',
+        path: fullPath,
+        library_id: libraryId,
+        inQueue: inQueue,
+      })
+    }
   }
 
   return {
@@ -289,11 +332,11 @@ async function readPdfFile(filePath) {
   }
 }
 
-export function registerFileIpc(ipcMain) {
+export function registerFileIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('select-folder', async () => selectFolder())
 
   ipcMain.handle('get-directory-tree', async (_event, dirPath, libraryId) =>
-    getDirectoryTree(dirPath, libraryId)
+    getDirectoryTree(dirPath, libraryId, getCentralDbPath)
   )
 
   ipcMain.handle('read-pdf-file', async (_event, filePath) => readPdfFile(filePath))

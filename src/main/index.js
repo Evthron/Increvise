@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
   }
 
   // Register IPC handlers
-  registerFileIpc(ipcMain)
+  registerFileIpc(ipcMain, getCentralDbPath)
   registerSpacedIpc(ipcMain, getCentralDbPath)
   registerIncrementalIpc(ipcMain, getCentralDbPath)
   registerWorkspaceIpc(ipcMain, getCentralDbPath)
