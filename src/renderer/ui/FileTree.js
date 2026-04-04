@@ -142,6 +142,9 @@ export class FileTree extends LitElement {
       const result = await window.fileManager.addFileToQueue(item.path, libraryId)
 
       if (result.success || result.alreadyExists) {
+        item.inQueue = true
+        this.requestUpdate()
+
         // Notify revision list to refresh if file was added to queue
         const revisionList = document.querySelector('revision-list')
         if (revisionList) {
