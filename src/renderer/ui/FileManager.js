@@ -233,6 +233,15 @@ export class FileManager extends LitElement {
     }
 
     this._registerAddButtonGuard()
+
+    // Start watching this workspace for file changes
+    console.log('[FileManager] Starting file watcher for:', folderPath)
+    const watchResult = await window.fileManager.startWatchingWorkspace(folderPath)
+    if (watchResult.success) {
+      console.log('[FileManager] File watcher active')
+    } else {
+      console.error('[FileManager] Failed to start file watcher:', watchResult.error)
+    }
   }
 
   async _mobileOpenSingleWorkspace(folderPath) {
