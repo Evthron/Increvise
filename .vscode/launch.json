@@ -15,10 +15,7 @@
       "skipFiles": ["<node_internals>/**"],
       "outputCapture": "std",
       "console": "integratedTerminal",
-      "preLaunchTask": "npm: build",
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "resolveSourceMapLocations": ["${workspaceFolder}/**", "!**/node_modules/**"],
-      "sourceMaps": true
+      "preLaunchTask": "npm: build"
     },
     {
       "name": "Debug Android (Launch & Debug)",
