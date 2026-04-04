@@ -65,6 +65,7 @@
     "@lion/ui": "^0.16.1",
     "@shoelace-style/shoelace": "^2.20.1",
     "better-sqlite3": "^12.4.1",
+    "chokidar": "^5.0.0",
     "codemirror": "^6.0.2",
     "dompurify": "^3.3.1",
     "lit": "^3.3.1",
