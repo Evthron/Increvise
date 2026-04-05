@@ -509,12 +509,19 @@ export class MarkdownViewer extends LitElement {
 
     /* Locked/extracted content styles */
     .extracted-content {
-      background-color: rgba(100, 100, 100, 0.1);
-      border-left: 3px solid #999;
-      padding-left: 0.5rem;
-      opacity: 0.6;
+      background: linear-gradient(
+        to right,
+        rgba(255, 237, 213, 0.5) 0%,
+        rgba(255, 237, 213, 0.2) 100%
+      );
+      border-left: 4px solid #ff9800;
+      padding-left: 0.75rem;
+      margin-left: -0.25rem;
+      border-radius: 0 4px 4px 0;
+      box-shadow: 0 1px 3px rgba(255, 152, 0, 0.1);
       pointer-events: none;
       user-select: none;
+      transition: all 0.2s ease;
     }
 
     .link-dialog-backdrop {
@@ -583,7 +590,8 @@ export class MarkdownViewer extends LitElement {
     this.markdownSource = '' // Store raw markdown source for extraction
     this.showLinkDialog = false
     this.previewUrl = ''
-    this.extractedTexts = [] // Store extracted content for locking
+    this.extractedTexts = [] // Store extracted content for locking (legacy text-based)
+    this.extractedRanges = [] // Store extracted line ranges: [{lineStart, lineEnd}, ...]
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -997,15 +1005,98 @@ export class MarkdownViewer extends LitElement {
 
   /**
    * Lock/highlight already extracted content
-   * @param {Array<Object>} ranges - Array of objects with extracted_text property
+   * @param {Array<Object>} ranges - Array of objects with lineStart/lineEnd or extracted_text
    */
   lockContent(ranges) {
+    console.log('📌 lockContent called with ranges:', ranges)
+
+    // Extract line-based ranges (for markdown files)
+    this.extractedRanges = ranges
+      .filter((r) => {
+        // Check if lineStart and lineEnd exist and are valid numbers
+        const hasLineStart = r.lineStart != null && !isNaN(r.lineStart)
+        const hasLineEnd = r.lineEnd != null && !isNaN(r.lineEnd)
+
+        // If no lineStart/lineEnd, try to use start/end directly (for markdown files)
+        if (!hasLineStart && r.start != null && !isNaN(r.start)) {
+          r.lineStart = parseInt(r.start)
+          r.lineEnd = parseInt(r.end || r.start)
+          return true
+        }
+
+        return hasLineStart && hasLineEnd
+      })
+      .map((r) => ({
+        lineStart: parseInt(r.lineStart),
+        lineEnd: parseInt(r.lineEnd),
+        path: r.path,
+      }))
+
+    console.log('📌 Extracted ranges with line numbers:', this.extractedRanges)
+
+    // Extract text-based ranges (legacy, for non-line-based extractions)
     this.extractedTexts = ranges.map((r) => r.extracted_text || r.text).filter(Boolean)
 
-    // Re-render with locked styling
+    // Re-render and apply highlighting
     if (this.content) {
       this.setMarkdown(this.content)
     }
+  }
+
+  /**
+   * Apply highlighting to extracted ranges after rendering
+   */
+  applyExtractedHighlighting() {
+    if (this.extractedRanges.length === 0) {
+      console.log('⚠️ No extracted ranges to highlight')
+      return
+    }
+
+    console.log('🎨 Applying highlighting for ranges:', this.extractedRanges)
+
+    // Wait for next render cycle
+    setTimeout(() => {
+      const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
+      if (!viewer) {
+        console.error('❌ Markdown viewer element not found')
+        return
+      }
+
+      // Find all elements with line numbers
+      const elements = viewer.querySelectorAll('[data-line-start][data-line-end]')
+      console.log(`🔍 Found ${elements.length} elements with line numbers`)
+
+      let highlightedCount = 0
+
+      elements.forEach((el) => {
+        const elStart = parseInt(el.getAttribute('data-line-start'))
+        const elEnd = parseInt(el.getAttribute('data-line-end'))
+
+        // Check if this element overlaps with any extracted range
+        const isExtracted = this.extractedRanges.some((range) => {
+          // Check for overlap: element overlaps if it starts before range ends
+          // and ends after range starts
+          const overlaps = elStart <= range.lineEnd && elEnd >= range.lineStart
+
+          if (overlaps) {
+            console.log(
+              `✓ Match: Element [${elStart}-${elEnd}] overlaps with range [${range.lineStart}-${range.lineEnd}]`
+            )
+          }
+
+          return overlaps
+        })
+
+        if (isExtracted) {
+          el.classList.add('extracted-content')
+          highlightedCount++
+        } else {
+          el.classList.remove('extracted-content')
+        }
+      })
+
+      console.log(`✅ Highlighted ${highlightedCount} elements`)
+    }, 0)
   }
 
   /**
@@ -1081,6 +1172,16 @@ export class MarkdownViewer extends LitElement {
    */
   clearLockedContent() {
     this.extractedTexts = []
+    this.extractedRanges = []
+
+    // Remove highlighting from all elements
+    const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
+    if (viewer) {
+      viewer.querySelectorAll('.extracted-content').forEach((el) => {
+        el.classList.remove('extracted-content')
+      })
+    }
+
     this.requestUpdate()
   }
 
@@ -1108,7 +1209,7 @@ export class MarkdownViewer extends LitElement {
     if (content) {
       this.renderedHtml = markdownToHtml(content)
 
-      // Apply locked styling to extracted content
+      // Apply legacy text-based locked styling to extracted content
       if (this.extractedTexts.length > 0) {
         this.extractedTexts.forEach((extractedText) => {
           if (extractedText) {
@@ -1127,6 +1228,9 @@ export class MarkdownViewer extends LitElement {
     }
 
     this.requestUpdate()
+
+    // Apply line-based highlighting after render
+    this.applyExtractedHighlighting()
   }
 
   // Open link dialog, self explanatory
