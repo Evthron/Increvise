@@ -7,12 +7,197 @@ import { LitElement, html, css } from 'lit'
 import { marked } from 'marked'
 import { basename, extname } from './path.js'
 
-// Configure marked to use GitHub Flavored Markdown (GFM) for tables and other features
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-  tables: true,
-})
+// Track source positions by counting lines
+class SourcePositionTracker {
+  constructor(markdown) {
+    this.source = markdown
+    this.lines = markdown.split('\n')
+    this.tokenPositions = new Map()
+  }
+
+  // Find line range for a given raw text
+  findLineRange(raw) {
+    if (!raw) return { start: 1, end: 1 }
+
+    // Find the position of this raw text in source
+    const index = this.source.indexOf(raw)
+    if (index === -1) return { start: 1, end: 1 }
+
+    // Count newlines before this position for start line
+    const beforeText = this.source.substring(0, index)
+    const startLine = (beforeText.match(/\n/g) || []).length + 1
+
+    // Count newlines within the raw text for end line
+    const newlinesInToken = (raw.match(/\n/g) || []).length
+    const endLine = startLine + newlinesInToken
+
+    return { start: startLine, end: endLine }
+  }
+}
+
+// Custom renderer that adds source line numbers to all HTML tags
+class LineNumberRenderer extends marked.Renderer {
+  constructor(options, tracker) {
+    super(options)
+    this.tracker = tracker
+  }
+
+  // Helper to add data-line-start and data-line-end attributes
+  addLineAttrs(raw) {
+    const range = this.tracker.findLineRange(raw)
+    return ` data-line-start="${range.start}" data-line-end="${range.end}"`
+  }
+
+  heading(token) {
+    const text = this.parser.parseInline(token.tokens)
+    const lineAttrs = this.addLineAttrs(token.raw)
+    const tag = 'h' + token.depth
+    return `<${tag}${lineAttrs}>${text}</${tag}>\n`
+  }
+
+  paragraph(token) {
+    const text = this.parser.parseInline(token.tokens)
+    const lineAttrs = this.addLineAttrs(token.raw)
+    return `<p${lineAttrs}>${text}</p>\n`
+  }
+
+  blockquote(token) {
+    const body = this.parser.parse(token.tokens)
+    const lineAttrs = this.addLineAttrs(token.raw)
+    return `<blockquote${lineAttrs}>\n${body}</blockquote>\n`
+  }
+
+  list(token) {
+    const lineAttrs = this.addLineAttrs(token.raw)
+    const type = token.ordered ? 'ol' : 'ul'
+    const startatt = token.ordered && token.start !== 1 ? ' start="' + token.start + '"' : ''
+    const body = token.items
+      .map((item) => {
+        return this.listitem(item)
+      })
+      .join('')
+    return `<${type}${startatt}${lineAttrs}>\n${body}</${type}>\n`
+  }
+
+  listitem(item) {
+    const lineAttrs = this.addLineAttrs(item.raw)
+    let text = ''
+    if (item.task) {
+      const checkbox = `<input ${item.checked ? 'checked="" ' : ''}disabled="" type="checkbox">`
+      if (item.loose) {
+        if (item.tokens.length > 0 && item.tokens[0].type === 'paragraph') {
+          item.tokens[0].text = checkbox + ' ' + item.tokens[0].text
+          if (
+            item.tokens[0].tokens &&
+            item.tokens[0].tokens.length > 0 &&
+            item.tokens[0].tokens[0].type === 'text'
+          ) {
+            item.tokens[0].tokens[0].text = checkbox + ' ' + item.tokens[0].tokens[0].text
+          }
+        } else {
+          item.tokens.unshift({
+            type: 'text',
+            raw: checkbox + ' ',
+            text: checkbox + ' ',
+          })
+        }
+      } else {
+        text += checkbox + ' '
+      }
+    }
+    text += this.parser.parse(item.tokens, item.loose)
+    return `<li${lineAttrs}>${text}</li>\n`
+  }
+
+  code(token) {
+    const lineAttrs = this.addLineAttrs(token.raw)
+    const lang = token.lang || ''
+    const langClass = lang ? ` class="language-${lang}"` : ''
+    const escapedCode = token.text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+    return `<pre${lineAttrs}><code${langClass}>${escapedCode}</code></pre>\n`
+  }
+
+  table(token) {
+    const lineAttrs = this.addLineAttrs(token.raw)
+
+    let thead = '<thead>\n<tr>'
+    token.header.forEach((cell, i) => {
+      const align = token.align[i]
+      const alignAttr = align ? ` align="${align}"` : ''
+      thead += `<th${alignAttr}>${this.parser.parseInline(cell.tokens)}</th>`
+    })
+    thead += '</tr>\n</thead>\n'
+
+    let tbody = ''
+    if (token.rows.length > 0) {
+      tbody += '<tbody>\n'
+      token.rows.forEach((row) => {
+        tbody += '<tr>'
+        row.forEach((cell, i) => {
+          const align = token.align[i]
+          const alignAttr = align ? ` align="${align}"` : ''
+          tbody += `<td${alignAttr}>${this.parser.parseInline(cell.tokens)}</td>`
+        })
+        tbody += '</tr>\n'
+      })
+      tbody += '</tbody>\n'
+    }
+
+    return `<table${lineAttrs}>\n${thead}${tbody}</table>\n`
+  }
+
+  hr(token) {
+    const lineAttrs = this.addLineAttrs(token.raw)
+    return `<hr${lineAttrs}>\n`
+  }
+
+  strong(token) {
+    const text = this.parser.parseInline(token.tokens)
+    return `<strong>${text}</strong>`
+  }
+
+  em(token) {
+    const text = this.parser.parseInline(token.tokens)
+    return `<em>${text}</em>`
+  }
+
+  codespan(token) {
+    return `<code>${token.text}</code>`
+  }
+
+  link(token) {
+    const text = this.parser.parseInline(token.tokens)
+    return `<a href="${token.href}"${token.title ? ` title="${token.title}"` : ''}>${text}</a>`
+  }
+
+  image(token) {
+    return `<img src="${token.href}" alt="${token.text}"${token.title ? ` title="${token.title}"` : ''}>`
+  }
+}
+
+/**
+ * Convert markdown to HTML with source line numbers
+ * @param {string} markdown - Markdown text to convert
+ * @returns {string} HTML with data-line-start and data-line-end attributes
+ */
+function markdownToHtml(markdown) {
+  const tracker = new SourcePositionTracker(markdown)
+  const renderer = new LineNumberRenderer({}, tracker)
+
+  marked.setOptions({
+    gfm: true,
+    breaks: true,
+    tables: true,
+    renderer: renderer,
+  })
+
+  return marked.parse(markdown)
+}
 
 /**
  * Parse a hierarchical note filename
@@ -231,6 +416,7 @@ export class MarkdownViewer extends LitElement {
     content: { type: String },
     showLinkDialog: { type: Boolean },
     previewUrl: { type: String },
+    renderedHtml: { type: String, state: true },
   }
 
   static styles = css`
@@ -393,6 +579,7 @@ export class MarkdownViewer extends LitElement {
     this.isLoading = false
     this.errorMessage = ''
     this.content = ''
+    this.renderedHtml = ''
     this.markdownSource = '' // Store raw markdown source for extraction
     this.showLinkDialog = false
     this.previewUrl = ''
@@ -814,7 +1001,11 @@ export class MarkdownViewer extends LitElement {
    */
   lockContent(ranges) {
     this.extractedTexts = ranges.map((r) => r.extracted_text || r.text).filter(Boolean)
-    this.requestUpdate() // Re-render with locked styling
+
+    // Re-render with locked styling
+    if (this.content) {
+      this.setMarkdown(this.content)
+    }
   }
 
   /**
@@ -912,6 +1103,29 @@ export class MarkdownViewer extends LitElement {
   setMarkdown(content) {
     this.markdownSource = content // Store raw markdown for extraction
     this.content = content
+
+    // Render markdown to HTML synchronously
+    if (content) {
+      this.renderedHtml = markdownToHtml(content)
+
+      // Apply locked styling to extracted content
+      if (this.extractedTexts.length > 0) {
+        this.extractedTexts.forEach((extractedText) => {
+          if (extractedText) {
+            // Escape special regex characters
+            const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const regex = new RegExp(`(${escapedText})`, 'gi')
+            this.renderedHtml = this.renderedHtml.replace(
+              regex,
+              '<span class="extracted-content">$1</span>'
+            )
+          }
+        })
+      }
+    } else {
+      this.renderedHtml = ''
+    }
+
     this.requestUpdate()
   }
 
@@ -951,23 +1165,8 @@ export class MarkdownViewer extends LitElement {
       return html`<div class="empty-message">No content</div>`
     }
 
-    // Render markdown to HTML with locked content highlighting
-    let rendered = marked.parse(this.content || '')
-
-    // Apply locked styling to extracted content
-    if (this.extractedTexts.length > 0) {
-      this.extractedTexts.forEach((extractedText) => {
-        if (extractedText) {
-          // Escape special regex characters
-          const escapedText = extractedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const regex = new RegExp(`(${escapedText})`, 'gi')
-          rendered = rendered.replace(regex, '<span class="extracted-content">$1</span>')
-        }
-      })
-    }
-
     return html`
-      <div class="markdown-viewer" .innerHTML=${rendered}></div>
+      <div class="markdown-viewer" .innerHTML=${this.renderedHtml}></div>
       ${this.showLinkDialog
         ? html`
             <div class="link-dialog-backdrop" @click=${this.closeLinkDialog}>

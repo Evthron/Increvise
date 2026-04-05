@@ -5,7 +5,6 @@
 import { LitElement, html, css } from 'lit'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { TextLayer, setLayerDimensions } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { marked } from 'marked'
 import '@shoelace-style/shoelace/dist/components/dialog/dialog.js'
 import '@shoelace-style/shoelace/dist/components/input/input.js'
 import '@shoelace-style/shoelace/dist/components/button/button.js'

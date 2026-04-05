@@ -70,7 +70,7 @@
     "codemirror": "^6.0.2",
     "dompurify": "^3.3.1",
     "lit": "^3.3.1",
-    "marked": "^17.0.1",
+    "marked": "^17.0.6",
     "node-fetch": "^3.3.2",
     "node-html-markdown": "^2.0.0",
     "pdfjs-dist": "^5.4.449"
