@@ -58,8 +58,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('validate-note', notePath, libraryId),
   compareFilenameWithDbRange: (notePath, libraryId) =>
     ipcRenderer.invoke('compare-filename-with-db-range', notePath, libraryId),
-  getChildRanges: (parentPath, libraryId) =>
-    ipcRenderer.invoke('get-child-ranges', parentPath, libraryId),
+  getChildRanges: (parentPath, libraryId, useDynamicContent) =>
+    ipcRenderer.invoke('get-child-ranges', parentPath, libraryId, useDynamicContent),
   updateLockedRanges: (parentPath, rangeUpdates, libraryId) =>
     ipcRenderer.invoke('update-locked-ranges', parentPath, rangeUpdates, libraryId),
   getNoteExtractInfo: (notePath, libraryId) =>
