@@ -524,6 +524,21 @@ export class MarkdownViewer extends LitElement {
       transition: all 0.2s ease;
     }
 
+    .selected-content {
+      background: linear-gradient(
+        to right,
+        rgba(237, 225, 213, 0.5) 0%,
+        rgba(237, 225, 213, 0.2) 100%
+      );
+      border-left: 4px solid #50b01d;
+      padding-left: 0.75rem;
+      margin-left: -0.25rem;
+      border-radius: 0 4px 4px 0;
+      box-shadow: 0 1px 3px rgba(255, 152, 0, 0.1);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
     .link-dialog-backdrop {
       position: fixed;
       inset: 0;
@@ -600,6 +615,82 @@ export class MarkdownViewer extends LitElement {
         event.preventDefault()
         this.openLinkDialog(href)
       }
+    }
+    // Track drag selection state
+    this._isDragging = false
+    this._dragStartLine = null
+    this._dragEndLine = null
+
+    // Mouse down handler - start drag selection
+    this._mouseDownHandler = (event) => {
+      console.log('🖱️ MouseDown event triggered!', event.target)
+
+      // Use composedPath to work correctly in shadow DOM
+      const path = event.composedPath()
+      console.log('📍 Event path:', path)
+
+      // Find the first element with line numbers in the event path
+      const element = path.find(
+        (el) =>
+          el.nodeType === 1 &&
+          el.hasAttribute &&
+          el.hasAttribute('data-line-start') &&
+          el.hasAttribute('data-line-end')
+      )
+
+      console.log('🎯 Found element with line numbers:', element)
+
+      if (!element) {
+        console.log('❌ No element with line numbers found')
+        return
+      }
+
+      if (element.classList.contains('extracted-content')) {
+        console.log('⛔ Element is extracted, ignoring')
+        return
+      }
+
+      this._isDragging = true
+      this._dragStartLine = parseInt(element.getAttribute('data-line-start'))
+      this._dragEndLine = parseInt(element.getAttribute('data-line-end'))
+
+      console.log(`✅ Drag started at lines ${this._dragStartLine}-${this._dragEndLine}`)
+    }
+
+    // Mouse move handler - update drag selection
+    this._mouseMoveHandler = (event) => {
+      if (!this._isDragging) return
+
+      console.log('🔄 MouseMove during drag')
+
+      const path = event.composedPath()
+      const element = path.find(
+        (el) =>
+          el.nodeType === 1 &&
+          el.hasAttribute &&
+          el.hasAttribute('data-line-start') &&
+          el.hasAttribute('data-line-end')
+      )
+
+      if (!element || element.classList.contains('extracted-content')) {
+        return
+      }
+
+      this._dragEndLine = parseInt(element.getAttribute('data-line-end'))
+      console.log(`📏 Drag extended to line ${this._dragEndLine}`)
+
+      // Update selection highlights in real-time
+      this._updateDragSelection()
+    }
+
+    // Mouse up handler - finish drag selection
+    this._mouseUpHandler = (event) => {
+      if (!this._isDragging) return
+
+      console.log(`✅ Drag ended: lines ${this._dragStartLine} to ${this._dragEndLine}`)
+
+      this._isDragging = false
+      this._updateDragSelection()
     }
   }
 
@@ -1004,8 +1095,60 @@ export class MarkdownViewer extends LitElement {
   }
 
   /**
+   * Update drag selection highlighting
+   * Highlights all elements within the dragged range
+   */
+  _updateDragSelection() {
+    const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
+    if (!viewer) return
+
+    const minLine = Math.min(this._dragStartLine, this._dragEndLine)
+    const maxLine = Math.max(this._dragStartLine, this._dragEndLine)
+
+    console.log(`🎨 Updating selection for lines ${minLine} to ${maxLine}`)
+
+    // Find all elements with line numbers
+    const elements = viewer.querySelectorAll('[data-line-start][data-line-end]')
+
+    elements.forEach((el) => {
+      // Skip extracted content
+      if (el.classList.contains('extracted-content')) {
+        return
+      }
+
+      const elStart = parseInt(el.getAttribute('data-line-start'))
+      const elEnd = parseInt(el.getAttribute('data-line-end'))
+
+      // Check if this element overlaps with the selected range
+      const overlaps = elStart <= maxLine && elEnd >= minLine
+
+      if (overlaps) {
+        el.classList.add('selected-content')
+      } else {
+        el.classList.remove('selected-content')
+      }
+    })
+  }
+
+  /**
+   * Clear all selected content
+   */
+  clearSelectedContent() {
+    const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
+    if (!viewer) return
+
+    viewer.querySelectorAll('.selected-content').forEach((el) => {
+      el.classList.remove('selected-content')
+    })
+
+    this._dragStartLine = null
+    this._dragEndLine = null
+    console.log('🧹 Cleared all selected content')
+  }
+
+  /**
    * Apply highlighting to extracted ranges after rendering
-    console.log('📌 Extracted    */
+     console.log('📌 Extracted    */
   applyExtractedHighlighting() {
     if (this.extractedRanges.length === 0) {
       console.log('⚠️ No extracted ranges to highlight')
@@ -1052,9 +1195,6 @@ export class MarkdownViewer extends LitElement {
           highlightedCount++
         } else {
           el.classList.remove('extracted-content')
-          el.addEventListener('click', () => {
-            console.log(`Clicked element with lines ${elStart}-${elEnd}, not extracted`)
-          })
         }
       })
 
@@ -1160,11 +1300,21 @@ export class MarkdownViewer extends LitElement {
   connectedCallback() {
     super.connectedCallback()
     this.addEventListener('click', this._linkHandler, true)
+
+    // Add drag selection handlers
+    console.log('📌 Registering drag selection handlers on MarkdownViewer')
+    this.addEventListener('mousedown', this._mouseDownHandler, false)
+    this.addEventListener('mousemove', this._mouseMoveHandler, false)
+    this.addEventListener('mouseup', this._mouseUpHandler, false)
+    console.log('✅ Drag selection handlers registered')
   }
 
   // Clean up event listener when element is removed
   disconnectedCallback() {
     this.removeEventListener('click', this._linkHandler, true)
+    this.removeEventListener('mousedown', this._mouseDownHandler, false)
+    this.removeEventListener('mousemove', this._mouseMoveHandler, false)
+    this.removeEventListener('mouseup', this._mouseUpHandler, false)
     super.disconnectedCallback()
   }
 
