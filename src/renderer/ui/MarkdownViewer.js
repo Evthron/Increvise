@@ -525,10 +525,18 @@ export class MarkdownViewer extends LitElement {
       position: relative;
     }
 
-    .extracted-toggle {
+    .extracted-controls {
       position: absolute;
       top: 4px;
       right: 4px;
+      display: inline-flex;
+      gap: 4px;
+      pointer-events: auto;
+    }
+
+    .extracted-toggle,
+    .extracted-open {
+      position: absolute;
       background: rgba(255, 152, 0, 0.15);
       border: 1px solid rgba(255, 152, 0, 0.3);
       border-radius: 4px;
@@ -541,7 +549,13 @@ export class MarkdownViewer extends LitElement {
       transition: all 0.2s ease;
     }
 
-    .extracted-toggle:hover {
+    .extracted-toggle,
+    .extracted-open {
+      position: static;
+    }
+
+    .extracted-toggle:hover,
+    .extracted-open:hover {
       background: rgba(255, 152, 0, 0.3);
     }
 
@@ -907,8 +921,8 @@ export class MarkdownViewer extends LitElement {
    */
   _addExtractedToggle(el, elStart, elEnd) {
     // Remove existing toggle if any
-    const existingToggle = el.querySelector('.extracted-toggle')
-    if (existingToggle) existingToggle.remove()
+    const existingControls = el.querySelector('.extracted-controls')
+    if (existingControls) existingControls.remove()
 
     // Find the matching range to get the child note path
     const range = this.extractedRanges.find((r) => elStart <= r.end && elEnd >= r.start)
@@ -937,6 +951,9 @@ export class MarkdownViewer extends LitElement {
     }
     this._toggleHosts.set(range.path, el)
 
+    const controls = document.createElement('div')
+    controls.className = 'extracted-controls'
+
     const toggle = document.createElement('button')
     toggle.className = `extracted-toggle${mode === 'recursive' ? ' active' : ''}`
     toggle.textContent = mode === 'recursive' ? 'Recursive' : 'Original'
@@ -946,8 +963,25 @@ export class MarkdownViewer extends LitElement {
       this.toggleRenderMode(range.path)
     })
 
+    const openBtn = document.createElement('button')
+    openBtn.className = 'extracted-open'
+    openBtn.textContent = 'Open'
+    openBtn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const rootPath = window.currentFile?.rootPath || ''
+      const fullPath = rootPath ? `${rootPath}/${range.path}` : range.path
+      const editorPanel = document.querySelector('editor-panel')
+      if (editorPanel) {
+        await editorPanel.openFile(fullPath)
+      }
+    })
+
+    controls.appendChild(toggle)
+    controls.appendChild(openBtn)
+
     el.style.position = 'relative'
-    el.appendChild(toggle)
+    el.appendChild(controls)
   }
 
   /**
@@ -1018,8 +1052,8 @@ export class MarkdownViewer extends LitElement {
       viewer.querySelectorAll('.extracted-content').forEach((el) => {
         el.classList.remove('extracted-content')
         el.classList.remove('extracted-recursive-content')
-        const toggle = el.querySelector('.extracted-toggle')
-        if (toggle) toggle.remove()
+        const controls = el.querySelector('.extracted-controls')
+        if (controls) controls.remove()
       })
     }
 
@@ -1144,14 +1178,14 @@ export class MarkdownViewer extends LitElement {
         const renderedHtml = markdownToHtml(childContent, false)
 
         elements.forEach((el, index) => {
-          const toggle = el.querySelector('.extracted-toggle')
+          const controls = el.querySelector('.extracted-controls')
           if (index === 0) {
             el.innerHTML = renderedHtml
           } else {
             el.innerHTML = ''
           }
-          if (toggle) {
-            el.appendChild(toggle)
+          if (controls) {
+            el.appendChild(controls)
           }
           el.classList.add('extracted-recursive-content')
           el.removeAttribute('data-line-start')
