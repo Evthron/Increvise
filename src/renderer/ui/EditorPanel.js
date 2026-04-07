@@ -333,10 +333,6 @@ export class EditorPanel extends LitElement {
       // Sync fileLibraryId with workspaceLibraryId if needed
       if (window.currentWorkspace.libraryId && !window.currentFile.libraryId) {
         window.currentFile.libraryId = window.currentWorkspace.libraryId
-        console.log(
-          'Syncing file library ID with workspace library ID:',
-          window.currentWorkspace.libraryId
-        )
       }
 
       // Check if file is a PDF extract by querying database
@@ -417,9 +413,9 @@ export class EditorPanel extends LitElement {
         this.pdfViewer?.resetView?.()
         const result = await window.fileManager.readFile(filePath)
         if (!result.success) {
-          alert(`Error reading file: ${result.error}`)
-          console.error('Error reading file:', result.error)
-          return
+          // Enter recovery logic
+          console.warn('Failed to read file, attempting recovery:', result.error)
+          // Use source hash from the note_soruce table, recusviely calculate the hash of the files with the same extension in the same directory, and find the file with the matching hash
         }
         await this._openTextFile(filePath, result.content)
       }

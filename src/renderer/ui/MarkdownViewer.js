@@ -185,7 +185,7 @@ class LineNumberRenderer extends marked.Renderer {
  * @param {string} markdown - Markdown text to convert
  * @returns {string} HTML with data-line-start and data-line-end attributes
  */
-function markdownToHtml(markdown) {
+function markdownToHtml(markdown, includeLineNumbers = true) {
   const tracker = new SourcePositionTracker(markdown)
   const renderer = new LineNumberRenderer({}, tracker)
 
@@ -193,7 +193,7 @@ function markdownToHtml(markdown) {
     gfm: true,
     breaks: true,
     tables: true,
-    renderer: renderer,
+    renderer: includeLineNumbers ? renderer : new marked.Renderer(),
   })
 
   return marked.parse(markdown)
@@ -519,9 +519,41 @@ export class MarkdownViewer extends LitElement {
       margin-left: -0.25rem;
       border-radius: 0 4px 4px 0;
       box-shadow: 0 1px 3px rgba(255, 152, 0, 0.1);
-      pointer-events: none;
       user-select: none;
+      pointer-events: auto;
       transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .extracted-toggle {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: rgba(255, 152, 0, 0.15);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      pointer-events: auto;
+      user-select: none;
+      color: #e65100;
+      transition: all 0.2s ease;
+    }
+
+    .extracted-toggle:hover {
+      background: rgba(255, 152, 0, 0.3);
+    }
+
+    .extracted-toggle.active {
+      background: rgba(76, 175, 80, 0.15);
+      border-color: rgba(76, 175, 80, 0.3);
+      color: #2e7d32;
+    }
+
+    .extracted-recursive-content {
+      pointer-events: auto;
+      user-select: text;
     }
 
     .selected-content {
@@ -604,7 +636,11 @@ export class MarkdownViewer extends LitElement {
     this.showLinkDialog = false
     this.previewUrl = ''
     this.extractedTexts = [] // Store extracted content for locking (legacy text-based)
-    this.extractedRanges = [] // Store extracted line ranges: [{lineStart, lineEnd}, ...]
+    this.extractedRanges = [] // Store extracted line ranges: [{start, end, path}, ...]
+    this.renderModes = new Map() // path -> 'original' | 'recursive'
+    this._extractedElements = new Map() // path -> elements[]
+    this._extractedOriginals = new WeakMap() // element -> { html, start, end }
+    this._toggleHosts = new Map() // path -> element
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -842,25 +878,91 @@ export class MarkdownViewer extends LitElement {
       // Find all elements with line numbers
       const elements = viewer.querySelectorAll('[data-line-start][data-line-end]')
 
+      this._extractedElements.clear()
+      this._toggleHosts.clear()
       elements.forEach((el) => {
         const elStart = parseInt(el.getAttribute('data-line-start'))
         const elEnd = parseInt(el.getAttribute('data-line-end'))
 
         // Check if this element overlaps with any extracted range
         const isExtracted = this.extractedRanges.some((range) => {
-          // Check for overlap: element overlaps if it starts before range ends
-          // and ends after range starts
           const overlaps = elStart <= range.end && elEnd >= range.start
           return overlaps
         })
 
         if (isExtracted) {
           el.classList.add('extracted-content')
+          // Add toggle button
+          this._addExtractedToggle(el, elStart, elEnd)
         } else {
           el.classList.remove('extracted-content')
         }
       })
+      this._applyRecursiveRendering()
     }, 0)
+  }
+
+  /**
+   * Add a toggle button to an extracted content element
+   */
+  _addExtractedToggle(el, elStart, elEnd) {
+    // Remove existing toggle if any
+    const existingToggle = el.querySelector('.extracted-toggle')
+    if (existingToggle) existingToggle.remove()
+
+    // Find the matching range to get the child note path
+    const range = this.extractedRanges.find((r) => elStart <= r.end && elEnd >= r.start)
+    if (!range) return
+
+    // Track extracted elements for this path
+    const existing = this._extractedElements.get(range.path) || []
+    if (!existing.includes(el)) {
+      this._extractedElements.set(range.path, [...existing, el])
+    }
+
+    // Store original HTML for restoration
+    if (!this._extractedOriginals.has(el)) {
+      this._extractedOriginals.set(el, {
+        html: el.innerHTML,
+        start: elStart,
+        end: elEnd,
+      })
+    }
+
+    const mode = this.renderModes.get(range.path) || 'original'
+
+    const existingHost = this._toggleHosts.get(range.path)
+    if (existingHost && existingHost !== el) {
+      return
+    }
+    this._toggleHosts.set(range.path, el)
+
+    const toggle = document.createElement('button')
+    toggle.className = `extracted-toggle${mode === 'recursive' ? ' active' : ''}`
+    toggle.textContent = mode === 'recursive' ? 'Recursive' : 'Original'
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      this.toggleRenderMode(range.path)
+    })
+
+    el.style.position = 'relative'
+    el.appendChild(toggle)
+  }
+
+  /**
+   * Reset all internal state
+   */
+  _resetState() {
+    this.extractedTexts = []
+    this.extractedRanges = []
+    this.renderModes.clear()
+    this._extractedElements.clear()
+    this._extractedOriginals = new WeakMap()
+    this._toggleHosts.clear()
+    this._isDragging = false
+    this._dragStartLine = null
+    this._dragEndLine = null
   }
 
   /**
@@ -868,6 +970,7 @@ export class MarkdownViewer extends LitElement {
    * @param {string} filePath - The file path to load ranges from
    */
   async loadAndLockExtractedContent(filePath) {
+    this._resetState()
     try {
       const rangesResult = await window.fileManager.getChildRanges(
         filePath,
@@ -887,6 +990,10 @@ export class MarkdownViewer extends LitElement {
             path: r.path,
           }))
 
+        this.extractedRanges.forEach((range) => {
+          this.renderModes.set(range.path, 'recursive')
+        })
+
         if (this.content) {
           this.setMarkdown(this.content)
         }
@@ -903,18 +1010,166 @@ export class MarkdownViewer extends LitElement {
    * Clear all locked content
    */
   clearLockedContent() {
-    this.extractedTexts = []
-    this.extractedRanges = []
+    this._resetState()
 
     // Remove highlighting from all elements
     const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
     if (viewer) {
       viewer.querySelectorAll('.extracted-content').forEach((el) => {
         el.classList.remove('extracted-content')
+        el.classList.remove('extracted-recursive-content')
+        const toggle = el.querySelector('.extracted-toggle')
+        if (toggle) toggle.remove()
       })
     }
 
     this.requestUpdate()
+  }
+
+  /**
+   * Toggle render mode for an extracted block
+   * @param {string} path - The child note file path
+   */
+  toggleRenderMode(path) {
+    const current = this.renderModes.get(path) || 'original'
+    this.renderModes.set(path, current === 'original' ? 'recursive' : 'original')
+    this._updateToggleForPath(path)
+    this._applyRecursiveRendering()
+  }
+
+  /**
+   * Update toggle label and state for a specific extracted path
+   * @param {string} path - The child note file path
+   */
+  _updateToggleForPath(path) {
+    const mode = this.renderModes.get(path) || 'original'
+    const elements = this._extractedElements.get(path) || []
+
+    elements.forEach((el) => {
+      const toggle = el.querySelector('.extracted-toggle')
+      if (!toggle) return
+      toggle.classList.toggle('active', mode === 'recursive')
+      toggle.textContent = mode === 'recursive' ? 'Recursive' : 'Original'
+    })
+  }
+
+  /**
+   * Recursively fetch content of a child note and its own children
+   * @param {string} childPath - The child note file path
+   * @returns {Promise<string>} - Rendered markdown content
+   */
+  async _fetchChildContent(childPath, visited = new Set()) {
+    const rootPath = window.currentFile?.rootPath || ''
+    const resolvedPath = rootPath ? `${rootPath}/${childPath}` : childPath
+    const key = resolvedPath || childPath
+    if (visited.has(key)) return ''
+    visited.add(key)
+    try {
+      // Read the child note's content
+      const result = await window.fileManager.readFile(resolvedPath)
+      if (!result || !result.success) return ''
+      const content = typeof result.content === 'string' ? result.content : ''
+      if (!content) return ''
+
+      // Get the child note's own extracted ranges
+      const childRangesResult = await window.fileManager.getChildRanges(
+        resolvedPath,
+        window.currentFile.libraryId,
+        false
+      )
+
+      if (!childRangesResult || childRangesResult.length === 0) {
+        // No children, return content as-is
+        return content
+      }
+
+      // Has children - render recursively
+      // Parse the content to find extracted blocks, then recursively replace
+      let rendered = content
+      const validRanges = childRangesResult
+        .filter((r) => r.start !== null && r.end !== null)
+        .map((r) => ({
+          start: parseInt(r.start),
+          end: parseInt(r.end),
+          path: r.path,
+          content: r.content,
+          mode: this.renderModes.get(r.path) || 'original',
+        }))
+
+      // For each child range in recursive mode, replace its content
+      for (const range of validRanges) {
+        if (range.mode === 'recursive') {
+          const childContent = await this._fetchChildContent(range.path, visited)
+          if (childContent) {
+            // Replace the lines in the content
+            const lines = rendered.split('\n')
+            const before = lines.slice(0, range.start - 1)
+            const after = lines.slice(range.end)
+            rendered = [...before, childContent, ...after].join('\n')
+          }
+        } else if (typeof range.content === 'string' && range.content.length > 0) {
+          // Use stored child content when not recursive
+          const lines = rendered.split('\n')
+          const before = lines.slice(0, range.start - 1)
+          const after = lines.slice(range.end)
+          rendered = [...before, range.content, ...after].join('\n')
+        }
+      }
+
+      return rendered
+    } catch (error) {
+      console.error(`Failed to fetch child content for ${childPath}:`, error)
+      return ''
+    }
+  }
+
+  /**
+   * Apply recursive rendering to extracted blocks that are in recursive mode
+   * Replaces the content of extracted blocks with their rendered child content
+   */
+  async _applyRecursiveRendering() {
+    const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
+    if (!viewer) return
+
+    for (const range of this.extractedRanges) {
+      const mode = this.renderModes.get(range.path) || 'original'
+      const elements = this._extractedElements.get(range.path) || []
+
+      if (mode === 'recursive') {
+        // Fetch and render child content
+        const childContent = await this._fetchChildContent(range.path)
+        if (!childContent) continue
+
+        // Render the child content as markdown (no line numbers)
+        const renderedHtml = markdownToHtml(childContent, false)
+
+        elements.forEach((el, index) => {
+          const toggle = el.querySelector('.extracted-toggle')
+          if (index === 0) {
+            el.innerHTML = renderedHtml
+          } else {
+            el.innerHTML = ''
+          }
+          if (toggle) {
+            el.appendChild(toggle)
+          }
+          el.classList.add('extracted-recursive-content')
+          el.removeAttribute('data-line-start')
+          el.removeAttribute('data-line-end')
+        })
+      } else {
+        // Restore original HTML and attributes
+        elements.forEach((el) => {
+          const original = this._extractedOriginals.get(el)
+          if (!original) return
+          el.innerHTML = original.html
+          el.classList.remove('extracted-recursive-content')
+          el.setAttribute('data-line-start', original.start)
+          el.setAttribute('data-line-end', original.end)
+          this._addExtractedToggle(el, original.start, original.end)
+        })
+      }
+    }
   }
 
   // Intercept clicks on external links to open them in a dialog/pop up
@@ -945,7 +1200,7 @@ export class MarkdownViewer extends LitElement {
     this.markdownSource = content // Store raw markdown for extraction
     this.content = content
     // Render markdown to HTML synchronously
-    this.renderedHtml = markdownToHtml(content)
+    this.renderedHtml = markdownToHtml(content, true)
     this.requestUpdate()
     // Apply line-based highlighting after render
     this.applyExtractedHighlighting()
