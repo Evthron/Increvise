@@ -527,16 +527,14 @@ export class MarkdownViewer extends LitElement {
     .selected-content {
       background: linear-gradient(
         to right,
-        rgba(237, 225, 213, 0.5) 0%,
-        rgba(237, 225, 213, 0.2) 100%
+        rgba(225, 225, 213, 0.5) 0%,
+        rgba(225, 225, 213, 0.2) 100%
       );
       border-left: 4px solid #50b01d;
       padding-left: 0.75rem;
       margin-left: -0.25rem;
       border-radius: 0 4px 4px 0;
       box-shadow: 0 1px 3px rgba(255, 152, 0, 0.1);
-      cursor: pointer;
-      transition: all 0.2s ease;
     }
 
     .link-dialog-backdrop {
@@ -623,47 +621,9 @@ export class MarkdownViewer extends LitElement {
 
     // Mouse down handler - start drag selection
     this._mouseDownHandler = (event) => {
-      console.log('🖱️ MouseDown event triggered!', event.target)
-
-      // Use composedPath to work correctly in shadow DOM
       const path = event.composedPath()
-      console.log('📍 Event path:', path)
 
       // Find the first element with line numbers in the event path
-      const element = path.find(
-        (el) =>
-          el.nodeType === 1 &&
-          el.hasAttribute &&
-          el.hasAttribute('data-line-start') &&
-          el.hasAttribute('data-line-end')
-      )
-
-      console.log('🎯 Found element with line numbers:', element)
-
-      if (!element) {
-        console.log('❌ No element with line numbers found')
-        return
-      }
-
-      if (element.classList.contains('extracted-content')) {
-        console.log('⛔ Element is extracted, ignoring')
-        return
-      }
-
-      this._isDragging = true
-      this._dragStartLine = parseInt(element.getAttribute('data-line-start'))
-      this._dragEndLine = parseInt(element.getAttribute('data-line-end'))
-
-      console.log(`✅ Drag started at lines ${this._dragStartLine}-${this._dragEndLine}`)
-    }
-
-    // Mouse move handler - update drag selection
-    this._mouseMoveHandler = (event) => {
-      if (!this._isDragging) return
-
-      console.log('🔄 MouseMove during drag')
-
-      const path = event.composedPath()
       const element = path.find(
         (el) =>
           el.nodeType === 1 &&
@@ -676,421 +636,38 @@ export class MarkdownViewer extends LitElement {
         return
       }
 
+      this._isDragging = true
+      this._dragStartLine = parseInt(element.getAttribute('data-line-start'))
       this._dragEndLine = parseInt(element.getAttribute('data-line-end'))
-      console.log(`📏 Drag extended to line ${this._dragEndLine}`)
+    }
+
+    // Mouse move handler - update drag selection
+    this._mouseMoveHandler = (event) => {
+      if (!this._isDragging) return
+
+      const path = event.composedPath()
+      const element = path.find(
+        (el) =>
+          el.nodeType === 1 &&
+          el.hasAttribute &&
+          el.hasAttribute('data-line-start') &&
+          el.hasAttribute('data-line-end')
+      )
+
+      if (!element) return
+
+      this._dragEndLine = parseInt(element.getAttribute('data-line-end'))
 
       // Update selection highlights in real-time
       this._updateDragSelection()
     }
 
     // Mouse up handler - finish drag selection
-    this._mouseUpHandler = (event) => {
+    this._mouseUpHandler = () => {
       if (!this._isDragging) return
-
-      console.log(`✅ Drag ended: lines ${this._dragStartLine} to ${this._dragEndLine}`)
 
       this._isDragging = false
       this._updateDragSelection()
-    }
-  }
-
-  /**
-   * Close any unclosed HTML tags using a stack-based approach
-   * Needed because when selecting partial content from rendered markdown,
-   * the HTML fragment may have unclosed tags that need to be closed
-   * before converting back to markdown format
-   * Yes this is basically the one in HTMLViewer.js but needed here too
-   * @param {string} html - HTML string that may have unclosed tags
-   * @returns {string} HTML with all tags properly closed
-   */
-  closeMissingTags(html) {
-    // These have no closing tags so when we meet them we dont push to stack and skip them directly
-    const voidElements = new Set([
-      'area',
-      'base',
-      'col',
-      'embed',
-      'hr',
-      'img',
-      'input',
-      'link',
-      'meta',
-      'param',
-      'source',
-      'track',
-      'wbr',
-    ])
-
-    // Stack to keep track of open tags
-    const stack = []
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g
-
-    let match
-    // Loop through the html string to find open tags AND closing tags
-    while ((match = tagRegex.exec(html)) !== null) {
-      const [fullMatch, tagName] = match
-      const lowerTag = tagName.toLowerCase()
-
-      if (voidElements.has(lowerTag)) {
-        // Skip void elements
-        continue
-      }
-
-      if (fullMatch.startsWith('</')) {
-        // Closing tag, pop if matches top of stack
-        if (stack.length > 0 && stack[stack.length - 1] === lowerTag) {
-          stack.pop()
-        }
-      } else {
-        // Opening tag: push to stack
-        stack.push(lowerTag)
-      }
-    }
-
-    // Append the remaining unclosed tags in the stack to the end of the html string
-    let result = html
-    while (stack.length > 0) {
-      const openTag = stack.pop()
-      result += `</${openTag}>`
-    }
-
-    return result
-  }
-
-  /**
-   * Convert HTML back to markdown format
-   * Uses tag handlers for clean, maintainable conversion
-   * The reason this exists is that when you select partial content from rendered markdown,
-   * we are actually selecting the HTML fragment and we need to convert this back to markdown for extraction
-   * @param {string} html - HTML string to convert
-   * @returns {string} Markdown representation
-   */
-  htmlToMarkdown(html) {
-    const temp = document.createElement('div')
-    temp.innerHTML = html
-
-    // Tag handler functions for clean organization, they will be referenced later
-    const handlers = {
-      // level = number like 1 to 6 and # repeat based on level
-      // like heading 1 = #, heading 2 = ## etc
-      // the children is the inner text content like Title, Section or whatever words you think is appropriate
-      // e.g. heading(1, 'Title') => '# Title\n\n' ; heading(2, 'Section') => '## Section\n\n' etc
-      heading: (level, children) => `${'#'.repeat(level)} ${children}\n\n`,
-
-      // wraps children text with market
-      // like maybe bold then **children** or italic then *children*, or strikethrough then ~~children~~
-      format: (marker, children) => `${marker}${children}${marker}`,
-
-      // converts <a> tags to markdown link format
-      // reads href and title attributes, include title if exists
-      link: (node, children) => {
-        const href = node.getAttribute('href') || ''
-        const title = node.getAttribute('title')
-        return title ? `[${children}](${href} "${title}")` : `[${children}](${href})`
-      },
-
-      // tbh the rest are basically what they do but anyways
-      // converts <img> tags to markdown image format aka alt
-      image: (node) => {
-        const src = node.getAttribute('src') || ''
-        const alt = node.getAttribute('alt') || ''
-        const title = node.getAttribute('title')
-        return title ? `![${alt}](${src} "${title}")` : `![${alt}](${src})`
-      },
-
-      // convert inline <code> tags to markdown inline code format like `code` something like that
-      code: (node, children) => {
-        if (node.parentElement?.tagName.toLowerCase() === 'pre') return children
-        return `\`${children}\``
-      },
-
-      // convert <pre><code> blocks to markdown code block format
-      // tries to detect language from class like js or python etc
-      codeBlock: (node, children) => {
-        const codeEl = node.querySelector('code')
-        const lang =
-          codeEl?.className
-            .split(' ')
-            .find((c) => c.startsWith('language-'))
-            ?.replace('language-', '') || ''
-        return lang ? `\`\`\`${lang}\n${children}\n\`\`\`\n\n` : `\`\`\`\n${children}\n\`\`\`\n\n`
-      },
-
-      // convert <li> items to markdown list format
-      list: (node, children) => {
-        const parent = node.parentElement
-        const isOrdered = parent?.tagName.toLowerCase() === 'ol'
-        if (isOrdered) {
-          const index = Array.from(parent.children).indexOf(node) + 1
-          return `${index}. ${children}\n`
-        }
-        // Task list check
-        const firstChild = node.firstChild
-        if (firstChild?.nodeName === 'INPUT' && firstChild.type === 'checkbox') {
-          const checked = firstChild.checked ? 'x' : ' '
-          const text = Array.from(node.childNodes)
-            .slice(1)
-            .map((n) => this.processNode(n))
-            .join('')
-          return `- [${checked}]${text}\n`
-        }
-        return `- ${children}\n`
-      },
-    }
-
-    // Main node processor, recursive as call itself for each child nodes
-    this.processNode = (node) => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent
-      if (node.nodeType !== Node.ELEMENT_NODE) return ''
-
-      const tag = node.tagName.toLowerCase()
-      const children = Array.from(node.childNodes)
-        .map((n) => this.processNode(n))
-        .join('')
-
-      // Map tags to handlers
-      const tagMap = {
-        // intuitive and mentioned already above
-        h1: () => handlers.heading(1, children),
-        h2: () => handlers.heading(2, children),
-        h3: () => handlers.heading(3, children),
-        h4: () => handlers.heading(4, children),
-        h5: () => handlers.heading(5, children),
-        h6: () => handlers.heading(6, children),
-        p: () => `${children}\n\n`,
-        strong: () => handlers.format('**', children),
-        b: () => handlers.format('**', children),
-        em: () => handlers.format('*', children),
-        i: () => handlers.format('*', children),
-        del: () => handlers.format('~~', children),
-        s: () => handlers.format('~~', children),
-        strike: () => handlers.format('~~', children),
-        code: () => handlers.code(node, children),
-        pre: () => handlers.codeBlock(node, children),
-        a: () => handlers.link(node, children),
-        img: () => handlers.image(node),
-        ul: () => `${children}\n`,
-        ol: () => `${children}\n`,
-        li: () => handlers.list(node, children),
-        blockquote: () => `> ${children}\n\n`,
-        hr: () => `---\n\n`,
-        br: () => '\n',
-        table: () => this.processTable(node),
-        thead: () => '',
-        tbody: () => '',
-        tr: () => '',
-        td: () => '',
-        th: () => '',
-      }
-
-      // if tagMap[tag] exists, call the function and return result, else return children as is
-      return tagMap[tag] ? tagMap[tag]() : children
-    }
-
-    // use regex to replace multiple newlines with max 2 newlines and trim
-    const markdown = this.processNode(temp)
-    return markdown.replace(/\n{3,}/g, '\n\n').trim()
-  }
-
-  /**
-   * Process HTML table to markdown table format
-   * @param {HTMLElement} tableNode - The table element
-   * @returns {string} Markdown table
-   */
-  processTable(tableNode) {
-    const rows = Array.from(tableNode.querySelectorAll('tr'))
-    if (rows.length === 0) return ''
-
-    // collect all cell contents and calculate max widths
-    const tableData = []
-    const maxWidths = []
-
-    // for each row select all <th> and <td> cells
-    // for each cell get text content, trim and escape pipes
-    // update maxWidths for each column based on content length
-    // math.max to ensure min width of 15 chars which is min col width for readability
-    // store row data with isHeader flag
-    rows.forEach((row) => {
-      const cells = Array.from(row.querySelectorAll('th, td'))
-      const rowData = cells.map((cell, idx) => {
-        const content = cell.textContent.trim().replace(/\|/g, '\\|')
-        maxWidths[idx] = Math.max(maxWidths[idx] || 10, content.length, 15) // Min 15 chars
-        return content
-      })
-      tableData.push({ cells: rowData, isHeader: row.querySelector('th') !== null })
-    })
-
-    // build markdown with padded cells, start the output with newline so table separated from prev content
-    let markdown = '\n'
-    let headerProcessed = false
-
-    // for each row, pad each cell to max width and join with pipes
-    // after header row, add separator row with dashes
-    // use isHeader flag to determine header row
-    tableData.forEach((row, rowIndex) => {
-      const paddedCells = row.cells.map((content, idx) => content.padEnd(maxWidths[idx], ' '))
-      markdown += `| ${paddedCells.join(' | ')} |\n`
-
-      // Add separator after header
-      if ((row.isHeader || rowIndex === 0) && !headerProcessed) {
-        const separator = maxWidths.map((width) => '-'.repeat(width)).join(' | ')
-        markdown += `| ${separator} |\n`
-        headerProcessed = true
-      }
-    })
-
-    return markdown + '\n'
-  }
-
-  /**
-   * Clean up formatting markers from partial selections using pairing algorithm
-   * Similar to HTML tag stack matching, but for markdown markers
-   * @param {string} markdown - Markdown text to clean
-   * @returns {string} Cleaned markdown
-   */
-  cleanPartialFormatting(markdown) {
-    // Remove leading/trailing whitespace between markers and content
-    // like `** bold text **` => `**bold text**` cuz spaces between markers and text are not valid and cause issues
-    markdown = markdown.replace(/^(\*+|_+)\s+/, '$1').replace(/\s+(\*+|_+)$/, '$1')
-
-    // Find all marker sequences at start and end
-    const startMarkers = markdown.match(/^(\*+|_+)/)?.[1] || ''
-    const endMarkers = markdown.match(/(\*+|_+)$/)?.[1] || ''
-
-    if (!startMarkers && !endMarkers) return markdown // No markers to clean
-
-    // Extract content without edge markers
-    const content = markdown.replace(/^(\*+|_+)|(\*+|_+)$/g, '')
-
-    // Check if markers are properly paired (same type and count)
-    // tbh most of the time it isnt paired but what if it is then just return
-    const markerType = startMarkers[0] || endMarkers[0]
-    const isPaired =
-      startMarkers.length > 0 &&
-      endMarkers.length > 0 &&
-      startMarkers[0] === endMarkers[0] &&
-      startMarkers.length === endMarkers.length
-
-    if (isPaired) {
-      // Markers are balanced very good then just quit
-      return markdown
-    }
-
-    // Markers are orphaned or unbalanced - determine what to do
-    if (startMarkers && endMarkers) {
-      // Both exist but unbalanced - use minimum count
-      const minCount = Math.min(startMarkers.length, endMarkers.length)
-      return markerType.repeat(minCount) + content + markerType.repeat(minCount)
-    }
-    // e.g. ***hello** we know markertype is *, startmarker length is 3 and end is 2,
-    // mincount = Math.min(3,2) = 2, so return **hello**
-
-    // Only one side has markers - remove orphaned markers
-    return content
-  }
-
-  /**
-   * Get currently selected text and convert to markdown format
-   * Similar to HTMLViewer's extraction logic so not explained again
-   * @returns {Object|null} { text: string, markdown: string, hasSelection: boolean } or null
-   */
-  getSemanticSelection() {
-    const selection = this.shadowRoot?.getSelection?.() || document.getSelection()
-    if (!selection?.rangeCount) return null
-
-    const range = selection.getRangeAt(0)
-    const selectedText = selection.toString().trim()
-    if (!selectedText) return null
-
-    // Extract HTML from rendered markdown
-    const extractedFragment = range.cloneContents()
-    const tempContainer = document.createElement('div')
-    tempContainer.appendChild(extractedFragment)
-
-    let extractedHtml = tempContainer.innerHTML
-
-    // Check if selection is entirely within a single block element (h1-h6, p, li, blockquote, etc.)
-    const commonAncestor = range.commonAncestorContainer
-    const parentElement =
-      commonAncestor.nodeType === Node.TEXT_NODE ? commonAncestor.parentElement : commonAncestor
-
-    // If the extracted HTML is just text (no tags) and parent is a block element, wrap it
-    if (extractedHtml && !/^<[a-z]/i.test(extractedHtml.trim())) {
-      const parentTag = parentElement?.tagName?.toLowerCase()
-
-      // Preserve structure for these elements even with partial selection
-      const structuralElements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre']
-      // Only preserve for full selection
-      const contextualElements = ['p', 'li']
-
-      if (parentTag) {
-        if (structuralElements.includes(parentTag)) {
-          // Always wrap structural elements (headings, blockquotes) to preserve context
-          extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`
-        } else if (contextualElements.includes(parentTag)) {
-          // Only wrap if selecting entire content
-          const parentText = parentElement.textContent.trim()
-          if (selectedText === parentText) {
-            extractedHtml = `<${parentTag}>${extractedHtml}</${parentTag}>`
-          }
-        }
-      }
-    }
-
-    // Simplify inline-only selections to avoid over-nesting
-    const hasBlockElements = /<(p|div|h[1-6]|ul|ol|table|pre|blockquote)\b/i.test(extractedHtml)
-    if (!hasBlockElements) {
-      const tempDiv = document.createElement('div')
-      tempDiv.innerHTML = extractedHtml
-      const strong = tempDiv.querySelector('strong')
-      const em = tempDiv.querySelector('em')
-
-      // If nested formatting contains same text as selection, it's likely partial
-      if (
-        strong &&
-        em &&
-        strong.textContent.trim() === selectedText &&
-        em.textContent.trim() === selectedText
-      ) {
-        extractedHtml = selectedText
-      }
-    }
-
-    // Process HTML to markdown
-    const closedHtml = this.closeMissingTags(extractedHtml)
-    let extractedMarkdown = this.htmlToMarkdown(closedHtml)
-    extractedMarkdown = this.cleanPartialFormatting(extractedMarkdown)
-
-    // console.log('📌 Extracted md text:', selectedText);
-    // console.log('📌 Extracted md HTML:', extractedHtml);
-    // console.log('📌 Extracted md markdown:', extractedMarkdown);
-
-    return {
-      text: selectedText,
-      markdown: extractedMarkdown,
-      hasSelection: true,
-    }
-  }
-
-  /**
-   * Get currently selected text (plain text only)
-   * Markdown/HTML are rendered as DOM elements so cannot use codemirror select lines
-   * @returns {Object|null} - { text: string, hasSelection: boolean } or null
-   */
-  getSelectedText() {
-    const selection = this.shadowRoot.getSelection()
-    if (!selection || selection.rangeCount === 0) {
-      return null
-    }
-
-    const selectedText = selection.toString().trim()
-    if (!selectedText) {
-      return null
-    }
-
-    return {
-      text: selectedText,
-      hasSelection: true,
     }
   }
 
@@ -1102,14 +679,52 @@ export class MarkdownViewer extends LitElement {
     const viewer = this.shadowRoot?.querySelector('.markdown-viewer')
     if (!viewer) return
 
-    const minLine = Math.min(this._dragStartLine, this._dragEndLine)
-    const maxLine = Math.max(this._dragStartLine, this._dragEndLine)
-
-    console.log(`🎨 Updating selection for lines ${minLine} to ${maxLine}`)
+    let minLine = Math.min(this._dragStartLine, this._dragEndLine)
+    let maxLine = Math.max(this._dragStartLine, this._dragEndLine)
 
     // Find all elements with line numbers
     const elements = viewer.querySelectorAll('[data-line-start][data-line-end]')
 
+    // Check if selection range contains any extracted content
+    // If so, adjust the range to stop before the extracted content
+    let foundExtracted = false
+    let adjustedMaxLine = maxLine
+
+    elements.forEach((el) => {
+      const elStart = parseInt(el.getAttribute('data-line-start'))
+      const elEnd = parseInt(el.getAttribute('data-line-end'))
+
+      // Check if this element is extracted and overlaps with selection
+      if (el.classList.contains('extracted-content')) {
+        const overlaps = elStart <= maxLine && elEnd >= minLine
+
+        if (overlaps && !foundExtracted) {
+          // Found extracted content in selection range
+          foundExtracted = true
+          // Adjust max line to stop before this extracted element
+          if (this._dragEndLine > this._dragStartLine) {
+            // Dragging forward - stop before extracted content
+            adjustedMaxLine = Math.min(adjustedMaxLine, elStart - 1)
+          } else {
+            // Dragging backward - stop before extracted content
+            minLine = Math.max(minLine, elEnd + 1)
+          }
+        }
+      }
+    })
+
+    // If we found extracted content, update the drag end line and stop dragging
+    if (foundExtracted) {
+      if (this._dragEndLine > this._dragStartLine) {
+        this._dragEndLine = adjustedMaxLine
+      } else {
+        this._dragStartLine = minLine
+      }
+      maxLine = adjustedMaxLine
+      this._isDragging = false
+    }
+
+    // Apply selection to elements
     elements.forEach((el) => {
       // Skip extracted content
       if (el.classList.contains('extracted-content')) {
@@ -1143,19 +758,78 @@ export class MarkdownViewer extends LitElement {
 
     this._dragStartLine = null
     this._dragEndLine = null
-    console.log('🧹 Cleared all selected content')
+  }
+
+  /**
+   * Extract the content selected by drag selection (based on line numbers)
+   * @param {string} filePath - The file path to extract from
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async extractSelection(filePath) {
+    // Check if there's a drag selection
+    if (this._dragStartLine === null || this._dragEndLine === null) {
+      return { success: false, error: 'No content selected' }
+    }
+
+    if (!filePath) {
+      return { success: false, error: 'File path not provided' }
+    }
+
+    if (!this.markdownSource) {
+      return { success: false, error: 'No markdown source available' }
+    }
+
+    // Calculate line range
+    const minLine = Math.min(this._dragStartLine, this._dragEndLine)
+    const maxLine = Math.max(this._dragStartLine, this._dragEndLine)
+
+    // Extract the selected lines from the markdown source
+    const lines = this.markdownSource.split('\n')
+    const selectedLines = lines.slice(minLine - 1, maxLine) // Line numbers are 1-indexed
+    const selectedText = selectedLines.join('\n').trim()
+
+    if (!selectedText) {
+      return { success: false, error: 'No text selected' }
+    }
+
+    const libraryId = window.currentFile.libraryId
+
+    try {
+      // Generate child note filename with line range
+      const childFileName = generateChildNoteName(filePath, minLine, maxLine, selectedText)
+
+      // Extract note with generated filename and line numbers
+      const result = await window.fileManager.extractNote(
+        filePath,
+        selectedText,
+        childFileName,
+        minLine,
+        maxLine,
+        libraryId
+      )
+
+      // Check if extraction was successful
+      if (!result.success) {
+        return { success: false, error: result.error || 'Unknown extraction error' }
+      }
+
+      // Clear the selection after successful extraction
+      this.clearSelectedContent()
+
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to extract drag selection:', error)
+      return { success: false, error: error.message }
+    }
   }
 
   /**
    * Apply highlighting to extracted ranges after rendering
-     console.log('📌 Extracted    */
+   */
   applyExtractedHighlighting() {
     if (this.extractedRanges.length === 0) {
-      console.log('⚠️ No extracted ranges to highlight')
       return
     }
-
-    console.log('🎨 Applying highlighting for ranges:', this.extractedRanges)
 
     // Wait for next render cycle
     setTimeout(() => {
@@ -1167,9 +841,6 @@ export class MarkdownViewer extends LitElement {
 
       // Find all elements with line numbers
       const elements = viewer.querySelectorAll('[data-line-start][data-line-end]')
-      console.log(`🔍 Found ${elements.length} elements with line numbers`)
-
-      let highlightedCount = 0
 
       elements.forEach((el) => {
         const elStart = parseInt(el.getAttribute('data-line-start'))
@@ -1180,25 +851,15 @@ export class MarkdownViewer extends LitElement {
           // Check for overlap: element overlaps if it starts before range ends
           // and ends after range starts
           const overlaps = elStart <= range.end && elEnd >= range.start
-
-          if (overlaps) {
-            console.log(
-              `✓ Match: Element [${elStart}-${elEnd}] overlaps with range [${range.start}-${range.end}]`
-            )
-          }
-
           return overlaps
         })
 
         if (isExtracted) {
           el.classList.add('extracted-content')
-          highlightedCount++
         } else {
           el.classList.remove('extracted-content')
         }
       })
-
-      console.log(`✅ Highlighted ${highlightedCount} elements`)
     }, 0)
   }
 
@@ -1238,46 +899,6 @@ export class MarkdownViewer extends LitElement {
     }
   }
 
-  async extractSelection(filePath) {
-    const selection = this.getSemanticSelection()
-    if (!selection || !selection.text) {
-      return { success: false, error: 'No text selected' }
-    }
-
-    if (!filePath) {
-      return { success: false, error: 'File path not provided' }
-    }
-
-    const text = selection.markdown || selection.text
-    const libraryId = window.currentFile.libraryId
-
-    try {
-      // Generate child note filename
-      // For semantic extractions (no line numbers), use null ranges
-      const childFileName = generateChildNoteName(filePath, null, null, text)
-
-      // Extract note with generated filename
-      const result = await window.fileManager.extractNote(
-        filePath,
-        text,
-        childFileName,
-        null,
-        null,
-        libraryId
-      )
-
-      // Check if extraction was successful
-      if (!result.success) {
-        return { success: false, error: result.error || 'Unknown extraction error' }
-      }
-
-      return { success: true }
-    } catch (error) {
-      console.error('Failed to extract note:', error)
-      return { success: false, error: error.message }
-    }
-  }
-
   /**
    * Clear all locked content
    */
@@ -1302,11 +923,9 @@ export class MarkdownViewer extends LitElement {
     this.addEventListener('click', this._linkHandler, true)
 
     // Add drag selection handlers
-    console.log('📌 Registering drag selection handlers on MarkdownViewer')
     this.addEventListener('mousedown', this._mouseDownHandler, false)
     this.addEventListener('mousemove', this._mouseMoveHandler, false)
     this.addEventListener('mouseup', this._mouseUpHandler, false)
-    console.log('✅ Drag selection handlers registered')
   }
 
   // Clean up event listener when element is removed
