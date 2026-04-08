@@ -449,7 +449,9 @@ export class MarkdownViewer extends LitElement {
       overflow: auto;
       padding: 1rem;
       max-width: 900px;
-      margin: 0 auto;
+      margin: 0;
+      font-size: 1rem;
+      line-height: 1.5;
     }
     /* Basic markdown styles */
     .markdown-viewer h1,
