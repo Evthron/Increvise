@@ -1029,7 +1029,11 @@ export class MarkdownViewer extends LitElement {
         })
 
         if (this.content) {
-          this.setMarkdown(this.content)
+          const content = this.content
+          this.renderedHtml = ''
+          this.requestUpdate()
+          await this.updateComplete
+          this.setMarkdown(content)
         }
       } else {
         this.clearLockedContent()

@@ -8,6 +8,7 @@
 import { LitElement, html, css } from 'lit'
 import { pdfOptions } from './pdfViewer.js'
 import { videoOptions } from './VideoViewer.js'
+import { basename, extname } from './path'
 
 /**
  * Convert database extractedRanges to pdfViewer-ready format
@@ -50,6 +51,30 @@ function processExtractedRanges(ranges) {
   return { extractedPages, extractedLineRanges }
 }
 
+function parseNoteFileName(fileName) {
+  const layers = fileName.split('.')
+  const parsed = []
+
+  for (const layer of layers) {
+    const match = layer.match(/^[pl]?(\d+)-(\d+)(?:_|$)(.*)/)
+    if (!match) {
+      parsed.push({
+        rangeStart: null,
+        rangeEnd: null,
+        name: layer,
+      })
+    } else {
+      parsed.push({
+        rangeStart: parseInt(match[1]),
+        rangeEnd: parseInt(match[2]),
+        name: match[3],
+      })
+    }
+  }
+
+  return parsed.length > 0 ? parsed : null
+}
+
 /**
  * Convert database extractedRanges to videoViewer-ready format
  * @param {Array} ranges - Raw ranges from database (getChildRanges result)
@@ -75,6 +100,7 @@ export class EditorPanel extends LitElement {
   static properties = {
     currentFilePath: { type: String, state: true },
     displayText: { type: String, state: true },
+    breadcrumbItems: { type: Array, state: true },
     isEditMode: { type: Boolean, state: true },
     currentViewerType: { type: String, state: true }, // 'pdf' | 'markdown' | 'html' | 'text' | 'video' | 'flashcard'
     currentDisplayMode: { type: String, state: true }, // 'preview' | 'source'
@@ -122,6 +148,14 @@ export class EditorPanel extends LitElement {
       text-overflow: ellipsis;
     }
 
+    sl-breadcrumb {
+      font-size: 0.9rem;
+    }
+
+    sl-breadcrumb-item {
+      cursor: pointer;
+    }
+
     button {
       padding: 0.375rem 0.75rem;
       border: 1px solid var(--button-border, #ccc);
@@ -161,6 +195,7 @@ export class EditorPanel extends LitElement {
     super()
     this.currentFilePath = null
     this.displayText = ''
+    this.breadcrumbItems = []
     this.isEditMode = false
     this.currentViewerType = null
     this.currentDisplayMode = 'preview'
@@ -238,9 +273,7 @@ export class EditorPanel extends LitElement {
 
     return html`
       <div class="editor-toolbar ${showToolbar ? '' : 'hidden'}">
-        <div class="toolbar-left">
-          <span id="current-file-path">${this.displayText}</span>
-        </div>
+        <div class="toolbar-left">${this._renderBreadcrumb()}</div>
         <div class="toolbar-right">${this._renderToolbarButtons()}</div>
       </div>
       <div class="editor-content">
@@ -252,6 +285,52 @@ export class EditorPanel extends LitElement {
         <slot name="flashcard"></slot>
       </div>
     `
+  }
+
+  _renderBreadcrumb() {
+    if (!this.breadcrumbItems || this.breadcrumbItems.length === 0) {
+      return html`<span id="current-file-path">${this.displayText}</span>`
+    }
+
+    return html`
+      <sl-breadcrumb>
+        ${this.breadcrumbItems.map(
+          (item, _index) => html`
+            <sl-breadcrumb-item
+              @click=${(e) => this._handleBreadcrumbClick(e, item)}
+              ?disabled=${_index === this.breadcrumbItems.length - 1}
+            >
+              ${item.label}
+            </sl-breadcrumb-item>
+          `
+        )}
+      </sl-breadcrumb>
+    `
+  }
+
+  async _handleBreadcrumbClick(event, item) {
+    event.preventDefault()
+    if (!item?.path) return
+    this._resetBreadcrumbState()
+    await this.openFile(item.path)
+    if (this.currentDisplayMode === 'preview') {
+      if (this.currentViewerType === 'markdown') {
+        await this.markdownViewer.updateComplete
+        await this.markdownViewer.loadAndLockExtractedContent(this.currentFilePath)
+        this.markdownViewer.applyExtractedHighlighting()
+      } else if (this.currentViewerType === 'html') {
+        await this.htmlViewer.updateComplete
+        await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
+        this.htmlViewer.applyExtractedHighlighting()
+      }
+    }
+  }
+
+  _resetBreadcrumbState() {
+    this.breadcrumbItems = []
+    if (this.markdownViewer?.clearLockedContent) {
+      this.markdownViewer.clearLockedContent()
+    }
   }
 
   _renderToolbarButtons() {
@@ -325,6 +404,7 @@ export class EditorPanel extends LitElement {
    */
   async openFile(filePath) {
     try {
+      this._resetBreadcrumbState()
       if (this.codeMirrorEditor.hasUnsavedChanges) {
         const proceed = confirm('You have unsaved changes. Discard them?')
         if (!proceed) return
@@ -334,6 +414,9 @@ export class EditorPanel extends LitElement {
       if (window.currentWorkspace.libraryId && !window.currentFile.libraryId) {
         window.currentFile.libraryId = window.currentWorkspace.libraryId
       }
+
+      // Update breadcrumb chain
+      await this._updateBreadcrumb(filePath)
 
       // Check if file is a PDF extract by querying database
       let pdfExtractInfo = null
@@ -766,6 +849,46 @@ export class EditorPanel extends LitElement {
 
       await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
     }
+  }
+
+  async _updateBreadcrumb(filePath) {
+    if (!filePath) {
+      this.breadcrumbItems = []
+      return
+    }
+
+    if (!window.currentFile.libraryId) {
+      const name = basename(filePath, extname(filePath))
+      const layers = parseNoteFileName(name)
+      const label = layers?.length ? layers[layers.length - 1].name || name : name
+      this.breadcrumbItems = [{ label, path: filePath }]
+      return
+    }
+
+    const chain = []
+    let currentPath = filePath
+    let depth = 0
+
+    while (currentPath && depth < 10) {
+      const base = basename(currentPath, extname(currentPath))
+      const layers = parseNoteFileName(base)
+      const label = layers?.length ? layers[layers.length - 1].name || base : base
+      chain.unshift({
+        label,
+        path: currentPath,
+      })
+
+      const info = await window.fileManager.getNoteExtractInfo(
+        currentPath,
+        window.currentFile.libraryId
+      )
+
+      if (!info || !info.success || !info.found || !info.parentPath) break
+      currentPath = info.parentPath
+      depth += 1
+    }
+
+    this.breadcrumbItems = chain
   }
 
   /**
