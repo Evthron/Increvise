@@ -286,95 +286,6 @@ class VideoPlayer extends LitElement {
       this.videoElement.addEventListener('ended', () => {
         this.dispatchEvent(new CustomEvent('video-ended'))
       })
-
-      // Shared fallback logic extracted to a helper so we can call it
-      // proactively (in case the browser blocks file:// before listeners attach)
-      this.attemptBinaryFallback = async (srcAttr) => {
-        try {
-          const src = srcAttr || this.videoElement.getAttribute('src') || this.videoPath
-          if (!src) return
-
-          // Normalize src to an absolute file path.
-          // Support forms:
-          //  - file:///C:/path/to/file.mp4
-          //  - C:\Users\...\file.mp4
-          //  - /home/user/file.mp4
-          let filePath = src
-          if (filePath.startsWith('file://')) {
-            // remove file:// or file:/// prefix and decode percent-encoding
-            filePath = decodeURIComponent(filePath.replace(/^file:\/+/i, ''))
-          }
-
-          // If Windows-style path was passed with forward slashes or percent-encoding,
-          // decode any remaining percent-escapes
-          try {
-            filePath = decodeURIComponent(filePath)
-          } catch {}
-
-          console.log('[VideoViewer] attempting binary fallback for', filePath)
-
-          // Ensure IPC bridge exists
-          if (!window.fileManager || typeof window.fileManager.readBinaryFile !== 'function') {
-            console.warn('[VideoViewer] No fileManager IPC available for binary fallback')
-            return
-          }
-
-          const result = await window.fileManager.readBinaryFile(filePath)
-          if (result && result.success && result.data) {
-            // Decode base64 to Blob. Prefer atob when available, otherwise use fetch on data URL as fallback.
-            let blob
-            if (typeof window !== 'undefined' && typeof window.atob === 'function') {
-              const binaryString = window.atob(result.data)
-              const len = binaryString.length
-              const bytes = new Uint8Array(len)
-              for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i)
-              blob = new Blob([bytes], { type: 'video/mp4' })
-            } else {
-              // Use fetch on a data URL to obtain a Blob without requiring atob/Buffer
-              const dataUrl = 'data:video/mp4;base64,' + result.data
-              const resp = await fetch(dataUrl)
-              blob = await resp.blob()
-            }
-
-            // Revoke previous object URL if any to avoid leaks
-            try {
-              if (this._currentObjectUrl) {
-                URL.revokeObjectURL(this._currentObjectUrl)
-              }
-            } catch {}
-
-            const objectUrl = URL.createObjectURL(blob)
-            this._currentObjectUrl = objectUrl
-            this.videoElement.src = objectUrl
-            this.videoElement.load()
-            console.log('[VideoViewer] Loaded video via object URL fallback')
-          } else {
-            console.warn('[VideoViewer] Binary read failed:', result && result.error)
-          }
-        } catch (err) {
-          console.error('[VideoViewer] Fallback failed:', err)
-        }
-      }
-
-      // Call fallback proactively if this is a local file and the video hasn't loaded
-      const initialSrc = this.videoElement.getAttribute('src') || this.videoPath
-      // readyState 0 means HAVE_NOTHING - nothing loaded yet
-      // Treat plain Windows/Unix absolute paths as local too
-      const looksLikeLocal =
-        initialSrc &&
-        (initialSrc.startsWith('file://') ||
-          /^[a-zA-Z]:[\\/]/.test(initialSrc) ||
-          initialSrc.startsWith('/'))
-      if (looksLikeLocal && this.videoElement.readyState === 0) {
-        // Don't await here; run the fallback in background
-        this.attemptBinaryFallback(initialSrc)
-      }
-
-      // Also keep an error listener to catch cases where blocking happens later
-      this.videoElement.addEventListener('error', async () => {
-        const srcAttr = this.videoElement.getAttribute('src') || this.videoPath
-        await this.attemptBinaryFallback(srcAttr)
-      })
     }
   }
 
@@ -519,23 +430,8 @@ export class VideoViewer extends LitElement {
       // Apply options
       this.applyOptions(options)
 
-      // Wait for video to render and ensure elements and helpers are initialized
+      // Wait for video to load
       await this.updateComplete
-
-      // If this was a local file, proactively attempt the binary fallback so we
-      // don't rely on the <video> error event timing. This makes the fallback
-      // deterministic when loadVideo is used to set the path.
-      try {
-        const vp = this.videoPath
-        const looksLikeLocal =
-          vp && (vp.startsWith('file://') || /^[a-zA-Z]:[\\/]/.test(vp) || vp.startsWith('/'))
-        if (looksLikeLocal && typeof this.attemptBinaryFallback === 'function') {
-          // run in background
-          this.attemptBinaryFallback(vp)
-        }
-      } catch (e) {
-        console.warn('[VideoViewer] proactive fallback check failed:', e)
-      }
 
       this.isLoading = false
     } catch (error) {
@@ -733,6 +629,7 @@ export class VideoViewer extends LitElement {
   }
 }
 
+// Register custom elements
 customElements.define('video-toolbar', VideoToolbar)
 customElements.define('video-player', VideoPlayer)
 customElements.define('video-viewer', VideoViewer)

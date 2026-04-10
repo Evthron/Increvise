@@ -43,7 +43,6 @@ contextBridge.exposeInMainWorld('fileManager', {
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-  readBinaryFile: (filePath) => ipcRenderer.invoke('read-binary-file', filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
   extractNote: (filePath, selectedText, childFileName, rangeStart, rangeEnd, libraryId) =>
     ipcRenderer.invoke(
