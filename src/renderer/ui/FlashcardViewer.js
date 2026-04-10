@@ -63,12 +63,12 @@ export class FlashcardViewer extends LitElement {
 
     .cloze-blank {
       display: inline-block;
-      min-width: 100px;
-      padding: 0 0.5rem;
-      border-bottom: 2px solid var(--accent-color, #007aff);
-      color: transparent;
-      background: linear-gradient(to right, rgba(0, 122, 255, 0.1), rgba(0, 122, 255, 0.05));
-      user-select: none;
+      min-width: 50px;
+      height: 1em;
+      border-bottom: 3px solid var(--accent-color, #007aff);
+      vertical-align: bottom;
+      margin: 0 2px;
+      background: rgba(0, 122, 255, 0.05);
     }
 
     .answer-section {
@@ -183,10 +183,9 @@ export class FlashcardViewer extends LitElement {
       })
 
       // Construct absolute parent path
-      let absoluteParentPath = parentPath
-      if (!parentPath.startsWith('/') && window.currentFile.rootPath) {
-        absoluteParentPath = `${window.currentFile.rootPath}/${parentPath}`
-      }
+      const absoluteParentPath = /^[a-zA-Z]:/.test(parentPath)
+        ? parentPath
+        : window.currentWorkspace + '/' + parentPath
 
       console.log('[FlashcardViewer] Reading parent file:', absoluteParentPath)
 
@@ -240,10 +239,11 @@ export class FlashcardViewer extends LitElement {
     const before = this.parentContent.substring(0, this.charStart)
     const after = this.parentContent.substring(this.charEnd)
 
-    // Create blank placeholder
-    const blank = '_'.repeat(Math.max(10, Math.floor(this.answerText.length / 3)))
+    // Create a blank space placeholder for the cloze deletion
+    const blankLength = Math.max(50, Math.floor(this.answerText.length * 0.6)) // Estimate width based on text length
 
-    return html`${before}<span class="cloze-blank">${blank}</span>${after}`
+    return html`${before}<span class="cloze-blank" style="min-width: ${blankLength}px"></span
+      >${after}`
   }
 
   render() {
