@@ -1498,6 +1498,22 @@ async function extractFlashcard(
 
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
+  ipcMain.handle('read-binary-file', async (event, filePath) => {
+    console.log('[IPC] read-binary-file requested for:', filePath)
+    try {
+      const data = await fs.readFile(filePath)
+      console.log('[IPC] read-binary-file success, bytes:', data.length)
+      return { success: true, data: data.toString('base64') }
+    } catch (error) {
+      console.error(
+        '[IPC] read-binary-file error for',
+        filePath,
+        error && error.code,
+        error && error.message
+      )
+      return { success: false, error: error.message, code: error && error.code }
+    }
+  })
 
   ipcMain.handle('write-file', async (event, filePath, content) => writeFile(filePath, content))
 
