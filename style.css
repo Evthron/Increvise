@@ -430,53 +430,79 @@ footer {
 }
 
 /* Mobile-specific styles */
-.mobile-tabs {
+ion-app {
+  --ion-background-color: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+ion-header {
+  box-shadow: none;
+}
+
+.mobile-toolbar {
+  --background: rgba(255, 255, 255, 0.92);
+  --color: #1d1d1f;
+  --border-color: transparent;
+  backdrop-filter: blur(8px);
+}
+
+ion-title {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding-inline: 14px;
+  padding-top: 2px;
+}
+
+ion-content {
+  --background: transparent;
+}
+
+.mobile-queue-panel,
+.mobile-editor-panel {
   height: 100%;
+  padding: 10px;
+}
+
+.mobile-queue-panel {
+  display: flex;
+}
+
+.mobile-queue-panel revision-list,
+.mobile-editor-panel editor-panel {
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.mobile-queue-panel revision-list {
+  width: 100%;
+}
+
+.mobile-editor-panel {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
-.mobile-tabs::part(base) {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.mobile-tabs::part(body) {
-  flex: 1;
-  overflow: auto;
-}
-
-.mobile-review-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: 8px;
-}
-
-.mobile-review-panel .revision-list-container {
-  flex: 0 0 auto;
-  max-height: 40%;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.mobile-review-panel .editor-panel {
+.mobile-editor-panel editor-panel {
   flex: 1;
   min-height: 0;
 }
 
-@media (max-width: 768px) {
-  header {
-    padding: 8px 12px;
-    height: auto;
-  }
+.mobile-editor-panel feedback-bar {
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
 
-  header h1 {
-    font-size: 16px;
-  }
-
-  .mobile-review-panel .revision-list-container {
-    max-height: 30%;
-  }
+ion-tab-bar {
+  --background: rgba(255, 255, 255, 0.94);
+  --color: #6b7280;
+  --color-selected: #0f62fe;
+  border-top: 1px solid #d7dee8;
+  backdrop-filter: blur(10px);
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
 }

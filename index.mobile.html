@@ -18,7 +18,7 @@
       <ion-tabs>
         <ion-tab tab="workspace">
           <ion-header>
-            <ion-toolbar>
+            <ion-toolbar class="mobile-toolbar">
               <ion-title>Increvise</ion-title>
             </ion-toolbar>
           </ion-header>
@@ -27,41 +27,38 @@
           </ion-content>
         </ion-tab>
 
-        <ion-tab tab="review">
+        <ion-tab tab="queue">
           <ion-header>
-            <ion-toolbar>
-              <ion-title>Review</ion-title>
+            <ion-toolbar class="mobile-toolbar">
+              <ion-title>Review Queue</ion-title>
             </ion-toolbar>
           </ion-header>
           <ion-content>
-            <div class="mobile-review-panel">
-              <div class="revision-list-container">
-                <revision-list></revision-list>
-              </div>
-              <div class="editor-panel">
-                <editor-panel>
-                  <codemirror-viewer slot="codemirror" content="Select a file to revise">
-                  </codemirror-viewer>
-                  <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
-                  <html-viewer slot="html" class="hidden"></html-viewer>
-                  <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
-                  <video-viewer slot="video" class="hidden"></video-viewer>
-                  <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
-                </editor-panel>
-                <feedback-bar></feedback-bar>
-              </div>
+            <div class="mobile-queue-panel">
+              <revision-list></revision-list>
             </div>
           </ion-content>
         </ion-tab>
 
-        <ion-tab tab="files">
+        <ion-tab tab="editor">
           <ion-header>
-            <ion-toolbar>
-              <ion-title>Files</ion-title>
+            <ion-toolbar class="mobile-toolbar">
+              <ion-title>Editor</ion-title>
             </ion-toolbar>
           </ion-header>
           <ion-content>
-            <file-manager></file-manager>
+            <div class="mobile-editor-panel">
+              <editor-panel>
+                <codemirror-viewer slot="codemirror" content="Select a file to revise">
+                </codemirror-viewer>
+                <pdf-viewer slot="pdf" class="hidden"></pdf-viewer>
+                <html-viewer slot="html" class="hidden"></html-viewer>
+                <markdown-viewer slot="markdown" class="hidden"></markdown-viewer>
+                <video-viewer slot="video" class="hidden"></video-viewer>
+                <flashcard-viewer slot="flashcard" class="hidden"></flashcard-viewer>
+              </editor-panel>
+              <feedback-bar></feedback-bar>
+            </div>
           </ion-content>
         </ion-tab>
 
@@ -71,18 +68,21 @@
             <ion-label>Workspace</ion-label>
           </ion-tab-button>
 
-          <ion-tab-button tab="review">
-            <ion-icon name="book"></ion-icon>
-            <ion-label>Review</ion-label>
+          <ion-tab-button tab="queue">
+            <ion-icon name="list"></ion-icon>
+            <ion-label>Queue</ion-label>
           </ion-tab-button>
 
-          <ion-tab-button tab="files">
-            <ion-icon name="document"></ion-icon>
-            <ion-label>Files</ion-label>
+          <ion-tab-button tab="editor">
+            <ion-icon name="create"></ion-icon>
+            <ion-label>Editor</ion-label>
           </ion-tab-button>
         </ion-tab-bar>
       </ion-tabs>
     </ion-app>
+
+    <!-- Keep file-manager mounted on mobile for workspace event handling -->
+    <file-manager class="hidden" aria-hidden="true"></file-manager>
 
     <div id="toast" class="toast"></div>
 
