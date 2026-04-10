@@ -13,6 +13,7 @@ import {
   extractLines,
   findContentByHashAndLineCount,
   validateAndRecoverNoteRange,
+  embedText,
 } from '../src/main/ipc/incremental.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -81,6 +82,9 @@ describe('Validation and Recovery Functions', () => {
         range_start TEXT,
         range_end TEXT,
         source_hash TEXT,
+        source_embedding BLOB,
+        embedding_model TEXT,
+        embedding_dim INTEGER,
         PRIMARY KEY (library_id, relative_path),
         FOREIGN KEY (library_id, relative_path) REFERENCES file(library_id, relative_path)
       );
@@ -371,5 +375,132 @@ Line 10`
       assert.strictEqual(child2.range_start, '7')
       assert.strictEqual(child2.range_end, '9')
     })
+
+    it('should recover moved content by embedding when hash mismatches', async () => {
+      const newParentContent = `Intro rewritten
+The section was revised
+Line 3 revised
+Line 4 revised
+Line 5 revised
+Closing line`
+      const parentPath = path.join(TEST_WORKSPACE, 'parent.md')
+      await fs.writeFile(parentPath, newParentContent)
+
+      const oldChildContent = 'Line 3\nLine 4\nLine 5'
+      const childPath = path.join(TEST_WORKSPACE, 'tutorial', '3-5-semantic.md')
+      await fs.writeFile(childPath, oldChildContent)
+
+      const db = new Database(DB_PATH)
+      db.prepare('INSERT INTO file (library_id, relative_path) VALUES (?, ?)').run(
+        'test-lib',
+        'tutorial/3-5-semantic.md'
+      )
+
+      const hash = crypto.createHash('sha256').update(oldChildContent).digest('hex')
+      db.prepare(
+        `
+        INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        'test-lib',
+        'tutorial/3-5-semantic.md',
+        'parent.md',
+        'text-lines',
+        '3',
+        '5',
+        hash,
+        Buffer.alloc(12),
+        'test-model',
+        3
+      )
+      db.close()
+
+      const embeddingMap = {
+        'Line 3 revised\nLine 4 revised\nLine 5 revised': new Float32Array([1, 0, 0]),
+      }
+
+      const embedTextFn = async (text) => embeddingMap[text] || new Float32Array([0, 1, 0])
+
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath(), {
+        embedTextFn,
+        similarityThreshold: 0.8,
+      })
+
+      const db2 = new Database(DB_PATH)
+      const updated = db2
+        .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
+        .get('tutorial/3-5-semantic.md')
+      db2.close()
+
+      assert.strictEqual(updated.range_start, '3')
+      assert.strictEqual(updated.range_end, '5')
+    })
+
+    it('should not recover by embedding when similarity is below threshold', async () => {
+      const parentContent = `Alpha
+Beta
+Gamma
+Delta
+Epsilon`
+      const parentPath = path.join(TEST_WORKSPACE, 'parent.md')
+      await fs.writeFile(parentPath, parentContent)
+
+      const childContent = 'Line 3\nLine 4\nLine 5'
+      const childPath = path.join(TEST_WORKSPACE, 'tutorial', '3-5-semantic-low.md')
+      await fs.writeFile(childPath, childContent)
+
+      const db = new Database(DB_PATH)
+      db.prepare('INSERT INTO file (library_id, relative_path) VALUES (?, ?)').run(
+        'test-lib',
+        'tutorial/3-5-semantic-low.md'
+      )
+
+      const hash = crypto.createHash('sha256').update(childContent).digest('hex')
+      db.prepare(
+        `
+        INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        'test-lib',
+        'tutorial/3-5-semantic-low.md',
+        'parent.md',
+        'text-lines',
+        '3',
+        '5',
+        hash,
+        Buffer.alloc(12),
+        'test-model',
+        3
+      )
+      db.close()
+
+      const embedTextFn = async () => new Float32Array([0, 1, 0])
+
+      await validateAndRecoverNoteRange(parentPath, 'test-lib', createMockGetCentralDbPath(), {
+        embedTextFn,
+        similarityThreshold: 0.99,
+      })
+
+      const db2 = new Database(DB_PATH)
+      const unchanged = db2
+        .prepare('SELECT range_start, range_end FROM note_source WHERE relative_path = ?')
+        .get('tutorial/3-5-semantic-low.md')
+      db2.close()
+
+      assert.strictEqual(unchanged.range_start, '3')
+      assert.strictEqual(unchanged.range_end, '5')
+    })
+  })
+})
+
+describe('test embedding', () => {
+  it('should work', async () => {
+    const source_text = `
+    hello world
+    `
+    const em = embedText(source_text)
+    console.log(em)
   })
 })
