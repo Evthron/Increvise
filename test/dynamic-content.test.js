@@ -79,6 +79,9 @@ async function createWorkspaceDb(workspaceDir, libraryId, centralDbPath) {
       range_start TEXT,
       range_end TEXT,
       source_hash TEXT,
+      source_embedding BLOB,
+      embedding_model TEXT,
+      embedding_dim INTEGER,
       PRIMARY KEY (library_id, relative_path),
       FOREIGN KEY (library_id, relative_path) 
         REFERENCES file(library_id, relative_path)
@@ -226,7 +229,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
 
   it('should return only direct children (depth=1) with expanded content', async () => {
     const parentPath = path.join(workspaceDir, 'parent.md')
-    const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
+    const result = await getChildRanges(parentPath, libraryId, true, getCentralDbPath)
 
     console.log('Result:', JSON.stringify(result, null, 2))
 
@@ -277,7 +280,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
     db.close()
 
     const parentPath = path.join(workspaceDir, 'parent.md')
-    const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
+    const result = await getChildRanges(parentPath, libraryId, true, getCentralDbPath)
 
     const missingChild = result.find((r) => r.path === 'parent/missing.md')
     assert.ok(missingChild)
@@ -290,7 +293,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
     // Processing order should be: child2 first (higher range_start), then child1
 
     const parentPath = path.join(workspaceDir, 'parent.md')
-    const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
+    const result = await getChildRanges(parentPath, libraryId, true, getCentralDbPath)
 
     // Should only have direct children (not including missing.md from previous test)
     const directChildren = result.filter(
@@ -339,7 +342,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
 
     // Get child ranges of parent - should show child1 with nested content expanded
     const parentPath = path.join(workspaceDir, 'parent.md')
-    const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
+    const result = await getChildRanges(parentPath, libraryId, true, getCentralDbPath)
 
     const child1 = result.find((r) => r.path === 'parent/child1.md')
     assert.ok(child1)
@@ -389,7 +392,7 @@ describe('Dynamic Content - getChildRanges with content', () => {
 
     // Get child ranges of parent
     const parentPath = path.join(workspaceDir, 'parent.md')
-    const result = await getChildRanges(parentPath, libraryId, getCentralDbPath)
+    const result = await getChildRanges(parentPath, libraryId, true, getCentralDbPath)
 
     const child2 = result.find((r) => r.path === 'parent/child2.md')
     assert.ok(child2)

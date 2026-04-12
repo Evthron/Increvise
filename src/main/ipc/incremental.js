@@ -8,6 +8,44 @@ import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
 import { getWorkspaceDbPath } from '../db/index.js'
+import { env, pipeline } from '@xenova/transformers'
+
+const DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD = 0.82
+const DEFAULT_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small'
+let embeddingPipelinePromise = null
+
+// Create single instance of the pipeline
+async function getEmbeddingPipeline() {
+  if (!embeddingPipelinePromise) {
+    env.allowRemoteModels = true
+    embeddingPipelinePromise = pipeline('feature-extraction', DEFAULT_EMBEDDING_MODEL, {
+      quantized: true,
+    })
+  }
+
+  return embeddingPipelinePromise
+}
+
+export async function embedText(text) {
+  const pipelineInstance = await getEmbeddingPipeline()
+  const output = await pipelineInstance(text, {
+    pooling: 'mean',
+    normalize: true,
+  })
+
+  return Float32Array.from(output.data)
+}
+
+function serializeEmbedding(vector) {
+  return new Uint8Array(
+    vector.buffer.slice(vector.byteOffset, vector.byteOffset + vector.byteLength)
+  )
+}
+
+function deserializeEmbedding(bytes) {
+  const raw = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
+  return Float32Array.from(raw)
+}
 
 /**
  * Generate random days for initial review of extracted content
@@ -377,6 +415,66 @@ function findContentByHashAndLineCount(parentContent, targetHash, numberOfLines)
 }
 
 /**
+ * Find content in parent note by embedding
+ * @param {string} parentContent - Parent note content
+ * @param {Float32Array} targetEmbedding - Target embedding to search for
+ * @param {number} numberOfLines - Number of lines in the window
+ * @returns {Promise<Object|null>} - {start, end, similarity} or null if not found
+ */
+async function findContentByEmbeddingAndLineCount(parentContent, targetEmbedding, numberOfLines) {
+  const lines = parentContent.split('\n')
+
+  if (!targetEmbedding || numberOfLines <= 0 || lines.length < numberOfLines) {
+    return null
+  }
+
+  let bestMatch = null
+
+  for (let start = 0; start <= lines.length - numberOfLines; start++) {
+    const content = lines.slice(start, start + numberOfLines).join('\n')
+    const currentEmbedding = await embedText(content)
+
+    if (!currentEmbedding || currentEmbedding.length !== targetEmbedding.length) {
+      continue
+    }
+
+    function cosineSimilarity(vecA, vecB) {
+      if (vecA.length !== vecB.length) {
+        throw new Error('Vectors must be of the same length')
+      }
+      let dotProduct = 0
+      let normA = 0
+      let normB = 0
+      for (let i = 0; i < vecA.length; i++) {
+        const a = vecA[i]
+        const b = vecB[i]
+        dotProduct += a * b
+        normA += a * a
+        normB += b * b
+      }
+      const denominator = Math.sqrt(normA) * Math.sqrt(normB)
+      return dotProduct / denominator
+    }
+
+    const similarity = cosineSimilarity(targetEmbedding, currentEmbedding)
+
+    if (!bestMatch || similarity > bestMatch.similarity) {
+      bestMatch = {
+        start: start + 1,
+        end: start + numberOfLines,
+        similarity,
+      }
+    }
+  }
+
+  if (!bestMatch || bestMatch.similarity < DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD) {
+    return null
+  }
+
+  return bestMatch
+}
+
+/**
  * Validate note range and recover position if needed
  * @param {string} notePath - Absolute path to note file
  * @param {string} libraryId - Library ID
@@ -392,43 +490,66 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
   const db = new Database(dbInfo.dbPath)
   const relativePath = path.relative(dbInfo.folderPath, notePath)
 
-  const directChildren = db
-    .prepare(
-      `SELECT relative_path, range_start, range_end, source_hash
-           FROM note_source
-           WHERE library_id = ? AND parent_path = ?`
-    )
-    .all(libraryId, relativePath)
+  try {
+    const directChildren = db
+      .prepare(
+        `SELECT relative_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_dim
+             FROM note_source
+             WHERE library_id = ? AND parent_path = ?`
+      )
+      .all(libraryId, relativePath)
 
-  // Read parent content
-  const parentContent = await fs.readFile(notePath, 'utf-8')
-  for (const child of directChildren) {
-    const relativePath = child.relative_path
+    // Read parent content
+    const parentContent = await fs.readFile(notePath, 'utf-8')
+    for (const child of directChildren) {
+      const childRelativePath = child.relative_path
 
-    // Validate current position in database
-    const dbRange = [parseInt(child.range_start), parseInt(child.range_end)]
-    const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
-    const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
+      if (child.extract_type !== 'text-lines') {
+        continue
+      }
 
-    // If hash mismatch, try to recover
-    if (currentHash !== child.source_hash) {
-      const lineCount = dbRange[1] - dbRange[0] + 1
+      // Validate current position in database
+      const dbRange = [parseInt(child.range_start), parseInt(child.range_end)]
+      if (Number.isNaN(dbRange[0]) || Number.isNaN(dbRange[1])) {
+        continue
+      }
 
-      const newRange = findContentByHashAndLineCount(parentContent, child.source_hash, lineCount)
+      const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
+      const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
 
-      if (newRange) {
-        // Recovery successful - update database
-        db.prepare(
-          `
-              UPDATE note_source
-              SET range_start = ?, range_end = ?
-              WHERE library_id = ? AND relative_path = ?
+      // If hash mismatch, try to recover
+      if (currentHash !== child.source_hash) {
+        const lineCount = dbRange[1] - dbRange[0] + 1
+        let newRange = findContentByHashAndLineCount(parentContent, child.source_hash, lineCount)
+
+        if (!newRange && child.source_embedding) {
+          const targetEmbedding = deserializeEmbedding(child.source_embedding)
+
+          if (targetEmbedding) {
+            newRange = await findContentByEmbeddingAndLineCount(
+              parentContent,
+              targetEmbedding,
+              lineCount
+            )
+          }
+        }
+
+        if (newRange) {
+          // Recovery successful - update database
+          db.prepare(
             `
-        ).run(String(newRange.start), String(newRange.end), libraryId, relativePath)
-      } else {
-        console.warn(`Failed to recover position for child note: ${relativePath}`)
+                UPDATE note_source
+                SET range_start = ?, range_end = ?
+                WHERE library_id = ? AND relative_path = ?
+              `
+          ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
+        } else {
+          console.warn(`Failed to recover position for child note: ${childRelativePath}`)
+        }
       }
     }
+  } finally {
+    db.close()
   }
 }
 
@@ -523,7 +644,7 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
     if (isMarkdown) {
-      validateAndRecoverNoteRange(parentPath, libraryId, getCentralDbPath)
+      await validateAndRecoverNoteRange(parentPath, libraryId, getCentralDbPath)
     }
 
     // Simple query: only get direct children
@@ -803,6 +924,16 @@ async function extractNote(
   libraryId,
   getCentralDbPath
 ) {
+  // Backward compatibility for calls without childFileName:
+  // extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
+  if (typeof libraryId === 'function' && getCentralDbPath === undefined) {
+    getCentralDbPath = libraryId
+    libraryId = rangeEnd
+    rangeEnd = rangeStart
+    rangeStart = childFileName
+    childFileName = null
+  }
+
   try {
     // Get database info from central database
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
@@ -878,6 +1009,16 @@ async function extractNote(
       // Note: For HTML/semantic extractions, rangeStart and rangeEnd can be null or 0
       if (rangeStart !== undefined && rangeEnd !== undefined) {
         const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+        let sourceEmbedding = null
+        let embeddingDim = null
+
+        try {
+          const embedding = await embedText(selectedText)
+          sourceEmbedding = serializeEmbedding(embedding)
+          embeddingDim = embedding?.length || null
+        } catch (error) {
+          console.warn(`Failed to generate embedding for ${relativePath}:`, error.message)
+        }
 
         // Ensure parent file exists in database before creating relationship
         ensureParentFileInDb(db, libraryId, parentRelativePath)
@@ -885,8 +1026,8 @@ async function extractNote(
         try {
           db.prepare(
             `
-                INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `
           ).run(
             libraryId,
@@ -895,7 +1036,10 @@ async function extractNote(
             'text-lines',
             rangeStart !== null ? String(rangeStart) : null,
             rangeEnd !== null ? String(rangeEnd) : null,
-            sourceHash
+            sourceHash,
+            sourceEmbedding,
+            sourceEmbedding ? DEFAULT_EMBEDDING_MODEL : null,
+            embeddingDim
           )
         } catch (err) {
           console.error('Failed to insert note_source record:', err.message)
@@ -1162,8 +1306,8 @@ async function extractPdfText(
       db.prepare(
         `
         INSERT INTO note_source 
-        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       ).run(
         libraryId,
@@ -1172,7 +1316,10 @@ async function extractPdfText(
         'pdf-text',
         rangeStart,
         rangeEnd,
-        sourceHash
+        sourceHash,
+        null,
+        null,
+        null
       )
 
       return {
@@ -1460,14 +1607,24 @@ async function extractFlashcard(
 
       // Insert note_source record with character positions
       const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
+      let sourceEmbedding = null
+      let embeddingDim = null
+
+      try {
+        const embedding = await embedText(selectedText)
+        sourceEmbedding = serializeEmbedding(embedding)
+        embeddingDim = embedding?.length || null
+      } catch (error) {
+        console.warn(`Failed to generate embedding for ${relativePath}:`, error.message)
+      }
 
       // Ensure parent file exists in database before creating relationship
       ensureParentFileInDb(db, libraryId, parentRelativePath)
 
       db.prepare(
         `
-            INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
       ).run(
         libraryId,
@@ -1476,7 +1633,10 @@ async function extractFlashcard(
         'flashcard',
         String(charStart),
         String(charEnd),
-        sourceHash
+        sourceHash,
+        sourceEmbedding,
+        sourceEmbedding ? DEFAULT_EMBEDDING_MODEL : null,
+        embeddingDim
       )
       console.log('[extractFlashcard] Inserted note_source record with type: flashcard')
 
@@ -1579,6 +1739,7 @@ export {
   findParentPath,
   extractLines,
   findContentByHashAndLineCount,
+  findContentByEmbeddingAndLineCount,
   validateAndRecoverNoteRange,
   compareFilenameWithDbRange,
   getChildRanges,
