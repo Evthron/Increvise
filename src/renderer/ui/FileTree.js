@@ -135,12 +135,7 @@ export class FileTree extends LitElement {
     e.stopPropagation()
 
     try {
-      // Use the file's own library_id instead of workspace library_id
-      const libraryId = item.library_id || window.currentWorkspace.libraryId
-      console.log('Adding file to queue with library ID:', libraryId)
-
-      const result = await window.fileManager.addFileToQueue(item.path, libraryId)
-
+      const result = await window.fileManager.addFileToQueue(item.path, item.library_id)
       if (result.success || result.alreadyExists) {
         item.inQueue = true
         this.requestUpdate()
@@ -156,9 +151,7 @@ export class FileTree extends LitElement {
       }
     } catch (error) {
       console.error('Error adding file to queue:', error)
-
       alert(`Error: ${error.message}`)
-      console.error('Error adding file to queue:', error)
     }
   }
 }

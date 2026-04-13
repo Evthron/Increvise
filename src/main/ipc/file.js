@@ -9,23 +9,16 @@ import fs from 'node:fs/promises'
 import { checkFileInQueue } from './spaced.js'
 
 async function selectFolder() {
-  try {
-    // Open system dialog to select folder
-    const result = await dialog.showOpenDialog({
+  const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory'],
     })
-    console.log('Dialog result:', result)
-    return result.filePaths[0] || null
-  } catch (error) {
-    console.error('Error in select-folder handler:', error)
-    return null
-  }
+  return canceled ? null : (filePaths[0] ?? null)
 }
 
 async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = null) {
   /**
    * Parse hierarchical note filename
-   * Tenative Format: rangeStart-rangeEnd-name.rangeStart-rangeEnd-name.{ext}
+   * Format: rangeStart-rangeEnd-name.rangeStart-rangeEnd-name.ext
    * Returns array of layers
    * each layer has
    *    rangeStart
@@ -187,7 +180,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
     return { success: true, data: roots }
   }
 
-  // Read directory items (only I/O operation that can fail)
+  // Read directory items
   let items
   try {
     items = await fs.readdir(dirPath, { withFileTypes: true })
@@ -199,7 +192,6 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
     }
   }
 
-  // All business logic below (no try-catch needed)
   const tree = []
   const fileMap = new Map()
 

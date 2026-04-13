@@ -2,18 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/**
- * SM-2 算法实现
- * 用于计算间隔重复的下次复习时间
- */
-
-/**
- * 计算新的 Easiness Factor 和间隔时间
- * @param {Object} file - 文件当前状态
- * @param {string} feedback - 反馈类型 (again/hard/good/easy)
- * @param {Object} params - 队列参数
- * @returns {Object} { newEasiness, newInterval, newRank }
- */
 export function calculateSM2(file, feedback, params) {
   const response_quality = { again: 0, hard: 1, good: 4, easy: 5 }
   const q = response_quality[feedback]

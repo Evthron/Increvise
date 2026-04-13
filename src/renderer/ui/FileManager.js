@@ -145,24 +145,15 @@ export class FileManager extends LitElement {
 
       // Loop through each workspace and get its directory tree
       for (const ws of workspaces) {
-        try {
-          const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
+        const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
 
-          if (!result.success) {
-            console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
-            continue // Skip this workspace but continue with others
-          }
-
-          const nodes = Array.isArray(result.data)
-            ? result.data
-            : Array.isArray(result.data?.children)
-              ? result.data.children
-              : []
-          combined.push(...nodes)
-        } catch (error) {
-          console.error(`Failed to load workspace ${ws.folder_path}:`, error)
-          continue
+        if (!result.success) {
+          console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
+          continue // Skip this workspace but continue with others
         }
+
+        const nodes = result.data
+        combined.push(...nodes)
       }
       this.treeData = combined
 
@@ -176,9 +167,6 @@ export class FileManager extends LitElement {
       console.error('Error loading combined workspace view:', error)
       alert(`Error loading combined view: ${error.message}`)
     }
-
-    // Register add button guard for ALL workspaces mode
-    this._registerAddButtonGuard()
   }
 
   async _openSingleWorkspace(folderPath) {
@@ -231,8 +219,6 @@ export class FileManager extends LitElement {
       // Use refreshFileList to respect the current view mode
       await revisionList.refreshFileList()
     }
-
-    this._registerAddButtonGuard()
 
     // Start watching this workspace for file changes
     console.log('[FileManager] Starting file watcher for:', folderPath)
@@ -290,8 +276,6 @@ export class FileManager extends LitElement {
       await revisionList.refreshFileList()
     }
 
-    this._registerAddButtonGuard()
-
     // Start watching this workspace for file changes
     console.log('[FileManager] Starting file watcher for:', folderPath)
     const watchResult = await window.fileManager.startWatchingWorkspace(folderPath)
@@ -299,20 +283,6 @@ export class FileManager extends LitElement {
       console.log('[FileManager] File watcher active')
     } else {
       console.error('[FileManager] Failed to start file watcher:', watchResult.error)
-    }
-  }
-
-  _registerAddButtonGuard() {
-    if (!window.__addGuardRegistered) {
-      document.addEventListener('click', (e) => {
-        const btn = e.target.closest('.add-file-btn, [data-action="add-file"]')
-        if (!btn) return
-        if (window.mode.allWorkspace) {
-          e.preventDefault()
-          this._showToast('Cannot add files in All Workspaces view')
-        }
-      })
-      window.__addGuardRegistered = true
     }
   }
 
