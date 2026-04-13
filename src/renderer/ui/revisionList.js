@@ -627,6 +627,7 @@ export class RevisionList extends LitElement {
         const newWorkspace = fileManager.isAllWorkspacesMode
           ? 'All Workspaces'
           : window.currentFile.rootPath
+        const previousFilePath = this.currentFile?.file_path
         this.files = result.files
         if (this.files.length == 0) {
           // All files reviewed
@@ -643,31 +644,42 @@ export class RevisionList extends LitElement {
         // reload the same workspace, keep the current file if it still exists, search for its index otherwise reset to first file
         if (
           newWorkspace === this.currentWorkspace &&
-          this.files.find((f) => f.file_path === this.currentFile?.file_path)
+          this.files.find((f) => f.file_path === previousFilePath)
         ) {
-          this.currentIndex = this.files.findIndex(
-            (f) => f.file_path === this.currentFile.file_path
-          )
+          this.currentIndex = this.files.findIndex((f) => f.file_path === previousFilePath)
         } else {
           // switch workspace, set currentIndex and currentFile to first file in new workspace
           this.currentWorkspace = newWorkspace
           this.currentIndex = 0
-          this.currentFile = this.files.length > 0 ? this.files[0] : null
         }
+
+        this.currentFile = this.files[this.currentIndex] || null
 
         // Auto-start revision workflow if files are available
         const filteredFiles = this.getFilteredFiles()
         window.mode.revision = filteredFiles.length > 0
 
-        window.currentFile.libraryId = filteredFiles[this.currentIndex]?.library_id || null
+        let selectedFile = this.currentFile
+          ? filteredFiles.find((file) => file.file_path === this.currentFile.file_path)
+          : null
+
+        if (!selectedFile && filteredFiles.length > 0) {
+          selectedFile = filteredFiles[0]
+          this.currentIndex = this.files.findIndex(
+            (file) => file.file_path === selectedFile.file_path
+          )
+          this.currentFile = this.files[this.currentIndex] || null
+        }
+
+        window.currentFile.libraryId = selectedFile?.library_id || null
         const feedbackBar = document.querySelector('feedback-bar')
-        if (feedbackBar && window.mode.revision) {
-          await feedbackBar.reloadFile(filteredFiles[this.currentIndex])
+        if (feedbackBar && window.mode.revision && selectedFile) {
+          await feedbackBar.reloadFile(selectedFile)
           console.log('reload file')
         }
         const editorPanel = document.querySelector('editor-panel')
-        if (editorPanel && window.mode.revision) {
-          await editorPanel.openFile(filteredFiles[this.currentIndex].file_path)
+        if (editorPanel && window.mode.revision && selectedFile) {
+          await editorPanel.openFile(selectedFile.file_path)
           console.log('open file')
         }
         this.requestUpdate()
@@ -740,6 +752,7 @@ export class RevisionList extends LitElement {
     const filteredFiles = this.getFilteredFiles()
     if (filteredFiles.length > 0) {
       this.currentIndex = this.files.indexOf(filteredFiles[0])
+      this.currentFile = this.files[this.currentIndex] || null
     }
 
     this.requestUpdate()
@@ -777,6 +790,7 @@ export class RevisionList extends LitElement {
   async handleFileClick(e) {
     const { file, globalIndex } = e.detail
     this.currentIndex = globalIndex
+    this.currentFile = file
     this.requestUpdate()
 
     // If feedback bar exists and revision mode is NOT active, start it
@@ -785,6 +799,8 @@ export class RevisionList extends LitElement {
       if (filteredFiles.length > 0) {
         console.log('Auto-starting revision workflow from file click')
         await this.startRevisionWorkflow(filteredFiles)
+        this.currentIndex = globalIndex
+        this.currentFile = file
       }
     }
 
