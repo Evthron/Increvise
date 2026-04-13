@@ -232,17 +232,6 @@ revision-list {
   overflow: hidden;
 }
 
-.editor-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 16px;
-  background-color: var(--toolbar-bg);
-  border-bottom: 1px solid var(--border-color);
-  height: 40px;
-  flex-shrink: 0;
-}
-
 .toolbar-left {
   flex: 1;
   overflow: hidden;

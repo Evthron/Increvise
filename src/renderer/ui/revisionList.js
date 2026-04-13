@@ -55,6 +55,7 @@ export class RevisionFileItem extends LitElement {
       font-size: 16px;
       flex-shrink: 0;
       margin-top: 2px;
+      overflow-x: hidden;
     }
 
     .revision-item-content {
@@ -85,6 +86,7 @@ export class RevisionFileItem extends LitElement {
       display: flex;
       align-items: center;
       gap: 4px;
+      overflow-x: hidden;
     }
 
     .meta-icon {
@@ -94,6 +96,7 @@ export class RevisionFileItem extends LitElement {
     .queue-badge-inline {
       display: inline-flex;
       align-items: center;
+      overflow-x: hidden;
       gap: 4px;
       padding: 2px 6px;
       border-radius: 10px;
@@ -823,15 +826,25 @@ export class RevisionList extends LitElement {
   }
 
   handleFileForgotten(e) {
-    const { file, resetValues } = e.detail
-    // Apply reset values from backend response
-    Object.assign(file, resetValues)
+    const { file } = e.detail
+
+    this.files = this.files.filter((item) => item.file_path !== file.file_path)
+
+    if (this.files.length === 0) {
+      this.currentFile = null
+      this.currentIndex = 0
+    } else {
+      const nextIndex = Math.min(this.currentIndex, this.files.length - 1)
+      this.currentIndex = Math.max(0, nextIndex)
+      this.currentFile = this.files[this.currentIndex]
+    }
+
     this.requestUpdate()
 
     // Dispatch event so FeedbackBar can update its copy
     this.dispatchEvent(
       new CustomEvent('file-forgotten', {
-        detail: { file, resetValues },
+        detail: { file },
         bubbles: true,
         composed: true,
       })

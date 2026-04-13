@@ -118,6 +118,7 @@ export class EditorPanel extends LitElement {
     }
 
     .editor-toolbar {
+      height: 2.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
