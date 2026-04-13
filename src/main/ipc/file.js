@@ -6,12 +6,13 @@
 import { dialog } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import Database from 'better-sqlite3'
 import { checkFileInQueue } from './spaced.js'
 
 async function selectFolder() {
   const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-    })
+    properties: ['openDirectory'],
+  })
   return canceled ? null : (filePaths[0] ?? null)
 }
 
@@ -194,6 +195,18 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
 
   const tree = []
   const fileMap = new Map()
+  let registeredWorkspacePaths = new Set()
+
+  if (getCentralDbPath) {
+    try {
+      const db = new Database(getCentralDbPath(), { readonly: true })
+      const rows = db.prepare('SELECT folder_path FROM workspace_history').all()
+      db.close()
+      registeredWorkspacePaths = new Set(rows.map((row) => row.folder_path))
+    } catch (error) {
+      console.error('Failed to load workspace paths from central database:', error)
+    }
+  }
 
   // Build file map: basename -> file item
   // Filter out compressed files (they should not be treated as parent files)
@@ -216,6 +229,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
     if (item.isDirectory()) {
       // Skip the database folder
       if (item.name === '.increvise') continue
+      // Skip browser asset folder
       if (item.name.endsWith('_files')) continue
 
       // Check if this is a hierarchy folder (folder name matching existing file basename)
@@ -263,6 +277,10 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
       }
       // Regular directory
       else {
+        if (registeredWorkspacePaths.has(fullPath)) {
+          continue
+        }
+
         tree.push({
           name: item.name,
           type: 'directory',
