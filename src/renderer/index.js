@@ -3,8 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Import Shoelace themes based on user's color scheme preference
-import { icons } from '@lion/ui/icon.js'
-import { resolveIcon } from './ui/icons/iconResolver.js'
 import './ui/EditorPanel.js'
 import './ui/FileManager.js'
 import './ui/FileTree.js'
@@ -29,17 +27,11 @@ import '@shoelace-style/shoelace/dist/components/icon/icon.js'
 import '@shoelace-style/shoelace/dist/components/icon-button/icon-button.js'
 import '@shoelace-style/shoelace/dist/components/breadcrumb/breadcrumb.js'
 import './ui/states.js'
-import './ui/SidebarDrawer.js'
 import './ui/ThreeColumnLayout.js'
-import '@lion/ui/button.js'
-import '@lion/ui/define/lion-icon.js'
 import './ui/WorkspaceManager.js'
 
 // Set the base path to the folder you copied Shoelace's assets to
 setBasePath('node_modules/@shoelace-style/shoelace/dist')
-
-// Register icon resolver for icon components
-icons.addIconResolver('increvise', resolveIcon)
 
 // Listen for color scheme changes and update theme dynamically
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
