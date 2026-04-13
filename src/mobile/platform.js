@@ -380,7 +380,7 @@ export const mobilePlatform = {
   },
 
   /**
-   * Forget file (reset revision data)
+   * Remove file from review records
    * @param {string} filePath - File relative path
    * @param {string} libraryId - Library ID
    */
@@ -413,23 +413,29 @@ export const mobilePlatform = {
         return { success: false, error: 'File not found in database' }
       }
 
-      // Delete note source data
+      // Delete note source and queue/file records
       const noteSourceResult = await db.run(dbName, REVIEW_QUERIES.DELETE_NOTE_SOURCE, [
         libraryId,
         filePath,
       ])
-
-      // Reset file data
-      const fileResult = await db.run(dbName, REVIEW_QUERIES.FORGET_FILE, [libraryId, filePath])
+      const membershipResult = await db.run(dbName, REVIEW_QUERIES.DELETE_QUEUE_MEMBERSHIP, [
+        libraryId,
+        filePath,
+      ])
+      const fileResult = await db.run(dbName, REVIEW_QUERIES.DELETE_FILE_RECORD, [
+        libraryId,
+        filePath,
+      ])
 
       // Sync database back immediately
       await syncDatabaseBack(dbName)
 
       return {
         success: true,
-        message: 'File revision data erased, but entry kept in database',
+        message: 'File removed from workspace review records',
         deletedRevisions: noteSourceResult.changes,
-        updatedFile: fileResult.changes > 0,
+        deletedMembership: membershipResult.changes,
+        deletedFile: fileResult.changes > 0,
       }
     } catch (error) {
       console.error('[Mobile] forgetFile error:', error)

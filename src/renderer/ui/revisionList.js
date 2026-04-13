@@ -175,14 +175,16 @@ export class RevisionFileItem extends LitElement {
 
   async handleForget(e) {
     e.stopPropagation()
-    if (!confirm('Forget this file? This will erase its revision data but keep the file entry.'))
+    if (
+      !confirm('Remove this file from review records? This will delete its queue and review data.')
+    )
       return
 
     const result = await window.fileManager.forgetFile(this.file.file_path, this.file.library_id)
     if (result && result.success) {
       this.dispatchEvent(
         new CustomEvent('file-forgotten', {
-          detail: { file: this.file, resetValues: result.resetValues },
+          detail: { file: this.file },
           bubbles: true,
           composed: true,
         })
@@ -252,10 +254,10 @@ export class RevisionFileItem extends LitElement {
           </div>
           <button
             class="forget-file-btn"
-            title="Forget this file (erase revision data)"
+            title="Remove this file from review records"
             @click=${this.handleForget}
           >
-            ↻
+            ✕
           </button>
         </div>
       </div>

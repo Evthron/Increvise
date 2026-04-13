@@ -11,6 +11,217 @@ import { getWorkspaceDbPath } from '../db/index.js'
 import { insertInitialData } from '../db/insert-initial-data.js'
 import { migrate } from '../db/migration-workspace.js'
 
+function getNearestParentWorkspace(folderPath, getCentralDbPath) {
+  const centralDb = new Database(getCentralDbPath(), { readonly: true })
+  const workspaces = centralDb
+    .prepare('SELECT library_id, folder_path, db_path FROM workspace_history')
+    .all()
+  centralDb.close()
+
+  let nearestParent = null
+  for (const workspace of workspaces) {
+    const relative = path.relative(workspace.folder_path, folderPath)
+    const isChildPath = relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+
+    if (!isChildPath) {
+      continue
+    }
+
+    if (!nearestParent || workspace.folder_path.length > nearestParent.folder_path.length) {
+      nearestParent = workspace
+    }
+  }
+
+  return nearestParent
+}
+
+function createRelativePathMapper(parentFolderPath, childFolderPath) {
+  const subtreePrefix = path.relative(parentFolderPath, childFolderPath)
+  const subtreePrefixWithSep = `${subtreePrefix}${path.sep}`
+
+  return {
+    subtreePrefix,
+    isInSubtree: (relativePath) =>
+      typeof relativePath === 'string' && relativePath.startsWith(subtreePrefixWithSep),
+    toChildRelativePath: (relativePath) => {
+      const mappedPath = path.relative(subtreePrefix, relativePath)
+      const isValid = mappedPath && !mappedPath.startsWith('..') && !path.isAbsolute(mappedPath)
+      return isValid ? mappedPath : null
+    },
+  }
+}
+
+async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCentralDbPath) {
+  const parentWorkspace = getNearestParentWorkspace(folderPath, getCentralDbPath)
+  if (!parentWorkspace) {
+    return { success: true, migratedFiles: 0 }
+  }
+
+  try {
+    await fs.access(parentWorkspace.db_path)
+  } catch {
+    return { success: true, migratedFiles: 0 }
+  }
+
+  const pathMapper = createRelativePathMapper(parentWorkspace.folder_path, folderPath)
+  const parentDb = new Database(parentWorkspace.db_path)
+
+  try {
+    const sourceFiles = parentDb
+      .prepare('SELECT * FROM file WHERE library_id = ?')
+      .all(parentWorkspace.library_id)
+      .filter((row) => pathMapper.isInSubtree(row.relative_path))
+      .map((row) => ({
+        ...row,
+        source_relative_path: row.relative_path,
+        target_relative_path: pathMapper.toChildRelativePath(row.relative_path),
+      }))
+      .filter((row) => row.target_relative_path)
+
+    if (sourceFiles.length === 0) {
+      parentDb.close()
+      return { success: true, migratedFiles: 0 }
+    }
+
+    const sourcePathSet = new Set(sourceFiles.map((row) => row.source_relative_path))
+    const targetPathBySource = new Map(
+      sourceFiles.map((row) => [row.source_relative_path, row.target_relative_path])
+    )
+
+    const sourceMemberships = parentDb
+      .prepare('SELECT * FROM queue_membership WHERE library_id = ?')
+      .all(parentWorkspace.library_id)
+      .filter((row) => sourcePathSet.has(row.relative_path))
+
+    const sourceNoteSources = parentDb
+      .prepare('SELECT * FROM note_source WHERE library_id = ?')
+      .all(parentWorkspace.library_id)
+      .filter((row) => sourcePathSet.has(row.relative_path))
+
+    newDb.exec('BEGIN')
+    parentDb.exec('BEGIN')
+
+    try {
+      const insertFileStmt = newDb.prepare(`
+        INSERT OR REPLACE INTO file (
+          library_id,
+          relative_path,
+          added_time,
+          last_revised_time,
+          review_count,
+          easiness,
+          rank,
+          interval,
+          due_time,
+          rotation_interval,
+          intermediate_interval,
+          extraction_count,
+          last_queue_change
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const row of sourceFiles) {
+        insertFileStmt.run(
+          newLibraryId,
+          row.target_relative_path,
+          row.added_time,
+          row.last_revised_time,
+          row.review_count,
+          row.easiness,
+          row.rank,
+          row.interval,
+          row.due_time,
+          row.rotation_interval,
+          row.intermediate_interval,
+          row.extraction_count,
+          row.last_queue_change
+        )
+      }
+
+      const insertMembershipStmt = newDb.prepare(
+        'INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path) VALUES (?, ?, ?)'
+      )
+
+      for (const row of sourceMemberships) {
+        const targetRelativePath = targetPathBySource.get(row.relative_path)
+        if (!targetRelativePath) {
+          continue
+        }
+
+        insertMembershipStmt.run(newLibraryId, row.queue_name, targetRelativePath)
+      }
+
+      const insertNoteSourceStmt = newDb.prepare(`
+        INSERT OR REPLACE INTO note_source (
+          library_id,
+          relative_path,
+          parent_path,
+          extract_type,
+          range_start,
+          range_end,
+          source_hash,
+          source_embedding,
+          embedding_model,
+          embedding_dim
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const row of sourceNoteSources) {
+        const targetRelativePath = targetPathBySource.get(row.relative_path)
+        if (!targetRelativePath) {
+          continue
+        }
+
+        const targetParentPath = sourcePathSet.has(row.parent_path)
+          ? targetPathBySource.get(row.parent_path)
+          : null
+
+        insertNoteSourceStmt.run(
+          newLibraryId,
+          targetRelativePath,
+          targetParentPath,
+          row.extract_type,
+          row.range_start,
+          row.range_end,
+          row.source_hash,
+          row.source_embedding,
+          row.embedding_model,
+          row.embedding_dim
+        )
+      }
+
+      const deleteNoteSourceStmt = parentDb.prepare(
+        'DELETE FROM note_source WHERE library_id = ? AND relative_path = ?'
+      )
+      const deleteMembershipStmt = parentDb.prepare(
+        'DELETE FROM queue_membership WHERE library_id = ? AND relative_path = ?'
+      )
+      const deleteFileStmt = parentDb.prepare(
+        'DELETE FROM file WHERE library_id = ? AND relative_path = ?'
+      )
+
+      for (const row of sourceFiles) {
+        deleteNoteSourceStmt.run(parentWorkspace.library_id, row.source_relative_path)
+        deleteMembershipStmt.run(parentWorkspace.library_id, row.source_relative_path)
+        deleteFileStmt.run(parentWorkspace.library_id, row.source_relative_path)
+      }
+
+      newDb.exec('COMMIT')
+      parentDb.exec('COMMIT')
+    } catch (error) {
+      newDb.exec('ROLLBACK')
+      parentDb.exec('ROLLBACK')
+      throw error
+    }
+
+    parentDb.close()
+    return { success: true, migratedFiles: sourceFiles.length }
+  } catch (error) {
+    parentDb.close()
+    return { success: false, error: error.message, migratedFiles: 0 }
+  }
+}
+
 async function createDatabase(folderPath, getCentralDbPath) {
   try {
     const increviseFolder = path.join(folderPath, '.increvise')
@@ -44,6 +255,16 @@ async function createDatabase(folderPath, getCentralDbPath) {
       const libraryName = path.basename(folderPath)
       insertInitialData(db, libraryId, libraryName)
 
+      const migrationResult = await migrateSubtreeReviewData(
+        db,
+        libraryId,
+        folderPath,
+        getCentralDbPath
+      )
+      if (!migrationResult.success) {
+        console.error('Failed to migrate review data to child workspace:', migrationResult.error)
+      }
+
       db.close()
 
       // Register in central database
@@ -63,7 +284,12 @@ async function createDatabase(folderPath, getCentralDbPath) {
         // Continue anyway - database is created successfully
       }
 
-      return { success: true, path: dbFilePath, libraryId }
+      return {
+        success: true,
+        path: dbFilePath,
+        libraryId,
+        migratedFiles: migrationResult?.migratedFiles || 0,
+      }
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -200,7 +426,7 @@ async function getFilesForRevision(rootPath) {
           }))
         )
         db.close()
-      } catch (err) {
+      } catch {
         console.warn('Failed to read from this database, skip it')
       }
     }
@@ -598,39 +824,32 @@ async function forgetFile(filePath, libraryId, getCentralDbPath) {
         return { success: false, error: 'File not found in database' }
       }
 
-      // Delete all revision data from note_source table
       const deleteNoteSource = db.prepare(
         'DELETE FROM note_source WHERE library_id = ? AND relative_path = ?'
       )
-      const noteSourceResult = deleteNoteSource.run(libraryId, relativePath)
+      const deleteMembership = db.prepare(
+        'DELETE FROM queue_membership WHERE library_id = ? AND relative_path = ?'
+      )
+      const deleteFile = db.prepare('DELETE FROM file WHERE library_id = ? AND relative_path = ?')
 
-      // Reset spaced repetition data in file table
-      const resetFile = db.prepare(`
-        UPDATE file
-        SET last_revised_time = NULL,
-            review_count = 0,
-            easiness = 2.5,
-            rank = 70.0,
-            interval = 1,
-            due_time = datetime('now')
-        WHERE library_id = ? AND relative_path = ?
-      `)
-      const fileResult = resetFile.run(libraryId, relativePath)
+      let noteSourceChanges = 0
+      let membershipChanges = 0
+      let fileChanges = 0
+
+      const runDelete = db.transaction(() => {
+        noteSourceChanges = deleteNoteSource.run(libraryId, relativePath).changes
+        membershipChanges = deleteMembership.run(libraryId, relativePath).changes
+        fileChanges = deleteFile.run(libraryId, relativePath).changes
+      })
+      runDelete()
 
       db.close()
       return {
         success: true,
-        message: 'File revision data erased, but entry kept in database',
-        deletedRevisions: noteSourceResult.changes,
-        updatedFile: fileResult.changes > 0,
-        resetValues: {
-          last_revised_time: null,
-          review_count: 0,
-          easiness: 2.5,
-          rank: 70.0,
-          interval: 1,
-          due_time: new Date().toISOString(),
-        },
+        message: 'File removed from workspace review records',
+        deletedRevisions: noteSourceChanges,
+        deletedMembership: membershipChanges,
+        deletedFile: fileChanges > 0,
       }
     } catch (err) {
       return { success: false, error: err.message }

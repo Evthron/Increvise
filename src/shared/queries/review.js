@@ -97,16 +97,18 @@ export const REVIEW_QUERIES = {
   `,
 
   /**
-   * Reset file for forget operation
+   * Delete queue membership for remove operation
    */
-  FORGET_FILE: `
-    UPDATE file
-    SET last_revised_time = NULL,
-        review_count = 0,
-        easiness = 2.5,
-        rank = 70.0,
-        interval = 1,
-        due_time = datetime('now')
+  DELETE_QUEUE_MEMBERSHIP: `
+    DELETE FROM queue_membership
+    WHERE library_id = ? AND relative_path = ?
+  `,
+
+  /**
+   * Delete file record for remove operation
+   */
+  DELETE_FILE_RECORD: `
+    DELETE FROM file
     WHERE library_id = ? AND relative_path = ?
   `,
 
