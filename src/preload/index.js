@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('get-child-ranges', parentPath, libraryId, useDynamicContent),
   updateLockedRanges: (parentPath, rangeUpdates, libraryId) =>
     ipcRenderer.invoke('update-locked-ranges', parentPath, rangeUpdates, libraryId),
+  replaceChildRangeWithChildContent: (parentPath, childPath, libraryId) =>
+    ipcRenderer.invoke('replace-child-range-with-child-content', parentPath, childPath, libraryId),
   getNoteExtractInfo: (notePath, libraryId) =>
     ipcRenderer.invoke('get-note-extract-info', notePath, libraryId),
 

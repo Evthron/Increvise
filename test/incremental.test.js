@@ -13,6 +13,7 @@ import {
   readFile,
   writeFile,
   extractNote,
+  replaceChildRangeWithChildContent,
   parseNoteFileName,
   generateChildNoteName,
   findTopLevelNoteFolder,
@@ -862,6 +863,137 @@ async function test16_GetNoteExtractInfo() {
 }
 
 // ========================================
+// Test 17: replaceChildRangeWithChildContent
+// ========================================
+async function test17_ReplaceChildRangeWithChildContent() {
+  printSeparator('Test 17: replaceChildRangeWithChildContent')
+
+  const parentPath = path.join(TEST_WORKSPACE, 'replace-parent.md')
+  const childAPath = path.join(TEST_WORKSPACE, '_notes', 'replace-child-a.md')
+  const childBPath = path.join(TEST_WORKSPACE, '_notes', 'replace-child-b.md')
+
+  const parentLines = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10', 'L11', 'L12']
+
+  await fs.mkdir(path.dirname(childAPath), { recursive: true })
+  await fs.writeFile(parentPath, parentLines.join('\n'), 'utf-8')
+  await fs.writeFile(childAPath, ['A-1', 'A-2', 'A-3', 'A-4'].join('\n'), 'utf-8')
+  await fs.writeFile(childBPath, ['B-1', 'B-2', 'B-3'].join('\n'), 'utf-8')
+
+  const db = new Database(TEST_DB_PATH)
+  try {
+    const parentRelative = path.relative(TEST_WORKSPACE, parentPath)
+    const childARelative = path.relative(TEST_WORKSPACE, childAPath)
+    const childBRelative = path.relative(TEST_WORKSPACE, childBPath)
+
+    const sourceHashA = crypto.createHash('sha256').update('A').digest('hex')
+    const sourceHashB = crypto.createHash('sha256').update('B').digest('hex')
+
+    db.prepare(
+      `
+      INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+      VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+    `
+    ).run(LIBRARY_ID, parentRelative)
+
+    db.prepare(
+      `
+      INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+      VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+    `
+    ).run(LIBRARY_ID, childARelative)
+
+    db.prepare(
+      `
+      INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+      VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
+    `
+    ).run(LIBRARY_ID, childBRelative)
+
+    db.prepare(
+      `
+      INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+      VALUES (?, ?, ?, 'text-lines', '3', '5', ?)
+    `
+    ).run(LIBRARY_ID, childARelative, parentRelative, sourceHashA)
+
+    db.prepare(
+      `
+      INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
+      VALUES (?, ?, ?, 'text-lines', '9', '11', ?)
+    `
+    ).run(LIBRARY_ID, childBRelative, parentRelative, sourceHashB)
+
+    const result = await replaceChildRangeWithChildContent(
+      parentPath,
+      childARelative,
+      LIBRARY_ID,
+      getCentralDbPath
+    )
+
+    if (!result.success) {
+      throw new Error('Replace failed: ' + result.error)
+    }
+
+    console.log(`  ✓ Replace succeeded with delta=${result.delta}`)
+
+    const updatedParent = await fs.readFile(parentPath, 'utf-8')
+    const updatedLines = updatedParent.split('\n')
+    const expected = [
+      'L1',
+      'L2',
+      'A-1',
+      'A-2',
+      'A-3',
+      'A-4',
+      'L6',
+      'L7',
+      'L8',
+      'L9',
+      'L10',
+      'L11',
+      'L12',
+    ]
+
+    if (updatedLines.join('\n') !== expected.join('\n')) {
+      throw new Error('Parent content not replaced as expected')
+    }
+    console.log('  ✓ Parent range replaced with child content')
+
+    const childA = db
+      .prepare(
+        `
+        SELECT range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND parent_path = ? AND relative_path = ?
+      `
+      )
+      .get(LIBRARY_ID, parentRelative, childARelative)
+
+    if (parseInt(childA.range_start) !== 3 || parseInt(childA.range_end) !== 6) {
+      throw new Error(`Child A range expected 3-6, got ${childA.range_start}-${childA.range_end}`)
+    }
+    console.log('  ✓ Replaced child range updated correctly')
+
+    const childB = db
+      .prepare(
+        `
+        SELECT range_start, range_end
+        FROM note_source
+        WHERE library_id = ? AND parent_path = ? AND relative_path = ?
+      `
+      )
+      .get(LIBRARY_ID, parentRelative, childBRelative)
+
+    if (parseInt(childB.range_start) !== 10 || parseInt(childB.range_end) !== 12) {
+      throw new Error(`Sibling range expected 10-12, got ${childB.range_start}-${childB.range_end}`)
+    }
+    console.log('  ✓ Sibling ranges shifted correctly')
+  } finally {
+    db.close()
+  }
+}
+
+// ========================================
 // Main test function
 // ========================================
 async function runAllTests() {
@@ -886,6 +1018,7 @@ async function runAllTests() {
     await test14_ExtractNote_MultiLevel_Flat()
     await test15_FindTopLevelNoteFolder()
     await test16_GetNoteExtractInfo()
+    await test17_ReplaceChildRangeWithChildContent()
 
     console.log('\n✓ All tests completed successfully\n')
   } catch (error) {

@@ -537,7 +537,8 @@ export class MarkdownViewer extends LitElement {
     }
 
     .extracted-toggle,
-    .extracted-open {
+    .extracted-open,
+    .extracted-replace {
       position: absolute;
       background: rgba(255, 152, 0, 0.15);
       border: 1px solid rgba(255, 152, 0, 0.3);
@@ -552,12 +553,14 @@ export class MarkdownViewer extends LitElement {
     }
 
     .extracted-toggle,
-    .extracted-open {
+    .extracted-open,
+    .extracted-replace {
       position: static;
     }
 
     .extracted-toggle:hover,
-    .extracted-open:hover {
+    .extracted-open:hover,
+    .extracted-replace:hover {
       background: rgba(255, 152, 0, 0.3);
     }
 
@@ -875,6 +878,41 @@ export class MarkdownViewer extends LitElement {
     }
   }
 
+  async replaceRangeWithChildContent(childPath) {
+    if (!this.currentFilePath) {
+      return { success: false, error: 'Parent file path not set' }
+    }
+
+    if (!childPath) {
+      return { success: false, error: 'Child path not provided' }
+    }
+
+    const libraryId = window.currentFile.libraryId
+    if (!libraryId) {
+      return { success: false, error: 'Library ID not set' }
+    }
+
+    const result = await window.fileManager.replaceChildRangeWithChildContent(
+      this.currentFilePath,
+      childPath,
+      libraryId
+    )
+
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Replace failed' }
+    }
+
+    const reload = await window.fileManager.readFile(this.currentFilePath)
+    if (!reload?.success) {
+      return { success: false, error: reload?.error || 'Failed to reload parent content' }
+    }
+
+    this.setMarkdown(reload.content)
+    await this.loadAndLockExtractedContent(this.currentFilePath)
+
+    return { success: true }
+  }
+
   /**
    * Apply highlighting to extracted ranges after rendering
    */
@@ -979,8 +1017,27 @@ export class MarkdownViewer extends LitElement {
       }
     })
 
+    const replaceBtn = document.createElement('button')
+    replaceBtn.className = 'extracted-replace'
+    replaceBtn.textContent = 'Replace'
+    replaceBtn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const result = await this.replaceRangeWithChildContent(range.path)
+      const editorPanel = document.querySelector('editor-panel')
+      if (editorPanel && editorPanel._showToast) {
+        if (result.success) {
+          editorPanel._showToast('Replaced source range with child content')
+          editorPanel._refreshFileManager()
+        } else {
+          editorPanel._showToast(result.error || 'Failed to replace source range', true)
+        }
+      }
+    })
+
     controls.appendChild(toggle)
     controls.appendChild(openBtn)
+    controls.appendChild(replaceBtn)
 
     el.style.position = 'relative'
     el.appendChild(controls)
@@ -1244,6 +1301,10 @@ export class MarkdownViewer extends LitElement {
     this.requestUpdate()
     // Apply line-based highlighting after render
     this.applyExtractedHighlighting()
+  }
+
+  setCurrentFilePath(filePath) {
+    this.currentFilePath = filePath
   }
 
   // Open link dialog, self explanatory

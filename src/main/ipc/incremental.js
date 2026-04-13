@@ -915,6 +915,143 @@ async function writeFile(filePath, content) {
   }
 }
 
+async function replaceChildRangeWithChildContent(
+  parentPath,
+  childPath,
+  libraryId,
+  getCentralDbPath
+) {
+  try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      return { success: false, error: dbInfo.error || 'Database not found' }
+    }
+
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
+    const childRelativePath = path.isAbsolute(childPath)
+      ? path.relative(dbInfo.folderPath, childPath)
+      : childPath
+    const childAbsolutePath = path.isAbsolute(childPath)
+      ? childPath
+      : path.join(dbInfo.folderPath, childRelativePath)
+
+    const db = new Database(dbInfo.dbPath)
+    try {
+      const source = db
+        .prepare(
+          `
+          SELECT range_start, range_end
+          FROM note_source
+          WHERE library_id = ?
+            AND parent_path = ?
+            AND relative_path = ?
+            AND extract_type = 'text-lines'
+        `
+        )
+        .get(libraryId, parentRelativePath, childRelativePath)
+
+      if (!source) {
+        return { success: false, error: 'Child note source range not found' }
+      }
+
+      const oldStart = parseInt(source.range_start)
+      const oldEnd = parseInt(source.range_end)
+      if (isNaN(oldStart) || isNaN(oldEnd)) {
+        return { success: false, error: 'Invalid source range for child note' }
+      }
+
+      const [parentContent, childContent] = await Promise.all([
+        fs.readFile(parentPath, 'utf-8'),
+        fs.readFile(childAbsolutePath, 'utf-8'),
+      ])
+
+      const parentLines = parentContent.split('\n')
+      const childLines = childContent.split('\n')
+      const oldLineCount = oldEnd - oldStart + 1
+      const newLineCount = childLines.length
+      const delta = newLineCount - oldLineCount
+      const newEnd = oldStart + newLineCount - 1
+
+      const updatedParent = [
+        ...parentLines.slice(0, oldStart - 1),
+        ...childLines,
+        ...parentLines.slice(oldEnd),
+      ].join('\n')
+
+      await fs.writeFile(parentPath, updatedParent, 'utf-8')
+
+      const tx = db.transaction(() => {
+        db.prepare(
+          `
+          UPDATE note_source
+          SET range_start = ?, range_end = ?
+          WHERE library_id = ?
+            AND parent_path = ?
+            AND relative_path = ?
+            AND extract_type = 'text-lines'
+        `
+        ).run(String(oldStart), String(newEnd), libraryId, parentRelativePath, childRelativePath)
+
+        if (delta !== 0) {
+          const siblings = db
+            .prepare(
+              `
+              SELECT relative_path, range_start, range_end
+              FROM note_source
+              WHERE library_id = ?
+                AND parent_path = ?
+                AND relative_path != ?
+                AND extract_type = 'text-lines'
+                AND range_start GLOB '[0-9]*'
+                AND range_end GLOB '[0-9]*'
+                AND CAST(range_start AS INTEGER) > ?
+            `
+            )
+            .all(libraryId, parentRelativePath, childRelativePath, oldEnd)
+
+          const updateSibling = db.prepare(
+            `
+            UPDATE note_source
+            SET range_start = ?, range_end = ?
+            WHERE library_id = ?
+              AND parent_path = ?
+              AND relative_path = ?
+              AND extract_type = 'text-lines'
+          `
+          )
+
+          for (const sibling of siblings) {
+            const siblingStart = parseInt(sibling.range_start)
+            const siblingEnd = parseInt(sibling.range_end)
+            updateSibling.run(
+              String(siblingStart + delta),
+              String(siblingEnd + delta),
+              libraryId,
+              parentRelativePath,
+              sibling.relative_path
+            )
+          }
+        }
+      })
+
+      tx()
+
+      return {
+        success: true,
+        oldStart,
+        oldEnd,
+        newStart: oldStart,
+        newEnd,
+        delta,
+      }
+    } finally {
+      db.close()
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+}
+
 async function extractNote(
   parentFilePath,
   selectedText,
@@ -1693,6 +1830,12 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
     updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentralDbPath)
   )
 
+  ipcMain.handle(
+    'replace-child-range-with-child-content',
+    async (event, parentPath, childPath, libraryId) =>
+      replaceChildRangeWithChildContent(parentPath, childPath, libraryId, getCentralDbPath)
+  )
+
   // PDF extraction handlers
   ipcMain.handle('extract-pdf-pages', async (event, pdfPath, startPage, endPage, libraryId) =>
     extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath)
@@ -1744,6 +1887,7 @@ export {
   compareFilenameWithDbRange,
   getChildRanges,
   updateLockedRanges,
+  replaceChildRangeWithChildContent,
   extractPdfPages,
   extractPdfText,
   extractVideoClip,

@@ -834,6 +834,7 @@ export class EditorPanel extends LitElement {
 
     if (this.currentViewerType === 'markdown') {
       this._showViewer('markdown')
+      this.markdownViewer.setCurrentFilePath(this.currentFilePath)
 
       if (content !== undefined) {
         this.markdownViewer.setMarkdown(content)
