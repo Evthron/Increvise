@@ -78,6 +78,7 @@ export class WorkspaceManager extends LitElement {
 
     sl-button {
       width: 100%;
+      overflow: hidden;
     }
 
     .open-folder-btn {
@@ -129,6 +130,35 @@ export class WorkspaceManager extends LitElement {
       border: 1px solid var(--border-color);
       border-radius: 5px;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .workspace-item-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .remove-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+
+    .remove-btn:hover {
+      color: #b00020;
+      background: rgba(176, 0, 32, 0.08);
+    }
+
+    .remove-btn:active {
+      background: rgba(176, 0, 32, 0.14);
     }
 
     .workspace-item:hover {
@@ -248,11 +278,21 @@ export class WorkspaceManager extends LitElement {
         @click=${() => this._handleSingleWorkspaceClick(workspace.folder_path)}
         title=${workspace.folder_path}
       >
-        <div class="workspace-name">${workspace.folder_name}</div>
-        <div class="workspace-meta">${timeAgo}</div>
-        ${workspace.files_due_today > 0
-          ? html`<div class="workspace-stats">${workspace.files_due_today} due</div>`
-          : ''}
+        <div class="workspace-item-main">
+          <div class="workspace-name">${workspace.folder_name}</div>
+          <div class="workspace-meta">${timeAgo}</div>
+          ${workspace.files_due_today > 0
+            ? html`<div class="workspace-stats">${workspace.files_due_today} due</div>`
+            : ''}
+        </div>
+        <button
+          class="remove-btn"
+          type="button"
+          title="Remove workspace from history"
+          @click=${(event) => this._handleRemoveWorkspace(event, workspace.folder_path)}
+        >
+          Remove
+        </button>
       </div>
     `
   }
@@ -275,6 +315,12 @@ export class WorkspaceManager extends LitElement {
               : ''}
           </span>
         </div>
+        <sl-icon-button
+          slot="suffix"
+          name="trash"
+          label="Remove workspace"
+          @click=${(event) => this._handleRemoveWorkspace(event, workspace.folder_path)}
+        ></sl-icon-button>
       </sl-menu-item>
     `
   }
@@ -351,6 +397,38 @@ export class WorkspaceManager extends LitElement {
       })
     )
     this._updateCurrentWorkspaceName()
+  }
+
+  async _handleRemoveWorkspace(event, folderPath) {
+    event.stopPropagation()
+    event.preventDefault()
+
+    const workspace = this.workspaces.find((ws) => ws.folder_path === folderPath)
+    const workspaceName = workspace?.folder_name || folderPath
+    const confirmed = confirm(`Remove workspace "${workspaceName}" from history?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const result = await window.fileManager.removeWorkspace(folderPath)
+      if (!result?.success) {
+        alert(`Failed to remove workspace: ${result?.error || 'Unknown error'}`)
+        return
+      }
+
+      this.workspaces = this.workspaces.filter((ws) => ws.folder_path !== folderPath)
+
+      const removedCurrentWorkspace = window.currentFile?.rootPath === folderPath
+      if (removedCurrentWorkspace || window.mode?.allWorkspace) {
+        this._handleAllWorkspacesClick()
+      } else {
+        this._updateCurrentWorkspaceName()
+      }
+    } catch (error) {
+      console.error('Error removing workspace:', error)
+      alert(`Error removing workspace: ${error.message}`)
+    }
   }
 
   _getTimeAgo(date) {
