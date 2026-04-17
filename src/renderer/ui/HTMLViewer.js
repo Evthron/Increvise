@@ -708,14 +708,7 @@ export class HTMLViewer extends LitElement {
 
     try {
       // Extract note with generated filename
-      const result = await window.fileManager.extractNote(
-        filePath,
-        text,
-        childFileName,
-        null,
-        null,
-        libraryId
-      )
+      const result = await window.fileManager.extractHTML(filePath, text, childFileName, libraryId)
 
       // Check if extraction was successful
       if (!result.success) {

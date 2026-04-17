@@ -11,13 +11,11 @@ import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
 import {
   readFile,
-  writeFile,
   extractNote,
   replaceChildRangeWithChildContent,
   parseNoteFileName,
   generateChildNoteName,
   findTopLevelNoteFolder,
-  findParentPath,
   getNoteExtractInfo,
 } from '../src/main/ipc/incremental.js'
 import { createDatabase } from '../src/main/ipc/spaced.js'
@@ -217,68 +215,10 @@ async function test4_ReadFile_NonExistent() {
 }
 
 // ========================================
-// Test 5: writeFile - New file
-// ========================================
-async function test5_WriteFile_New() {
-  printSeparator('Test 5: writeFile - New file')
-
-  const testFilePath = path.join(TEST_WORKSPACE, 'test-write-new.txt')
-  const testContent = 'This is new content'
-
-  // Write file
-  const result = await writeFile(testFilePath, testContent)
-
-  if (result.success) {
-    console.log('  ✓ File created successfully')
-
-    // Verify content
-    const readContent = await fs.readFile(testFilePath, 'utf-8')
-    if (readContent === testContent) {
-      console.log('  ✓ Content verified')
-    } else {
-      throw new Error('Content verification failed')
-    }
-  } else {
-    throw new Error('Failed to write file: ' + result.error)
-  }
-}
-
-// ========================================
-// Test 6: writeFile - Overwrite
-// ========================================
-async function test6_WriteFile_Overwrite() {
-  printSeparator('Test 6: writeFile - Overwrite')
-
-  const testFilePath = path.join(TEST_WORKSPACE, 'test-overwrite.txt')
-  const originalContent = 'Original content'
-  const newContent = 'Updated content'
-
-  // Create original file
-  await fs.writeFile(testFilePath, originalContent, 'utf-8')
-
-  // Overwrite file
-  const result = await writeFile(testFilePath, newContent)
-
-  if (result.success) {
-    console.log('  ✓ File overwritten successfully')
-
-    // Verify new content
-    const readContent = await fs.readFile(testFilePath, 'utf-8')
-    if (readContent === newContent) {
-      console.log('  ✓ New content verified')
-    } else {
-      throw new Error('Content verification failed')
-    }
-  } else {
-    throw new Error('Failed to overwrite file: ' + result.error)
-  }
-}
-
-// ========================================
 // Test 7: generateChildNoteName - From top-level file
 // ========================================
-async function test7_GenerateChildNoteName_TopLevel() {
-  printSeparator('Test 7: generateChildNoteName - From top-level file')
+async function test5_GenerateChildNoteName_TopLevel() {
+  printSeparator('Test 5: generateChildNoteName - From top-level file')
 
   const parentFilePath = path.join(TEST_WORKSPACE, 'my-research-paper.md')
   const rangeStart = 10
@@ -299,8 +239,8 @@ async function test7_GenerateChildNoteName_TopLevel() {
 // ========================================
 // Test 8: generateChildNoteName - From 1-layer note
 // ========================================
-async function test8_GenerateChildNoteName_OneLayer() {
-  printSeparator('Test 8: generateChildNoteName - From 1-layer note')
+async function test6_GenerateChildNoteName_OneLayer() {
+  printSeparator('Test 6: generateChildNoteName - From 1-layer note')
 
   const parentFilePath = path.join(TEST_WORKSPACE, 'notes', '10-20_introduction.md')
   const rangeStart = 15
@@ -322,8 +262,8 @@ async function test8_GenerateChildNoteName_OneLayer() {
 // ========================================
 // Test 9: generateChildNoteName - From 3-layer note
 // ========================================
-async function test9_GenerateChildNoteName_ThreeLayers() {
-  printSeparator('Test 9: generateChildNoteName - From 3-layer note')
+async function test7_GenerateChildNoteName_ThreeLayers() {
+  printSeparator('Test 7: generateChildNoteName - From 3-layer note')
 
   const parentFilePath = path.join(
     TEST_WORKSPACE,
@@ -349,95 +289,10 @@ async function test9_GenerateChildNoteName_ThreeLayers() {
 }
 
 // ========================================
-// Test 10: findParentPath - Find parent from database
-// ========================================
-async function test10_FindParentPath() {
-  printSeparator('Test 10: findParentPath')
-
-  // Insert test data into database
-  const db = new Database(TEST_DB_PATH)
-
-  // First insert parent file
-  db.prepare(
-    `
-    INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-    VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
-  `
-  ).run(LIBRARY_ID, 'research-paper.md')
-
-  // Insert child file
-  db.prepare(
-    `
-    INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-    VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
-  `
-  ).run(LIBRARY_ID, 'research-paper/10-20-research-paper.md')
-
-  // Insert standalone file
-  db.prepare(
-    `
-    INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-    VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now'))
-  `
-  ).run(LIBRARY_ID, 'standalone-note.md')
-
-  // Create note_source entries
-  db.prepare(
-    `
-    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `
-  ).run(
-    LIBRARY_ID,
-    'research-paper/10-20-research-paper.md',
-    'research-paper.md',
-    'text-lines',
-    '10',
-    '20',
-    'dummy-hash-1'
-  )
-
-  db.prepare(
-    `
-    INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `
-  ).run(
-    LIBRARY_ID,
-    'standalone-note.md',
-    null, // No parent
-    'text-lines',
-    '1',
-    '10',
-    'dummy-hash-2'
-  )
-
-  // Test finding parent
-  const noteFilePath = path.join(TEST_WORKSPACE, 'research-paper/10-20-research-paper.md')
-  const parentPath = await findParentPath(noteFilePath, db, LIBRARY_ID, TEST_WORKSPACE)
-
-  console.log(`  ✓ Found parent: "${parentPath}"`)
-  if (parentPath !== 'research-paper.md') {
-    throw new Error(`Expected "research-paper.md", got "${parentPath}"`)
-  }
-
-  // Test note with no parent
-  const standaloneNotePath = path.join(TEST_WORKSPACE, 'standalone-note.md')
-  const noParent = await findParentPath(standaloneNotePath, db, LIBRARY_ID, TEST_WORKSPACE)
-
-  console.log(`  ✓ No parent returns: ${noParent === null ? 'null' : noParent}`)
-  if (noParent !== null) {
-    throw new Error('Expected null for note with no parent')
-  }
-
-  db.close()
-}
-
-// ========================================
 // Test 11: extractNote - Extract from top-level file (full workflow)
 // ========================================
-async function test11_ExtractNote_TopLevel() {
-  printSeparator('Test 11: extractNote - Extract from top-level file')
+async function test9_ExtractNote_TopLevel() {
+  printSeparator('Test 9: extractNote - Extract from top-level file')
 
   // Create parent file with 25 lines
   const parentFilePath = path.join(TEST_WORKSPACE, 'research-paper.md')
@@ -456,6 +311,7 @@ Line 15: This is test content for line number 15.`
   const result = await extractNote(
     parentFilePath,
     selectedText,
+    null,
     10,
     15,
     LIBRARY_ID,
@@ -513,13 +369,13 @@ Line 15: This is test content for line number 15.`
 }
 
 // ========================================
-// Test 12: extractNote - Extract from hierarchical note (flat structure)
+// Test 10: extractNote - Extract from hierarchical note (flat structure)
 // ========================================
-async function test12_ExtractNote_Hierarchical() {
-  printSeparator('Test 12: extractNote - From hierarchical note (flat structure)')
+async function test10_ExtractNote_Hierarchical() {
+  printSeparator('Test 10: extractNote - From hierarchical note (flat structure)')
 
   // Create parent note (child of research-paper.md)
-  const parentNotePath = path.join(TEST_WORKSPACE, 'research-paper', '10-15-research-paper.md')
+  const parentNotePath = path.join(TEST_WORKSPACE, 'research-paper', '10-15_research-paper.md')
   await createTestFile(parentNotePath, 15)
 
   // Extract lines 5-8
@@ -528,9 +384,17 @@ Line 6: This is test content for line number 6.
 Line 7: This is test content for line number 7.
 Line 8: This is test content for line number 8.`
 
-  console.log('  Parent: "research-paper/10-15-research-paper.md" (lines 5-8)')
+  console.log('  Parent: "research-paper/10-15_research-paper.md" (lines 5-8)')
 
-  const result = await extractNote(parentNotePath, selectedText, 5, 8, LIBRARY_ID, getCentralDbPath)
+  const result = await extractNote(
+    parentNotePath,
+    selectedText,
+    null,
+    5,
+    8,
+    LIBRARY_ID,
+    getCentralDbPath
+  )
 
   if (!result.success) {
     throw new Error('Extract failed: ' + result.error)
@@ -539,19 +403,19 @@ Line 8: This is test content for line number 8.`
   console.log(`  ✓ Grandchild created: "${result.fileName}"`)
 
   // Verify hierarchical naming (flat structure keeps all layers)
-  const expectedFileName = '10-15-research-paper.5-8-line-5-this.md'
+  const expectedFileName = '10-15_research-paper.5-8_line-5-this-is-test-content.md'
   if (result.fileName !== expectedFileName) {
     throw new Error(`Expected "${expectedFileName}", got "${result.fileName}"`)
   }
   console.log('  ✓ Follows flat structure naming (keeps all parent layers)')
 
-  // Verify file is in same folder as parent (flat structure)
-  const expectedFolder = path.join(TEST_WORKSPACE, 'research-paper')
+  // Verify file is placed in derived top-level note folder
+  const expectedFolder = path.join(TEST_WORKSPACE, '10-15_research-paper')
   const actualFolder = path.dirname(result.filePath)
   if (actualFolder !== expectedFolder) {
     throw new Error(`Expected folder "${expectedFolder}", got "${actualFolder}"`)
   }
-  console.log('  ✓ File is in same folder as parent (flat structure)')
+  console.log('  ✓ File is in derived top-level note folder')
 
   // Verify database tracking
   const db = new Database(TEST_DB_PATH)
@@ -563,7 +427,7 @@ Line 8: This is test content for line number 8.`
     throw new Error('note_source entry not found')
   }
 
-  const expectedParentPath = 'research-paper/10-15-research-paper.md'
+  const expectedParentPath = 'research-paper/10-15_research-paper.md'
   if (noteSourceEntry.parent_path !== expectedParentPath) {
     throw new Error(`Expected parent "${expectedParentPath}", got "${noteSourceEntry.parent_path}"`)
   }
@@ -575,8 +439,8 @@ Line 8: This is test content for line number 8.`
 // ========================================
 // Test 13: extractNote - Duplicate filename rejection
 // ========================================
-async function test13_ExtractNote_Duplicate() {
-  printSeparator('Test 13: extractNote - Duplicate rejection')
+async function test11_ExtractNote_Duplicate() {
+  printSeparator('Test 11: extractNote - Duplicate rejection')
 
   const parentFilePath = path.join(TEST_WORKSPACE, 'test-duplicate.md')
   await createTestFile(parentFilePath, 25)
@@ -587,6 +451,7 @@ async function test13_ExtractNote_Duplicate() {
   const result1 = await extractNote(
     parentFilePath,
     selectedText,
+    null,
     10,
     15,
     LIBRARY_ID,
@@ -602,6 +467,7 @@ async function test13_ExtractNote_Duplicate() {
   const result2 = await extractNote(
     parentFilePath,
     selectedText,
+    null,
     10,
     15,
     LIBRARY_ID,
@@ -623,8 +489,8 @@ async function test13_ExtractNote_Duplicate() {
 // ========================================
 // Test 14: extractNote - Multi-level flat structure
 // ========================================
-async function test14_ExtractNote_MultiLevel_Flat() {
-  printSeparator('Test 14: extractNote - Multi-level flat structure')
+async function test12_ExtractNote_MultiLevel_Flat() {
+  printSeparator('Test 12: extractNote - Multi-level flat structure')
 
   // Create a top-level file
   const topLevelPath = path.join(TEST_WORKSPACE, 'article.md')
@@ -636,7 +502,7 @@ Line 11: This is test content for line number 11.
 Line 12: This is test content for line number 12.`
 
   console.log('  Step 1: Extract from top-level "article.md" (lines 10-12)')
-  const result1 = await extractNote(topLevelPath, text1, 10, 12, LIBRARY_ID, getCentralDbPath)
+  const result1 = await extractNote(topLevelPath, text1, null, 10, 12, LIBRARY_ID, getCentralDbPath)
 
   if (!result1.success) {
     throw new Error('First extraction failed: ' + result1.error)
@@ -656,7 +522,15 @@ Line 12: This is test content for line number 12.`
 Line 11: This is test content for line number 11.`
 
   console.log(`  Step 2: Extract from level 1 "${result1.fileName}" (lines 10-11)`)
-  const result2 = await extractNote(result1.filePath, text2, 10, 11, LIBRARY_ID, getCentralDbPath)
+  const result2 = await extractNote(
+    result1.filePath,
+    text2,
+    null,
+    10,
+    11,
+    LIBRARY_ID,
+    getCentralDbPath
+  )
 
   if (!result2.success) {
     throw new Error('Second extraction failed: ' + result2.error)
@@ -674,7 +548,15 @@ Line 11: This is test content for line number 11.`
   const text3 = `Line 10: This is test content for line number 10.`
 
   console.log(`  Step 3: Extract from level 2 "${result2.fileName}" (line 10)`)
-  const result3 = await extractNote(result2.filePath, text3, 10, 10, LIBRARY_ID, getCentralDbPath)
+  const result3 = await extractNote(
+    result2.filePath,
+    text3,
+    null,
+    10,
+    10,
+    LIBRARY_ID,
+    getCentralDbPath
+  )
 
   if (!result3.success) {
     throw new Error('Third extraction failed: ' + result3.error)
@@ -695,49 +577,49 @@ Line 11: This is test content for line number 11.`
 // ========================================
 // Test 15: findTopLevelNoteFolder - Recursively find top-level folder
 // ========================================
-async function test15_FindTopLevelNoteFolder() {
-  printSeparator('Test 15: findTopLevelNoteFolder - Find top-level folder')
+async function test13_FindTopLevelNoteFolder() {
+  printSeparator('Test 13: findTopLevelNoteFolder - Find top-level folder')
 
   const db = new Database(TEST_DB_PATH)
 
   // Test 1: Top-level file (no parent in database)
-  const topLevelPath = path.join(TEST_WORKSPACE, 'standalone.md')
-  const folder1 = findTopLevelNoteFolder(topLevelPath, db, LIBRARY_ID, TEST_WORKSPACE)
-  const expected1 = path.join(TEST_WORKSPACE, 'standalone')
+  const topLevelRelativePath = 'standalone.md'
+  const folder1 = findTopLevelNoteFolder(topLevelRelativePath, db, LIBRARY_ID)
+  const expected1 = 'standalone'
 
   console.log(`  Test 1: Top-level file "standalone.md"`)
-  console.log(`    ✓ Found folder: "${path.relative(TEST_WORKSPACE, folder1)}"`)
+  console.log(`    ✓ Found folder: "${folder1}"`)
   if (folder1 !== expected1) {
     throw new Error(`Expected "${expected1}", got "${folder1}"`)
   }
 
   // Test 2: First-level child note (parent exists in DB)
-  // Use existing data from test11
-  const level1Path = path.join(TEST_WORKSPACE, 'research-paper', '10-15-research-paper.md')
-  const folder2 = findTopLevelNoteFolder(level1Path, db, LIBRARY_ID, TEST_WORKSPACE)
-  const expected2 = path.join(TEST_WORKSPACE, 'research-paper')
+  // Use existing data from test9
+  const level1RelativePath = path.join('research-paper', '10-15_line-10-this-is-test.md')
+  const folder2 = findTopLevelNoteFolder(level1RelativePath, db, LIBRARY_ID)
+  const expected2 = 'research-paper'
 
-  console.log(`  Test 2: First-level child "research-paper/10-15-research-paper.md"`)
-  console.log(`    ✓ Traced back to: "${path.relative(TEST_WORKSPACE, folder2)}"`)
+  console.log(`  Test 2: First-level child "research-paper/10-15_line-10-this-is-test.md"`)
+  console.log(`    ✓ Traced back to: "${folder2}"`)
   if (folder2 !== expected2) {
     throw new Error(`Expected "${expected2}", got "${folder2}"`)
   }
 
   // Test 3: Second-level child note (grandchild)
-  // Use existing data from test12
+  // Use existing data from test10
   const level2Path = path.join(
-    TEST_WORKSPACE,
-    'research-paper',
-    '10-15-research-paper.5-8-line-5-this.md'
+    '10-15_research-paper',
+    '10-15_research-paper.5-8_line-5-this-is-test-content.md'
   )
-  const folder3 = findTopLevelNoteFolder(level2Path, db, LIBRARY_ID, TEST_WORKSPACE)
+  const folder3 = findTopLevelNoteFolder(level2Path, db, LIBRARY_ID)
 
   console.log(
-    `  Test 3: Second-level child "research-paper/10-15-research-paper.5-8-line-5-this.md"`
+    `  Test 3: Second-level child "10-15_research-paper/10-15_research-paper.5-8_line-5-this-is-test-content.md"`
   )
-  console.log(`    ✓ Traced back to: "${path.relative(TEST_WORKSPACE, folder3)}"`)
-  if (folder3 !== expected2) {
-    throw new Error(`Expected "${expected2}", got "${folder3}"`)
+  console.log(`    ✓ Traced back to: "${folder3}"`)
+  const expected3 = '10-15_research-paper'
+  if (folder3 !== expected3) {
+    throw new Error(`Expected "${expected3}", got "${folder3}"`)
   }
 
   console.log('  ✓ Recursively traces back to top-level folder correctly')
@@ -748,8 +630,8 @@ async function test15_FindTopLevelNoteFolder() {
 // ========================================
 // Test 16: getNoteExtractInfo - Query PDF extract info from database
 // ========================================
-async function test16_GetNoteExtractInfo() {
-  printSeparator('Test 16: getNoteExtractInfo - Query PDF extract info')
+async function test14_GetNoteExtractInfo() {
+  printSeparator('Test 14: getNoteExtractInfo - Query PDF extract info')
 
   const db = new Database(TEST_DB_PATH)
 
@@ -865,8 +747,8 @@ async function test16_GetNoteExtractInfo() {
 // ========================================
 // Test 17: replaceChildRangeWithChildContent
 // ========================================
-async function test17_ReplaceChildRangeWithChildContent() {
-  printSeparator('Test 17: replaceChildRangeWithChildContent')
+async function test15_ReplaceChildRangeWithChildContent() {
+  printSeparator('Test 15: replaceChildRangeWithChildContent')
 
   const parentPath = path.join(TEST_WORKSPACE, 'replace-parent.md')
   const childAPath = path.join(TEST_WORKSPACE, '_notes', 'replace-child-a.md')
@@ -1006,24 +888,22 @@ async function runAllTests() {
     await test2_ParseNoteFileName_Invalid()
     await test3_ReadFile_Existing()
     await test4_ReadFile_NonExistent()
-    await test5_WriteFile_New()
-    await test6_WriteFile_Overwrite()
-    await test7_GenerateChildNoteName_TopLevel()
-    await test8_GenerateChildNoteName_OneLayer()
-    await test9_GenerateChildNoteName_ThreeLayers()
-    await test10_FindParentPath()
-    await test11_ExtractNote_TopLevel()
-    await test12_ExtractNote_Hierarchical()
-    await test13_ExtractNote_Duplicate()
-    await test14_ExtractNote_MultiLevel_Flat()
-    await test15_FindTopLevelNoteFolder()
-    await test16_GetNoteExtractInfo()
-    await test17_ReplaceChildRangeWithChildContent()
+    await test5_GenerateChildNoteName_TopLevel()
+    await test6_GenerateChildNoteName_OneLayer()
+    await test7_GenerateChildNoteName_ThreeLayers()
+    await test9_ExtractNote_TopLevel()
+    await test10_ExtractNote_Hierarchical()
+    await test11_ExtractNote_Duplicate()
+    await test12_ExtractNote_MultiLevel_Flat()
+    await test13_FindTopLevelNoteFolder()
+    await test14_GetNoteExtractInfo()
+    await test15_ReplaceChildRangeWithChildContent()
 
     console.log('\n✓ All tests completed successfully\n')
   } catch (error) {
     console.error('\n✗ Test failed:', error.message)
     console.error(error.stack)
+    process.exitCode = 1
   } finally {
     // Cleanup
     try {

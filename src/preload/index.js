@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('fileManager', {
 
   // 3. Incremental Reading
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-  writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
+  saveNote: (filePath, content, libraryId) =>
+    ipcRenderer.invoke('save-note', filePath, content, libraryId),
   extractNote: (filePath, selectedText, childFileName, rangeStart, rangeEnd, libraryId) =>
     ipcRenderer.invoke(
       'extract-note',
@@ -82,6 +83,10 @@ contextBridge.exposeInMainWorld('fileManager', {
   // 3d. Flashcard Extraction
   extractFlashcard: (filePath, selectedText, charStart, charEnd, libraryId) =>
     ipcRenderer.invoke('extract-flashcard', filePath, selectedText, charStart, charEnd, libraryId),
+
+  // 3e. HTML Extraction
+  extractHTML: (filePath, selectedText, childFileName, libraryId) =>
+    ipcRenderer.invoke('extract-html', filePath, selectedText, childFileName, libraryId),
 
   // 4. Workspace
   recordWorkspace: (folderPath) => ipcRenderer.invoke('record-workspace', folderPath),

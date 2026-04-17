@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
 import {
-  extractLines,
   findContentByHashAndLineCount,
   validateAndRecoverNoteRange,
 } from '../src/main/ipc/incremental.js'
@@ -108,20 +107,6 @@ Line 10`
   after(async () => {
     // Clean up
     await fs.rm(TEST_WORKSPACE, { recursive: true, force: true })
-  })
-
-  describe('extractLines', () => {
-    it('should extract lines correctly', () => {
-      const content = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5'
-      const result = extractLines(content, 2, 4)
-      assert.strictEqual(result, 'Line 2\nLine 3\nLine 4')
-    })
-
-    it('should handle single line', () => {
-      const content = 'Line 1\nLine 2\nLine 3'
-      const result = extractLines(content, 2, 2)
-      assert.strictEqual(result, 'Line 2')
-    })
   })
 
   describe('findContentByHashAndLineCount', () => {

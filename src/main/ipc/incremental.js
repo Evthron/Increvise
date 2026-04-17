@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Incremental Reading IPC Handlers
+import { Buffer } from 'node:buffer'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
-import { getWorkspaceDbPath } from '../db/index.js'
 import { env, pipeline } from '@xenova/transformers'
+import { getWorkspaceDbPath } from '../db/index.js'
 
 const DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD = 0.82
 const DEFAULT_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small'
@@ -26,7 +27,7 @@ async function getEmbeddingPipeline() {
   return embeddingPipelinePromise
 }
 
-export async function embedText(text) {
+async function embedText(text) {
   const pipelineInstance = await getEmbeddingPipeline()
   const output = await pipelineInstance(text, {
     pooling: 'mean',
@@ -47,47 +48,88 @@ function deserializeEmbedding(bytes) {
   return Float32Array.from(raw)
 }
 
+function cosineSimilarity(vecA, vecB) {
+  if (!vecA || !vecB || vecA.length !== vecB.length) {
+    return -1
+  }
+
+  let dotProduct = 0
+  let normA = 0
+  let normB = 0
+
+  for (let i = 0; i < vecA.length; i++) {
+    const a = vecA[i]
+    const b = vecB[i]
+    dotProduct += a * b
+    normA += a * a
+    normB += b * b
+  }
+
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
+  if (denominator === 0) {
+    return -1
+  }
+
+  return dotProduct / denominator
+}
+
+function hashBuffer(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex')
+}
+
+async function computeFingerprintForText(text, includeEmbedding = true) {
+  const contentHash = hashBuffer(Buffer.from(text, 'utf-8'))
+
+  if (!includeEmbedding) {
+    return {
+      contentHash,
+      contentEmbedding: null,
+      contentEmbeddingModel: null,
+      contentEmbeddingDim: null,
+    }
+  }
+
+  try {
+    const embedding = await embedText(text)
+    return {
+      contentHash,
+      contentEmbedding: serializeEmbedding(embedding),
+      contentEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
+      contentEmbeddingDim: embedding?.length || null,
+    }
+  } catch (error) {
+    return {
+      contentHash,
+      contentEmbedding: null,
+      contentEmbeddingModel: null,
+      contentEmbeddingDim: null,
+      embeddingError: error.message,
+    }
+  }
+}
+
+async function computeFingerprintForPath(filePath, includeEmbeddingForText = true) {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === '.txt' || ext === '.md') {
+    const text = await fs.readFile(filePath, 'utf-8')
+    return computeFingerprintForText(text, includeEmbeddingForText)
+  }
+
+  const buffer = await fs.readFile(filePath)
+  return {
+    contentHash: hashBuffer(buffer),
+    contentEmbedding: null,
+    contentEmbeddingModel: null,
+    contentEmbeddingDim: null,
+  }
+}
+
 /**
- * Generate random days for initial review of extracted content
+ * Set due_time to random days later (3-10 days)
  * @returns {number} Random number of days
  */
 function getRandomInitialDays() {
   return Math.floor(Math.random() * 6) + 3 // 3 to 8 days
-}
-
-/**
- * Ensure parent file exists in database before creating note_source relationship
- * @param {Database} db - Better-sqlite3 database instance
- * @param {string} libraryId - Library ID
- * @param {string} parentRelativePath - Relative path to parent file
- * @returns {void}
- */
-function ensureParentFileInDb(db, libraryId, parentRelativePath) {
-  // Check if parent file exists in file table
-  const { exists_flag } = db
-    .prepare(
-      'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
-    )
-    .get(libraryId, parentRelativePath)
-
-  const exists = exists_flag === 1
-
-  if (!exists) {
-    // Add parent file to file table with default values
-    // Parent files added this way go to the 'new' queue and are due today
-    db.prepare(
-      `INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
-       VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
-    ).run(libraryId, parentRelativePath)
-
-    // Add to new queue by default
-    db.prepare(
-      `INSERT INTO queue_membership (library_id, queue_name, relative_path)
-       VALUES (?, 'new', ?)`
-    ).run(libraryId, parentRelativePath)
-
-    console.log(`[ensureParentFileInDb] Added parent file to database: ${parentRelativePath}`)
-  }
 }
 
 /**
@@ -127,7 +169,7 @@ function parseNoteFileName(fileName) {
 
 /**
  * Generate filename for a new child note (Option B: go back 2 layers)
- * @param {string} parentFilePath - Path to parent note file
+ * @param {string} fileRelativePath - Relative path of current file in workspace
  * @param {number} rangeStart - Start line of extracted text
  * @param {number} rangeEnd - End line of extracted text
  * @param {string} extractedText - The extracted text to generate name from
@@ -300,96 +342,40 @@ function generateChildNoteName(parentFilePath, rangeStart, rangeEnd, extractedTe
 }
 
 /**
- * Find the top-level note folder for flat structure
- * If parent is already a child note, find its top-level ancestor's folder
+ * Find the name of the extraction note folder of parent note or child note
  * @param {string} parentFilePath - Path to parent note file
  * @param {Object} db - Database instance
  * @param {string} libraryId - Library ID
  * @param {string} rootPath - Root path of the workspace
  * @returns {string} - Top-level note folder path
  */
-function findTopLevelNoteFolder(parentFilePath, db, libraryId, rootPath) {
-  // Normalize the parent file path to ensure it's absolute
-  const normalizedParentPath = path.resolve(parentFilePath)
-
-  // Ensure rootPath is also normalized
-  const normalizedRootPath = path.resolve(rootPath)
-
-  // Calculate relative path, ensuring it doesn't contain '..'
-  // If parentFilePath is outside rootPath, this will return a path starting with '..'
-  const parentRelativePath = path.relative(normalizedRootPath, normalizedParentPath)
-
-  // Check if the path goes outside the root (contains '..')
-  if (parentRelativePath.startsWith('..')) {
-    console.error('[findTopLevelNoteFolder] Parent file is outside workspace:', {
-      parentFilePath: normalizedParentPath,
-      rootPath: normalizedRootPath,
-      relativePath: parentRelativePath,
-    })
-    // Fallback: create folder in same directory as parent file
-    const parentDir = path.dirname(normalizedParentPath)
-    const parentFileName = path.basename(normalizedParentPath, path.extname(normalizedParentPath))
-    return path.join(parentDir, parentFileName)
-  }
-
-  // Check if parent has a parent_path in database (i.e., it's a child note)
+function findTopLevelNoteFolder(fileRelativePath, db, libraryId) {
   const result = db
     .prepare(
       `
-      SELECT parent_path FROM note_source 
-      WHERE library_id = ? AND relative_path = ?
+      WITH RECURSIVE lineage(relative_path, parent_path, depth) AS (
+        SELECT relative_path, parent_path, 0
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+
+        UNION ALL
+
+        SELECT ns.relative_path, ns.parent_path, lineage.depth + 1
+        FROM note_source ns
+        JOIN lineage ON ns.library_id = ? AND ns.relative_path = lineage.parent_path
+        WHERE lineage.parent_path IS NOT NULL AND lineage.depth < 100
+      )
+      SELECT parent_path AS top_level_parent_path
+      FROM lineage
+      WHERE parent_path IS NOT NULL
+      ORDER BY depth DESC
+      LIMIT 1
     `
     )
-    .get(libraryId, parentRelativePath)
+    .get(libraryId, fileRelativePath, libraryId)
 
-  if (!result || !result.parent_path) {
-    // Parent is a top-level original note, create folder named after it
-    const parentDir = path.dirname(normalizedParentPath)
-    const parentFileName = path.basename(normalizedParentPath, path.extname(normalizedParentPath))
-    return path.join(parentDir, parentFileName)
-  } else {
-    // Parent is a child note, recursively find its top-level ancestor
-    const grandParentPath = path.join(normalizedRootPath, result.parent_path)
-    return findTopLevelNoteFolder(grandParentPath, db, libraryId, normalizedRootPath)
-  }
-}
-
-/**
- * Find the parent source file path for a given note
- * @param {string} noteFilePath - Path to the note file
- * @param {Object} db - Database instance
- * @param {string} libraryId - Library ID
- * @param {string} rootPath - Root path of the workspace
- * @returns {Promise<string|null>} - Parent file path or null
- */
-async function findParentPath(noteFilePath, db, libraryId, rootPath) {
-  try {
-    const relativePath = path.relative(rootPath, noteFilePath)
-    const result = db
-      .prepare(
-        `
-      SELECT parent_path FROM note_source 
-      WHERE library_id = ? AND relative_path = ?
-    `
-      )
-      .get(libraryId, relativePath)
-
-    return result?.parent_path || null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Extract lines from content by line range
- * @param {string} content - The content to extract from
- * @param {number} startLine - Start line (1-based)
- * @param {number} endLine - End line (1-based, inclusive)
- * @returns {string} - Extracted content
- */
-function extractLines(content, startLine, endLine) {
-  const lines = content.split('\n')
-  return lines.slice(startLine - 1, endLine).join('\n')
+  const topLevelFilePath = result?.top_level_parent_path ?? fileRelativePath
+  return path.basename(topLevelFilePath, path.extname(topLevelFilePath))
 }
 
 /**
@@ -436,24 +422,6 @@ async function findContentByEmbeddingAndLineCount(parentContent, targetEmbedding
 
     if (!currentEmbedding || currentEmbedding.length !== targetEmbedding.length) {
       continue
-    }
-
-    function cosineSimilarity(vecA, vecB) {
-      if (vecA.length !== vecB.length) {
-        throw new Error('Vectors must be of the same length')
-      }
-      let dotProduct = 0
-      let normA = 0
-      let normB = 0
-      for (let i = 0; i < vecA.length; i++) {
-        const a = vecA[i]
-        const b = vecB[i]
-        dotProduct += a * b
-        normA += a * a
-        normB += b * b
-      }
-      const denominator = Math.sqrt(normA) * Math.sqrt(normB)
-      return dotProduct / denominator
     }
 
     const similarity = cosineSimilarity(targetEmbedding, currentEmbedding)
@@ -509,31 +477,18 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
       }
 
       // Validate current position in database
-      const dbRange = [parseInt(child.range_start), parseInt(child.range_end)]
-      if (Number.isNaN(dbRange[0]) || Number.isNaN(dbRange[1])) {
-        continue
-      }
-
-      const currentContent = extractLines(parentContent, dbRange[0], dbRange[1])
+      const startLine = parseInt(child.range_start)
+      const endLine = parseInt(child.range_end)
+      const currentContent = parentContent
+        .split('\n')
+        .slice(startLine - 1, endLine)
+        .join('\n')
       const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
 
       // If hash mismatch, try to recover
       if (currentHash !== child.source_hash) {
-        const lineCount = dbRange[1] - dbRange[0] + 1
+        const lineCount = endLine - startLine + 1
         let newRange = findContentByHashAndLineCount(parentContent, child.source_hash, lineCount)
-
-        if (!newRange && child.source_embedding) {
-          const targetEmbedding = deserializeEmbedding(child.source_embedding)
-
-          if (targetEmbedding) {
-            newRange = await findContentByEmbeddingAndLineCount(
-              parentContent,
-              targetEmbedding,
-              lineCount
-            )
-          }
-        }
-
         if (newRange) {
           // Recovery successful - update database
           db.prepare(
@@ -543,6 +498,34 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
                 WHERE library_id = ? AND relative_path = ?
               `
           ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
+        } else if (child.source_embedding) {
+          const targetEmbedding = deserializeEmbedding(child.source_embedding)
+          newRange = await findContentByEmbeddingAndLineCount(
+            parentContent,
+            targetEmbedding,
+            lineCount
+          )
+          if (newRange) {
+            const newContent = parentContent
+              .split('\n')
+              .slice(newRange.start - 1, newRange.end)
+              .join('\n')
+            const newhash = crypto.createHash('sha256').update(newContent).digest('hex')
+            // Recovery successful - update database
+            db.prepare(
+              `
+                UPDATE note_source
+                SET range_start = ?, range_end = ?, source_hash = ?
+                WHERE library_id = ? AND relative_path = ?
+              `
+            ).run(
+              String(newRange.start),
+              String(newRange.end),
+              newhash,
+              libraryId,
+              childRelativePath
+            )
+          }
         } else {
           console.warn(`Failed to recover position for child note: ${childRelativePath}`)
         }
@@ -906,15 +889,6 @@ async function readFile(filePath) {
   }
 }
 
-async function writeFile(filePath, content) {
-  try {
-    await fs.writeFile(filePath, content, 'utf-8')
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error.message }
-  }
-}
-
 async function replaceChildRangeWithChildContent(
   parentPath,
   childPath,
@@ -1061,139 +1035,339 @@ async function extractNote(
   libraryId,
   getCentralDbPath
 ) {
-  // Backward compatibility for calls without childFileName:
-  // extractNote(parentFilePath, selectedText, rangeStart, rangeEnd, libraryId, getCentralDbPath)
-  if (typeof libraryId === 'function' && getCentralDbPath === undefined) {
-    getCentralDbPath = libraryId
-    libraryId = rangeEnd
-    rangeEnd = rangeStart
-    rangeStart = childFileName
-    childFileName = null
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return {
+      success: false,
+      error: dbInfo.error || 'Database not found',
+    }
   }
+  const db = new Database(dbInfo.dbPath)
 
   try {
-    // Get database info from central database
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+
+    // Find the top-level note folder
+    const noteFolder = path.join(
+      dbInfo.folderPath,
+      findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+    )
+
+    try {
+      await fs.mkdir(noteFolder, { recursive: true })
+    } catch (err) {
       return {
         success: false,
-        error: dbInfo.error || 'Database not found',
+        error: `Failed to create note folder: ${err.message}`,
       }
     }
 
-    // Open database connection early (needed for finding note folder)
-    const db = new Database(dbInfo.dbPath)
+    // Generate or use provided filename
+    const parentExt = path.extname(parentFilePath)
+
+    const newFileName = childFileName.endsWith(parentExt)
+      ? childFileName
+      : childFileName + parentExt
+
+    const newFilePath = path.join(noteFolder, newFileName)
+
+    // Check if file already exists
+    try {
+      await fs.access(newFilePath)
+      return {
+        success: false,
+        error: 'A note with this name already exists. Please select different lines.',
+      }
+    } catch {
+      // File doesn't exist, good to proceed
+    }
+
+    // Write the new note file
+    await fs.writeFile(newFilePath, selectedText, 'utf-8')
+
+    // Insert file record
+    const relativePath = path.relative(dbInfo.folderPath, newFilePath)
+    const initialDays = getRandomInitialDays()
+    const fingerprint = await computeFingerprintForText(selectedText, true)
 
     try {
-      // Find the top-level note folder (flat structure)
-      const noteFolder = findTopLevelNoteFolder(parentFilePath, db, libraryId, dbInfo.folderPath)
-
-      // Create note folder if it doesn't exist
-      await fs.mkdir(noteFolder, { recursive: true })
-
-      // Generate or use provided filename
-      const parentExt = path.extname(parentFilePath)
-      let newFileName
-
-      if (childFileName) {
-        // Use provided filename, add extension if not present
-        newFileName = childFileName.endsWith(parentExt) ? childFileName : childFileName + parentExt
-      } else {
-        // Generate new filename using hierarchical naming scheme (fallback)
-        newFileName =
-          generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText) + parentExt
-      }
-
-      const newFilePath = path.join(noteFolder, newFileName)
-
-      // Check if file already exists
-      try {
-        await fs.access(newFilePath)
-        return {
-          success: false,
-          error: 'A note with this name already exists. Please select different lines.',
-        }
-      } catch {
-        // File doesn't exist, good to proceed
-      }
-
-      // Write the new note file
-      await fs.writeFile(newFilePath, selectedText, 'utf-8')
-
-      // Update database
-      const relativePath = path.relative(dbInfo.folderPath, newFilePath)
-      const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
-
-      // Insert file record
-      // Set due_time to random days later (3-10 days)
-      const initialDays = getRandomInitialDays()
-      db.prepare(
-        `
-            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
-            VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
+      db.transaction(() => {
+        db.prepare(
           `
-      ).run(libraryId, relativePath, initialDays)
-
-      // Add to intermediate queue (for extracted notes)
-      db.prepare(
+          INSERT INTO file (
+            library_id,
+            relative_path,
+            added_time,
+            review_count,
+            easiness,
+            rank,
+            due_time,
+            intermediate_interval,
+            content_hash,
+            content_embedding,
+            content_embedding_model,
+            content_embedding_dim
+          )
+          VALUES (
+            ?,
+            ?,
+            datetime('now'),
+            0,
+            0.0,
+            70.0,
+            datetime('now', '+' || ? || ' days'),
+            7,
+            ?,
+            ?,
+            ?,
+            ?
+          )
         `
-            INSERT INTO queue_membership (library_id, queue_name, relative_path)
-            VALUES (?, 'intermediate', ?)
+        ).run(
+          libraryId,
+          relativePath,
+          initialDays,
+          fingerprint.contentHash,
+          fingerprint.contentEmbedding,
+          fingerprint.contentEmbeddingModel,
+          fingerprint.contentEmbeddingDim
+        )
+
+        db.prepare(
           `
-      ).run(libraryId, relativePath)
+          INSERT INTO queue_membership (library_id, queue_name, relative_path)
+          VALUES (?, 'intermediate', ?)
+        `
+        ).run(libraryId, relativePath)
 
-      // Insert note_source record with parent_path
-      // Note: For HTML/semantic extractions, rangeStart and rangeEnd can be null or 0
-      if (rangeStart !== undefined && rangeEnd !== undefined) {
-        const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-        let sourceEmbedding = null
-        let embeddingDim = null
-
-        try {
-          const embedding = await embedText(selectedText)
-          sourceEmbedding = serializeEmbedding(embedding)
-          embeddingDim = embedding?.length || null
-        } catch (error) {
-          console.warn(`Failed to generate embedding for ${relativePath}:`, error.message)
-        }
-
-        // Ensure parent file exists in database before creating relationship
-        ensureParentFileInDb(db, libraryId, parentRelativePath)
-
-        try {
+        // Has line ranges, for non-html extraction
+        if (rangeStart != null && rangeEnd != null) {
           db.prepare(
             `
-                INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `
+            INSERT INTO note_source (
+              library_id,
+              relative_path,
+              parent_path,
+              extract_type,
+              range_start,
+              range_end,
+              source_hash,
+              source_embedding,
+              embedding_model,
+              embedding_dim
+            )
+            VALUES (?, ?, ?, 'text-lines', ?, ?, ?, ?, ?, ?)
+          `
           ).run(
             libraryId,
             relativePath,
             parentRelativePath,
-            'text-lines',
-            rangeStart !== null ? String(rangeStart) : null,
-            rangeEnd !== null ? String(rangeEnd) : null,
-            sourceHash,
-            sourceEmbedding,
-            sourceEmbedding ? DEFAULT_EMBEDDING_MODEL : null,
-            embeddingDim
+            String(rangeStart),
+            String(rangeEnd),
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim
           )
-        } catch (err) {
-          console.error('Failed to insert note_source record:', err.message)
         }
+      })()
+    } catch (err) {
+      console.error('Failed to insert extracted note records:', err.message)
+      return {
+        success: false,
+        error: `Failed to insert extracted note records: ${err.message}`,
       }
+    }
+
+    return {
+      success: true,
+      fileName: newFileName,
+      filePath: newFilePath,
+    }
+  } finally {
+    db.close()
+  }
+}
+
+async function saveNote(filePath, content, libraryId, getCentralDbPath) {
+  // Write the new note file
+  await fs.writeFile(filePath, content, 'utf-8')
+
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return {
+      success: false,
+      error: dbInfo.error || 'Database not found',
+    }
+  }
+
+  const db = new Database(dbInfo.dbPath)
+  // Insert file record
+  const relativePath = path.relative(dbInfo.folderPath, filePath)
+  const fingerprint = await computeFingerprintForText(content, true)
+
+  try {
+    const result = db.transaction(() => {
+      db.prepare(
+        `
+        UPDATE file
+        SET content_hash = ?,
+            content_embedding = ?,
+            content_embedding_model = ?,
+            content_embedding_dim = ?
+        WHERE library_id = ? AND relative_path = ?
+      `
+      ).run(
+        fingerprint.contentHash,
+        fingerprint.contentEmbedding,
+        fingerprint.contentEmbeddingModel,
+        fingerprint.contentEmbeddingDim,
+        libraryId,
+        relativePath
+      )
 
       return {
         success: true,
-        fileName: newFileName,
-        filePath: newFilePath,
       }
-    } finally {
-      // Ensure database is always closed
-      db.close()
+    })()
+
+    return result
+  } catch (err) {
+    console.error('Failed to update fingerprint:', err.message)
+    return {
+      success: false,
+      error: `Failed to update fingerprint ${err.message}`,
     }
-  } catch (error) {
-    return { success: false, error: error.message }
+  } finally {
+    db.close()
+  }
+}
+
+async function extractHTML(
+  parentFilePath,
+  selectedText,
+  childFileName,
+  libraryId,
+  getCentralDbPath
+) {
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return {
+      success: false,
+      error: dbInfo.error || 'Database not found',
+    }
+  }
+  const db = new Database(dbInfo.dbPath)
+
+  try {
+    const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+
+    // Find the top-level note folder
+    const noteFolder = path.join(
+      dbInfo.folderPath,
+      findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+    )
+
+    try {
+      await fs.mkdir(noteFolder, { recursive: true })
+    } catch (err) {
+      return {
+        success: false,
+        error: `Failed to create note folder: ${err.message}`,
+      }
+    }
+
+    // Generate or use provided filename
+    const parentExt = path.extname(parentFilePath)
+    const newFileName = childFileName.endsWith(parentExt)
+      ? childFileName
+      : childFileName + parentExt
+
+    const newFilePath = path.join(noteFolder, newFileName)
+
+    // Check if file already exists
+    try {
+      await fs.access(newFilePath)
+      return {
+        success: false,
+        error: 'A note with this name already exists. Please select different lines.',
+      }
+    } catch {
+      // File doesn't exist, good to proceed
+    }
+
+    // Write the new note file
+    await fs.writeFile(newFilePath, selectedText, 'utf-8')
+
+    // Insert records
+    const relativePath = path.relative(dbInfo.folderPath, newFilePath)
+    const initialDays = getRandomInitialDays()
+    const fingerprint = await computeFingerprintForText(selectedText, false)
+
+    try {
+      db.transaction(() => {
+        db.prepare(
+          `
+            INSERT INTO file (
+              library_id,
+              relative_path,
+              added_time,
+              review_count,
+              easiness,
+              rank,
+              due_time,
+              intermediate_interval,
+              content_hash
+            )
+            VALUES (
+              ?,
+              ?,
+              datetime('now'),
+              0,
+              0.0,
+              70.0,
+              datetime('now', '+' || ? || ' days'),
+              7,
+              ?
+            )
+          `
+        ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
+
+        db.prepare(
+          `
+            INSERT INTO queue_membership (library_id, queue_name, relative_path)
+            VALUES (?, 'intermediate', ?)
+          `
+        ).run(libraryId, relativePath)
+
+        db.prepare(
+          `
+            INSERT INTO note_source (
+              library_id,
+              relative_path,
+              parent_path,
+              extract_type,
+              source_hash
+            )
+            VALUES (?, ?, ?, 'html', ?)
+          `
+        ).run(libraryId, relativePath, parentRelativePath, fingerprint.contentHash)
+      })()
+    } catch (err) {
+      console.error('Failed to insert extracted note records:', err.message)
+      return {
+        success: false,
+        error: `Failed to insert extracted note records: ${err.message}`,
+      }
+    }
+
+    return {
+      success: true,
+      fileName: newFileName,
+      filePath: newFilePath,
+    }
+  } finally {
+    db.close()
   }
 }
 
@@ -1207,106 +1381,114 @@ async function extractNote(
  * @returns {Promise<Object>} - Result object
  */
 async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath) {
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return { success: false, error: 'Database not found' }
+  }
+
+  const db = new Database(dbInfo.dbPath)
+  const rootPath = dbInfo.folderPath
+
   try {
-    console.log('[extractPdfPages] Starting extraction:', {
-      pdfPath,
-      startPage,
-      endPage,
-      libraryId,
-    })
-
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: 'Database not found' }
-    }
-
-    const db = new Database(dbInfo.dbPath)
-    const rootPath = dbInfo.folderPath
+    // Create PDF container folder
+    const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
 
     try {
-      // Create PDF container folder
-      const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
-      console.log('[extractPdfPages] Creating container folder:', containerFolder)
-
-      try {
-        await fs.mkdir(containerFolder, { recursive: true })
-      } catch (mkdirError) {
-        console.error('[extractPdfPages] mkdir error:', mkdirError)
-        return {
-          success: false,
-          error: `Failed to create container folder: ${mkdirError.message}`,
-        }
-      }
-
-      const metadataFilePath = path.join(containerFolder, `${startPage}-${endPage}-pages.md`)
-      console.log('[extractPdfPages] Will create metadata file:', metadataFilePath)
-      const relativePath = path.relative(rootPath, metadataFilePath)
-      const parentRelativePath = path.relative(rootPath, pdfPath)
-
-      // Check if file already exists
-      try {
-        await fs.access(metadataFilePath)
-        return {
-          success: false,
-          error: 'A note with this page range already exists. Please select different pages.',
-        }
-      } catch {
-        // File doesn't exist, good to proceed
-      }
-
-      // Create metadata file
-      const metadataContent = '## Notes'
-      await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
-
-      // Insert into database
-      // Set due_time to random days later (3-10 days)
-      const initialDays = getRandomInitialDays()
-      db.prepare(
-        `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
-      `
-      ).run(libraryId, relativePath, initialDays)
-
-      // Add to intermediate queue (for extracted notes)
-      db.prepare(
-        `
-        INSERT INTO queue_membership (library_id, queue_name, relative_path)
-        VALUES (?, 'intermediate', ?)
-      `
-      ).run(libraryId, relativePath)
-
-      // Ensure parent PDF file exists in database before creating relationship
-      ensureParentFileInDb(db, libraryId, parentRelativePath)
-
-      db.prepare(
-        `
-        INSERT INTO note_source 
-        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `
-      ).run(
-        libraryId,
-        relativePath,
-        parentRelativePath,
-        'pdf-page',
-        String(startPage),
-        String(endPage),
-        null
-        // No source hash for pdf page extraction
-      )
-
+      await fs.mkdir(containerFolder, { recursive: true })
+    } catch (mkdirError) {
+      console.error('[extractPdfPages] mkdir error:', mkdirError)
       return {
-        success: true,
-        filePath: metadataFilePath,
-        fileName: `${startPage}-${endPage}-pages.md`,
+        success: false,
+        error: `Failed to create container folder: ${mkdirError.message}`,
       }
-    } finally {
-      db.close()
     }
-  } catch (error) {
-    console.error('Error extracting PDF pages:', error)
-    return { success: false, error: error.message }
+
+    const metadataFilePath = path.join(containerFolder, `${startPage}-${endPage}-pages.md`)
+    const relativePath = path.relative(rootPath, metadataFilePath)
+    const parentRelativePath = path.relative(rootPath, pdfPath)
+
+    // Check if file already exists
+    try {
+      await fs.access(metadataFilePath)
+      return {
+        success: false,
+        error: 'A note with this page range already exists. Please select different pages.',
+      }
+    } catch {
+      // File doesn't exist, good to proceed
+    }
+
+    // Create metadata file
+    const metadataContent = '## Notes'
+    await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
+
+    // Insert records
+    const initialDays = getRandomInitialDays()
+
+    try {
+      db.transaction(() => {
+        db.prepare(
+          `
+              INSERT INTO file (
+                library_id,
+                relative_path,
+                added_time,
+                review_count,
+                easiness,
+                rank,
+                due_time,
+                intermediate_interval,
+              )
+              VALUES (
+                ?,
+                ?,
+                datetime('now'),
+                0,
+                0.0,
+                70.0,
+                datetime('now', '+' || ? || ' days'),
+                7,
+                ?
+              )
+            `
+        ).run(libraryId, relativePath, initialDays)
+
+        db.prepare(
+          `
+              INSERT INTO queue_membership (library_id, queue_name, relative_path)
+              VALUES (?, 'intermediate', ?)
+            `
+        ).run(libraryId, relativePath)
+
+        db.prepare(
+          `
+              INSERT INTO note_source (
+                library_id,
+                relative_path,
+                parent_path,
+                extract_type,
+                range_start,
+                range_end,
+              )
+              VALUES (?, ?, ?, 'pdf-page', ?, ?)
+            `
+        ).run(libraryId, relativePath, parentRelativePath, String(startPage), String(endPage))
+      })()
+    } catch (err) {
+      console.error('Failed to insert extracted note records:', err.message)
+      return {
+        success: false,
+        error: `Failed to insert extracted note records: ${err.message}`,
+      }
+    }
+
+    return {
+      success: true,
+      filePath: metadataFilePath,
+      fileName: `${startPage}-${endPage}-pages.md`,
+    }
+  } finally {
+    db.close()
   }
 }
 
@@ -1330,146 +1512,159 @@ async function extractPdfText(
   libraryId,
   getCentralDbPath
 ) {
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  if (!dbInfo.found) {
+    return { success: false, error: 'Database not found' }
+  }
+
+  const db = new Database(dbInfo.dbPath)
+  const rootPath = dbInfo.folderPath
+
   try {
-    console.log('[extractPdfText] Starting extraction:', {
-      pdfPath,
-      pageNum,
-      textLength: text.length,
-      libraryId,
-    })
-
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: 'Database not found' }
-    }
-
-    const db = new Database(dbInfo.dbPath)
-    const rootPath = dbInfo.folderPath
+    // Create PDF container folder
+    const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
 
     try {
-      // Create PDF container folder
-      const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
-      console.log('[extractPdfText] Creating container folder:', containerFolder)
-
-      try {
-        await fs.mkdir(containerFolder, { recursive: true })
-      } catch (mkdirError) {
-        console.error('[extractPdfText] mkdir error:', mkdirError)
-        return {
-          success: false,
-          error: `Failed to create container folder: ${mkdirError.message}`,
-        }
+      await fs.mkdir(containerFolder, { recursive: true })
+    } catch (mkdirError) {
+      console.error('[extractPdfText] mkdir error:', mkdirError)
+      return {
+        success: false,
+        error: `Failed to create container folder: ${mkdirError.message}`,
       }
+    }
 
-      // Generate filename from first 3 words
-      let words = ''
-      const trimmedText = text.trim()
-      let wordCount = 0
-      let currentWord = ''
+    // Generate filename from first 3 words
+    let words = ''
+    const trimmedText = text.trim()
+    let wordCount = 0
+    let currentWord = ''
 
-      for (let i = 0; i < trimmedText.length && wordCount < 3; i++) {
-        const char = trimmedText[i]
-        const lower = char.toLowerCase()
-        const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
+    for (let i = 0; i < trimmedText.length && wordCount < 3; i++) {
+      const char = trimmedText[i]
+      const lower = char.toLowerCase()
+      const isAlphaNum = (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9')
 
-        if (isAlphaNum) {
-          currentWord += lower
-        } else if (currentWord.length > 0) {
-          if (words) words += '-'
-          words += currentWord
-          currentWord = ''
-          wordCount++
-        }
-      }
-      // Add last word if exists
-      if (currentWord.length > 0 && wordCount < 3) {
+      if (isAlphaNum) {
+        currentWord += lower
+      } else if (currentWord.length > 0) {
         if (words) words += '-'
         words += currentWord
+        currentWord = ''
+        wordCount++
       }
-
-      if (!words) words = 'text'
-
-      const fileName = `${pageNum}-${pageNum}_${words}.md`
-      const textFilePath = path.join(containerFolder, fileName)
-      console.log('[extractPdfText] Will create text file:', textFilePath)
-      const relativePath = path.relative(rootPath, textFilePath)
-      const parentRelativePath = path.relative(rootPath, pdfPath)
-
-      // Check if file already exists
-      try {
-        await fs.access(textFilePath)
-        return {
-          success: false,
-          error: 'A note with this name already exists. Please select different text.',
-        }
-      } catch {
-        // File doesn't exist, good to proceed
-      }
-
-      // Write text to file
-      await fs.writeFile(textFilePath, text, 'utf-8')
-
-      // Insert into database
-      // Set due_time to random days later (3-10 days)
-      const initialDays = getRandomInitialDays()
-      db.prepare(
-        `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
-      `
-      ).run(libraryId, relativePath, initialDays)
-
-      // Add to intermediate queue (for extracted notes)
-      db.prepare(
-        `
-        INSERT INTO queue_membership (library_id, queue_name, relative_path)
-        VALUES (?, 'intermediate', ?)
-      `
-      ).run(libraryId, relativePath)
-
-      // Create source hash for text
-      const sourceHash = crypto.createHash('sha256').update(text).digest('hex')
-
-      // Store line numbers in range_start and range_end
-      // Format: "pageNum:lineStart-lineEnd" or just "pageNum" if no line numbers
-      const rangeStart =
-        lineStart !== undefined && lineStart !== null ? `${pageNum}:${lineStart}` : String(pageNum)
-      const rangeEnd =
-        lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
-
-      // Ensure parent PDF file exists in database before creating relationship
-      ensureParentFileInDb(db, libraryId, parentRelativePath)
-
-      db.prepare(
-        `
-        INSERT INTO note_source 
-        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-      ).run(
-        libraryId,
-        relativePath,
-        parentRelativePath,
-        'pdf-text',
-        rangeStart,
-        rangeEnd,
-        sourceHash,
-        null,
-        null,
-        null
-      )
-
-      return {
-        success: true,
-        filePath: textFilePath,
-        fileName: fileName,
-      }
-    } finally {
-      db.close()
     }
-  } catch (error) {
-    console.error('Error extracting PDF text:', error)
-    return { success: false, error: error.message }
+    // Add last word if exists
+    if (currentWord.length > 0 && wordCount < 3) {
+      if (words) words += '-'
+      words += currentWord
+    }
+
+    if (!words) words = 'text'
+
+    const fileName = `${pageNum}-${pageNum}_${words}.md`
+    const textFilePath = path.join(containerFolder, fileName)
+    const relativePath = path.relative(rootPath, textFilePath)
+    const parentRelativePath = path.relative(rootPath, pdfPath)
+
+    // Check if file already exists
+    try {
+      await fs.access(textFilePath)
+      return {
+        success: false,
+        error: 'A note with this name already exists. Please select different text.',
+      }
+    } catch {
+      // File doesn't exist, good to proceed
+    }
+
+    // Write text to file
+    await fs.writeFile(textFilePath, text, 'utf-8')
+
+    // Insert records
+    const initialDays = getRandomInitialDays()
+    const fingerprint = await computeFingerprintForText(text, true)
+
+    // Store line numbers in range_start and range_end
+    // Format: "pageNum:lineStart-lineEnd" or just "pageNum" if no line numbers
+    const rangeStart =
+      lineStart !== undefined && lineStart !== null ? `${pageNum}:${lineStart}` : String(pageNum)
+    const rangeEnd =
+      lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
+
+    try {
+      db.transaction(() => {
+        db.prepare(
+          `
+              INSERT INTO file (
+                library_id,
+                relative_path,
+                added_time,
+                review_count,
+                easiness,
+                rank,
+                due_time,
+                intermediate_interval,
+                content_hash,
+              )
+              VALUES (
+                ?,
+                ?,
+                datetime('now'),
+                0,
+                0.0,
+                70.0,
+                datetime('now', '+' || ? || ' days'),
+                7,
+                ?
+              )
+            `
+        ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
+
+        db.prepare(
+          `
+              INSERT INTO queue_membership (library_id, queue_name, relative_path)
+              VALUES (?, 'intermediate', ?)
+            `
+        ).run(libraryId, relativePath)
+
+        db.prepare(
+          `
+              INSERT INTO note_source (
+                library_id,
+                relative_path,
+                parent_path,
+                extract_type,
+                range_start,
+                range_end,
+                source_hash
+              )
+              VALUES (?, ?, ?, 'pdf-text', ?, ?, ?)
+            `
+        ).run(
+          libraryId,
+          relativePath,
+          parentRelativePath,
+          rangeStart,
+          rangeEnd,
+          fingerprint.contentHash
+        )
+      })()
+    } catch (err) {
+      console.error('Failed to insert extracted note records:', err.message)
+      return {
+        success: false,
+        error: `Failed to insert extracted note records: ${err.message}`,
+      }
+    }
+
+    return {
+      success: true,
+      filePath: textFilePath,
+      fileName: fileName,
+    }
+  } finally {
+    db.close()
   }
 }
 
@@ -1484,13 +1679,6 @@ async function extractPdfText(
  */
 async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCentralDbPath) {
   try {
-    console.log('[extractVideoClip] Starting extraction:', {
-      videoPath,
-      startTime,
-      endTime,
-      libraryId,
-    })
-
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
       return { success: false, error: 'Database not found' }
@@ -1506,7 +1694,6 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
 
       // Create video container folder
       const containerFolder = path.join(path.dirname(videoPath), videoBaseName)
-      console.log('[extractVideoClip] Creating container folder:', containerFolder)
 
       try {
         await fs.mkdir(containerFolder, { recursive: true })
@@ -1521,7 +1708,6 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       // Generate filename: {startTime}-{endTime}-clip.md
       const fileName = `${startTime}-${endTime}_clip.md`
       const metadataFilePath = path.join(containerFolder, fileName)
-      console.log('[extractVideoClip] Will create metadata file:', metadataFilePath)
       const relativePath = path.relative(rootPath, metadataFilePath)
       const parentRelativePath = path.relative(rootPath, videoPath)
 
@@ -1540,42 +1726,65 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       const metadataContent = '## Video Notes'
       await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
 
-      // Insert into database
-      // Set due_time to random days later (3-10 days)
+      // Insert records
       const initialDays = getRandomInitialDays()
-      db.prepare(
-        `
-        INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time, intermediate_interval)
-        VALUES (?, ?, datetime('now'), 0, 0.0, 70.0, datetime('now', '+' || ? || ' days'), 7)
-      `
-      ).run(libraryId, relativePath, initialDays)
 
-      // Add to intermediate queue (for extracted notes)
-      db.prepare(
-        `
-        INSERT INTO queue_membership (library_id, queue_name, relative_path)
-        VALUES (?, 'intermediate', ?)
-      `
-      ).run(libraryId, relativePath)
+      try {
+        db.transaction(() => {
+          db.prepare(
+            `
+              INSERT INTO file (
+                library_id,
+                relative_path,
+                added_time,
+                review_count,
+                easiness,
+                rank,
+                due_time,
+                intermediate_interval,
+              )
+              VALUES (
+                ?,
+                ?,
+                datetime('now'),
+                0,
+                0.0,
+                70.0,
+                datetime('now', '+' || ? || ' days'),
+                7
+              )
+            `
+          ).run(libraryId, relativePath, initialDays)
 
-      // Ensure parent video file exists in database before creating relationship
-      ensureParentFileInDb(db, libraryId, parentRelativePath)
+          db.prepare(
+            `
+              INSERT INTO queue_membership (library_id, queue_name, relative_path)
+              VALUES (?, 'intermediate', ?)
+            `
+          ).run(libraryId, relativePath)
 
-      db.prepare(
-        `
-        INSERT INTO note_source 
-        (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `
-      ).run(
-        libraryId,
-        relativePath,
-        parentRelativePath,
-        'video-clip',
-        String(startTime),
-        String(endTime),
-        null // No source hash for video clip extraction
-      )
+          db.prepare(
+            `
+              INSERT INTO note_source (
+                library_id,
+                relative_path,
+                parent_path,
+                extract_type,
+                range_start,
+                range_end,
+                source_hash
+              )
+              VALUES (?, ?, ?, 'video-clip', ?, ?, ?)
+            `
+          ).run(libraryId, relativePath, parentRelativePath, String(startTime), String(endTime))
+        })()
+      } catch (err) {
+        console.error('Failed to insert extracted note records:', err.message)
+        return {
+          success: false,
+          error: `Failed to insert extracted note records: ${err.message}`,
+        }
+      }
 
       return {
         success: true,
@@ -1667,14 +1876,6 @@ async function extractFlashcard(
   getCentralDbPath
 ) {
   try {
-    console.log('[extractFlashcard] Starting flashcard extraction:', {
-      parentFilePath,
-      textLength: selectedText.length,
-      charStart,
-      charEnd,
-      libraryId,
-    })
-
     // Get database info from central database
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
     if (!dbInfo.found) {
@@ -1687,8 +1888,13 @@ async function extractFlashcard(
     const db = new Database(dbInfo.dbPath)
 
     try {
+      const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+
       // Find the top-level note folder (flat structure)
-      const noteFolder = findTopLevelNoteFolder(parentFilePath, db, libraryId, dbInfo.folderPath)
+      const noteFolder = path.join(
+        dbInfo.folderPath,
+        findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+      )
 
       // Create note folder if it doesn't exist
       await fs.mkdir(noteFolder, { recursive: true })
@@ -1697,8 +1903,6 @@ async function extractFlashcard(
       const baseName = generateChildNoteName(parentFilePath, charStart, charEnd, selectedText)
       const newFileName = baseName + '.flashcard'
       const newFilePath = path.join(noteFolder, newFileName)
-
-      console.log('[extractFlashcard] Generated file path:', newFilePath)
 
       // Check if file already exists
       try {
@@ -1713,68 +1917,83 @@ async function extractFlashcard(
 
       // Write empty flashcard file (dummy file)
       await fs.writeFile(newFilePath, '', 'utf-8')
-      console.log('[extractFlashcard] Created empty flashcard file')
 
-      // Update database
+      // Insert records
       const relativePath = path.relative(dbInfo.folderPath, newFilePath)
-      const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+      const fingerprint = await computeFingerprintForText(selectedText, true)
 
-      console.log('[extractFlashcard] Database paths:', {
-        relativePath,
-        parentRelativePath,
-      })
+      try {
+        db.transaction(() => {
+          db.prepare(
+            `
+              INSERT INTO file (
+                library_id,
+                relative_path,
+                added_time,
+                review_count,
+                easiness,
+                rank,
+                interval,
+                due_time,
+                content_hash,
+                content_embedding,
+                content_embedding_model,
+                content_embedding_dim
+              )
+              VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, 1, datetime('now', '+1 day'), ?, ?, ?, ?)
+            `
+          ).run(
+            libraryId,
+            relativePath,
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim
+          )
 
-      // Insert file record - flashcards go to spaced-standard queue with initial interval
-      db.prepare(
-        `
-            INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, interval, due_time)
-            VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, 1, datetime('now', '+1 day'))
-          `
-      ).run(libraryId, relativePath)
-      console.log('[extractFlashcard] Inserted file record')
-
-      // Add to spaced-standard queue (for flashcards)
-      db.prepare(
-        `
+          db.prepare(
+            `
             INSERT INTO queue_membership (library_id, queue_name, relative_path)
             VALUES (?, 'spaced-standard', ?)
           `
-      ).run(libraryId, relativePath)
-      console.log('[extractFlashcard] Added to spaced-standard queue')
+          ).run(libraryId, relativePath)
 
-      // Insert note_source record with character positions
-      const sourceHash = crypto.createHash('sha256').update(selectedText).digest('hex')
-      let sourceEmbedding = null
-      let embeddingDim = null
-
-      try {
-        const embedding = await embedText(selectedText)
-        sourceEmbedding = serializeEmbedding(embedding)
-        embeddingDim = embedding?.length || null
-      } catch (error) {
-        console.warn(`Failed to generate embedding for ${relativePath}:`, error.message)
+          db.prepare(
+            `
+              INSERT INTO note_source (
+                library_id,
+                relative_path,
+                parent_path,
+                extract_type,
+                range_start,
+                range_end,
+                source_hash,
+                source_embedding,
+                embedding_model,
+                embedding_dim
+              )
+              VALUES (?, ?, ?, 'flashcard', ?, ?, ?, ?, ?, ?)
+            `
+          ).run(
+            libraryId,
+            relativePath,
+            parentRelativePath,
+            String(charStart),
+            String(charEnd),
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim
+          )
+        })()
+      } catch (err) {
+        console.error('Failed to insert extracted note records:', err.message)
+        return {
+          success: false,
+          error: `Failed to insert extracted note records: ${err.message}`,
+        }
       }
 
-      // Ensure parent file exists in database before creating relationship
-      ensureParentFileInDb(db, libraryId, parentRelativePath)
-
-      db.prepare(
-        `
-            INSERT INTO note_source (library_id, relative_path, parent_path, extract_type, range_start, range_end, source_hash, source_embedding, embedding_model, embedding_dim)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-      ).run(
-        libraryId,
-        relativePath,
-        parentRelativePath,
-        'flashcard',
-        String(charStart),
-        String(charEnd),
-        sourceHash,
-        sourceEmbedding,
-        sourceEmbedding ? DEFAULT_EMBEDDING_MODEL : null,
-        embeddingDim
-      )
       console.log('[extractFlashcard] Inserted note_source record with type: flashcard')
 
       console.log('[extractFlashcard] ✓ Flashcard extraction completed successfully')
@@ -1796,7 +2015,9 @@ async function extractFlashcard(
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
   ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
 
-  ipcMain.handle('write-file', async (event, filePath, content) => writeFile(filePath, content))
+  ipcMain.handle('save-note', async (event, filePath, content, libraryId) =>
+    saveNote(filePath, content, libraryId, getCentralDbPath)
+  )
 
   ipcMain.handle(
     'extract-note',
@@ -1810,6 +2031,12 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
         libraryId,
         getCentralDbPath
       )
+  )
+
+  ipcMain.handle(
+    'extract-html',
+    async (event, parentFilePath, selectedText, childFileName, libraryId) =>
+      extractHTML(parentFilePath, selectedText, childFileName, libraryId, getCentralDbPath)
   )
 
   ipcMain.handle('validate-note', async (event, notePath, libraryId) =>
@@ -1873,14 +2100,16 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
 
 // Export functions for testing
 export {
+  DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
+  cosineSimilarity,
+  deserializeEmbedding,
+  computeFingerprintForPath,
   readFile,
-  writeFile,
+  saveNote,
   extractNote,
   parseNoteFileName,
   generateChildNoteName,
   findTopLevelNoteFolder,
-  findParentPath,
-  extractLines,
   findContentByHashAndLineCount,
   findContentByEmbeddingAndLineCount,
   validateAndRecoverNoteRange,
