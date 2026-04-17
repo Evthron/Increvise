@@ -1473,7 +1473,11 @@ export class CodeMirrorViewer extends LitElement {
         this.hasRangeChanges = false
       }
       const content = this.getOriginalContent()
-      const result = await window.fileManager.writeFile(filePath, content)
+      const result = await window.fileManager.saveNote(
+        filePath,
+        content,
+        window.currentFile.libraryId
+      )
       if (result.success) {
         this.hasUnsavedChanges = false
         return { success: true }
