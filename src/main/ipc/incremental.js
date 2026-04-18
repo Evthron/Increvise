@@ -1152,12 +1152,12 @@ async function extractNote(
 
     // Find the top-level note folder
     const noteFolder = path.join(
-      dbInfo.folderPath,
+      path.dirname(parentRelativePath),
       findTopLevelNoteFolder(parentRelativePath, db, libraryId)
     )
 
     try {
-      await fs.mkdir(noteFolder, { recursive: true })
+      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
     } catch (err) {
       return {
         success: false,
@@ -1177,7 +1177,7 @@ async function extractNote(
       ? finalFileName
       : finalFileName + parentExt
 
-    const newFilePath = path.join(noteFolder, newFileName)
+    const newFilePath = path.join(path.join(dbInfo.folderPath, noteFolder), newFileName)
 
     // Write the new note file (overwrite if exists)
     await fs.writeFile(newFilePath, selectedText, 'utf-8')
@@ -1423,12 +1423,12 @@ async function extractHTML(
 
     // Find the top-level note folder
     const noteFolder = path.join(
-      dbInfo.folderPath,
+      path.dirname(parentRelativePath),
       findTopLevelNoteFolder(parentRelativePath, db, libraryId)
     )
 
     try {
-      await fs.mkdir(noteFolder, { recursive: true })
+      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
     } catch (err) {
       return {
         success: false,
@@ -1449,7 +1449,7 @@ async function extractHTML(
       ? finalFileName
       : finalFileName + parentExt
 
-    const newFilePath = path.join(noteFolder, newFileName)
+    const newFilePath = path.join(path.join(dbInfo.folderPath, noteFolder), newFileName)
 
     // Write the new note file (overwrite if exists)
     await fs.writeFile(newFilePath, selectedText, 'utf-8')
@@ -2159,17 +2159,17 @@ async function extractFlashcard(
 
       // Find the top-level note folder (flat structure)
       const noteFolder = path.join(
-        dbInfo.folderPath,
+        path.dirname(parentRelativePath),
         findTopLevelNoteFolder(parentRelativePath, db, libraryId)
       )
 
       // Create note folder if it doesn't exist
-      await fs.mkdir(noteFolder, { recursive: true })
+      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
 
       // Generate new filename using character ranges
       const baseName = generateChildNoteName(parentFilePath, charStart, charEnd, selectedText)
       const newFileName = baseName + '.flashcard'
-      const newFilePath = path.join(noteFolder, newFileName)
+      const newFilePath = path.join(path.join(dbInfo.folderPath, noteFolder), newFileName)
 
       // Write empty flashcard file (dummy file) - overwrite if exists
       await fs.writeFile(newFilePath, '', 'utf-8')

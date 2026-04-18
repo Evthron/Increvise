@@ -342,7 +342,7 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
       .map((row) => ({
         ...row,
         source_relative_path: row.relative_path,
-        target_relative_path: path.relative(subtreePrefix, row.relativePath),
+        target_relative_path: path.relative(subtreePrefix, row.relative_path),
       }))
       .filter((row) => row.target_relative_path)
 
