@@ -42,6 +42,45 @@ function copySqlFiles() {
   }
 }
 
+// Plugin to copy Shoelace assets
+function copyShoelaceAssets() {
+  return {
+    name: 'copy-shoelace-assets',
+    closeBundle() {
+      const sourceDir = resolve(__dirname, 'node_modules/@shoelace-style/shoelace/dist/assets')
+      const destDir = resolve(
+        __dirname,
+        'out/renderer/node_modules/@shoelace-style/shoelace/dist/assets'
+      )
+
+      try {
+        mkdirSync(destDir, { recursive: true })
+        copyDirectoryRecursive(sourceDir, destDir)
+        console.log(`Copied Shoelace assets to ${destDir}`)
+      } catch (err) {
+        console.error(`Failed to copy Shoelace assets:`, err)
+      }
+    },
+  }
+}
+
+// Helper function to recursively copy directories
+function copyDirectoryRecursive(source, dest) {
+  const entries = readdirSync(source, { withFileTypes: true })
+
+  entries.forEach((entry) => {
+    const sourcePath = resolve(source, entry.name)
+    const destPath = resolve(dest, entry.name)
+
+    if (entry.isDirectory()) {
+      mkdirSync(destPath, { recursive: true })
+      copyDirectoryRecursive(sourcePath, destPath)
+    } else {
+      copyFileSync(sourcePath, destPath)
+    }
+  })
+}
+
 export default defineConfig(({ command, mode }) => {
   const isDev = command === 'serve' || process.env.VITE_DEV_MODE === 'true'
 
@@ -90,6 +129,7 @@ export default defineConfig(({ command, mode }) => {
     },
     renderer: {
       root: '.',
+      plugins: [copyShoelaceAssets()],
       build: {
         minify: !isDev,
         sourcemap: isDev ? 'inline' : false,
