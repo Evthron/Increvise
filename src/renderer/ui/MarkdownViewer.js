@@ -7,49 +7,135 @@ import { LitElement, html, css } from 'lit'
 import { marked } from 'marked'
 import { basename, extname } from './path.js'
 
-// Track source positions by counting lines
+// Track source positions using marked tokens with proper offset tracking
 class SourcePositionTracker {
   constructor(markdown) {
     this.source = markdown
     this.lines = markdown.split('\n')
-    this.tokenPositions = new Map()
-    this.lastProcessedIndex = 0 // Track where we last processed
+
+    // Use a WeakMap with token objects as keys to avoid conflicts when raw text repeats
+    this.tokenPositions = new WeakMap()
+
+    // Track scanning position in the source to ensure ordered processing
+    this.currentPosition = 0
   }
 
-  // Find line range for a given raw text
-  findLineRange(raw) {
-    if (!raw) return { start: 1, end: 1 }
+  /**
+   * Count newlines that represent actual line breaks within content.
+   * Trailing newlines don't create new content lines, they just terminate the current line.
+   * Example: "line1\nline2\n" has 1 internal newline (creates line break), 1 trailing
+   */
+  countContentNewlines(text) {
+    if (!text) return 0
+    // Count all newlines, then subtract trailing newlines
+    const totalNewlines = (text.match(/\n/g) || []).length
+    const trailingNewlines = (text.match(/\n+$/g) || []).length
+    // Internal newlines = total - trailing
+    return Math.max(0, totalNewlines - trailingNewlines)
+  }
 
-    // Normalize the raw text for comparison (remove trailing newlines for matching)
-    const rawTrimmed = raw.replace(/\n+$/, '')
+  /**
+   * Recursively build a position map for all tokens.
+   * Key points:
+   * 1. Use the token object itself as the WeakMap key (unique, avoids collisions)
+   * 2. Search starting from currentPosition to preserve token order
+   * 3. Update currentPosition so the next token search begins after the previous one
+   * 4. Count only internal newlines (not trailing ones) for line range calculation
+   */
+  buildPositionMap(tokens) {
+    if (!tokens || !Array.isArray(tokens)) return
 
-    // Find the position of this raw text in source, starting from last processed position
-    let index = this.source.indexOf(rawTrimmed, this.lastProcessedIndex)
-    if (index === -1) {
-      // Try with original raw if trimmed version not found
-      index = this.source.indexOf(raw, this.lastProcessedIndex)
+    for (const token of tokens) {
+      if (!token.raw || typeof token.raw !== 'string') continue
+
+      // Search for this token.raw text after the current scanning position
+      let index = this.source.indexOf(token.raw, this.currentPosition)
+
+      // If not found, the token.raw may have trailing newlines
+      // Try trimming trailing newlines and search again
       if (index === -1) {
-        // Fallback: search from beginning
+        const rawTrimmed = token.raw.replace(/\n+$/, '')
+        if (rawTrimmed !== token.raw) {
+          index = this.source.indexOf(rawTrimmed, this.currentPosition)
+          if (index !== -1) {
+            token.raw = rawTrimmed // update token.raw to trimmed version
+          }
+        }
+      }
+
+      // If still not found, it might be the first occurrence of this content
+      // Fallback: search from the start (should be rare)
+      if (index === -1) {
+        const rawTrimmed = token.raw.replace(/\n+$/, '')
         index = this.source.indexOf(rawTrimmed)
         if (index === -1) {
-          index = this.source.indexOf(raw)
-          if (index === -1) return { start: 1, end: 1 }
+          index = this.source.indexOf(token.raw)
+        }
+      }
+
+      // Successfully found the token position
+      if (index !== -1) {
+        const startLine = this.getLineNumber(index)
+        // Only count internal newlines, not trailing ones
+        const internalNewlines = this.countContentNewlines(token.raw)
+        const endLine = startLine + internalNewlines
+
+        // Store the token object as a key in the WeakMap
+        // Even if token.raw is identical, different token objects will be distinct keys
+        this.tokenPositions.set(token, {
+          start: startLine,
+          end: endLine,
+        })
+
+        // Update scanning position to after this token
+        // Next token search will begin from this new position
+        this.currentPosition = index + token.raw.length
+      }
+
+      // Recursively process nested tokens
+      // currentPosition is updated so nested token searches use correct offsets
+      if (token.tokens && Array.isArray(token.tokens)) {
+        this.buildPositionMap(token.tokens)
+      }
+    }
+  }
+
+  /**
+   * Compute line number (1-indexed) from character position in the source
+   */
+  getLineNumber(position) {
+    if (position < 0) return 1
+    const beforeText = this.source.substring(0, position)
+    return (beforeText.match(/\n/g) || []).length + 1
+  }
+
+  /**
+   * Find line range for a token for the renderer.
+   * Directly use the token object as the key to avoid conflicts when raw text repeats.
+   */
+  findLineRange(token) {
+    if (!token) return { start: 1, end: 1 }
+
+    // Directly look up this token object's position from the WeakMap
+    const range = this.tokenPositions.get(token)
+    if (range) {
+      return range
+    }
+
+    // Fallback: if not found (e.g., dynamically created token), try searching by raw text
+    if (token.raw && typeof token.raw === 'string') {
+      const index = this.source.indexOf(token.raw, this.currentPosition)
+      if (index !== -1) {
+        const startLine = this.getLineNumber(index)
+        const internalNewlines = this.countContentNewlines(token.raw)
+        return {
+          start: startLine,
+          end: startLine + internalNewlines,
         }
       }
     }
 
-    // Count newlines before this position for start line
-    const beforeText = this.source.substring(0, index)
-    const startLine = (beforeText.match(/\n/g) || []).length + 1
-
-    // Count newlines within the trimmed raw text for end line
-    const newlinesInToken = (rawTrimmed.match(/\n/g) || []).length
-    const endLine = startLine + newlinesInToken
-
-    // Update last processed index to after this token
-    this.lastProcessedIndex = index + rawTrimmed.length
-
-    return { start: startLine, end: endLine }
+    return { start: 1, end: 1 }
   }
 }
 
@@ -61,32 +147,33 @@ class LineNumberRenderer extends marked.Renderer {
   }
 
   // Helper to add data-line-start and data-line-end attributes
-  addLineAttrs(raw) {
-    const range = this.tracker.findLineRange(raw)
+  // Directly use the token object to look up positions in the WeakMap
+  addLineAttrs(token) {
+    const range = this.tracker.findLineRange(token)
     return ` data-line-start="${range.start}" data-line-end="${range.end}"`
   }
 
   heading(token) {
     const text = this.parser.parseInline(token.tokens)
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     const tag = 'h' + token.depth
     return `<${tag}${lineAttrs}>${text}</${tag}>\n`
   }
 
   paragraph(token) {
     const text = this.parser.parseInline(token.tokens)
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     return `<p${lineAttrs}>${text}</p>\n`
   }
 
   blockquote(token) {
     const body = this.parser.parse(token.tokens)
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     return `<blockquote${lineAttrs}>\n${body}</blockquote>\n`
   }
 
   list(token) {
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     const type = token.ordered ? 'ol' : 'ul'
     const startatt = token.ordered && token.start !== 1 ? ' start="' + token.start + '"' : ''
     const body = token.items
@@ -98,7 +185,7 @@ class LineNumberRenderer extends marked.Renderer {
   }
 
   listitem(item) {
-    const lineAttrs = this.addLineAttrs(item.raw)
+    const lineAttrs = this.addLineAttrs(item)
     let text = ''
     if (item.task) {
       const checkbox = `<input ${item.checked ? 'checked="" ' : ''}disabled="" type="checkbox">`
@@ -128,7 +215,7 @@ class LineNumberRenderer extends marked.Renderer {
   }
 
   code(token) {
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     const lang = token.lang || ''
     const langClass = lang ? ` class="language-${lang}"` : ''
     const escapedCode = token.text
@@ -141,7 +228,7 @@ class LineNumberRenderer extends marked.Renderer {
   }
 
   table(token) {
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
 
     let thead = '<thead>\n<tr>'
     token.header.forEach((cell, i) => {
@@ -170,7 +257,7 @@ class LineNumberRenderer extends marked.Renderer {
   }
 
   hr(token) {
-    const lineAttrs = this.addLineAttrs(token.raw)
+    const lineAttrs = this.addLineAttrs(token)
     return `<hr${lineAttrs}>\n`
   }
 
@@ -204,17 +291,37 @@ class LineNumberRenderer extends marked.Renderer {
  * @returns {string} HTML with data-line-start and data-line-end attributes
  */
 function markdownToHtml(markdown, includeLineNumbers = true) {
-  const tracker = new SourcePositionTracker(markdown)
-  const renderer = new LineNumberRenderer({}, tracker)
-
+  // Set marked options for both paths (with and without line numbers)
+  // breaks: true converts single newlines to <br> tags
   marked.setOptions({
     gfm: true,
     breaks: true,
     tables: true,
-    renderer: includeLineNumbers ? renderer : new marked.Renderer(),
   })
 
-  return marked.parse(markdown)
+  if (!includeLineNumbers) {
+    return marked.parse(markdown)
+  }
+
+  // CRITICAL FIX: Get tokens first, then reuse them in parsing
+  // This ensures the WeakMap keys match the tokens used during rendering
+  const tokens = marked.lexer(markdown)
+
+  // Create tracker and build position map using the SAME token objects
+  const tracker = new SourcePositionTracker(markdown)
+  try {
+    tracker.buildPositionMap(tokens)
+  } catch (err) {
+    console.warn('Failed to build token position map:', err.message)
+  }
+
+  // Create renderer with the tracker
+  const renderer = new LineNumberRenderer({}, tracker)
+
+  // CRITICAL: Use marked.Parser directly with the token tree
+  // This avoids marked.parse() creating a new token tree
+  const parser = new marked.Parser({ renderer })
+  return parser.parse(tokens)
 }
 
 /**
@@ -696,7 +803,7 @@ export class MarkdownViewer extends LitElement {
     this._mouseDownHandler = (event) => {
       const path = event.composedPath()
 
-      // Find the first element with line numbers in the event path
+      // Find the first element with line number attributes in the event path
       const element = path.find(
         (el) =>
           el.nodeType === 1 &&

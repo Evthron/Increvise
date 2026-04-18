@@ -647,18 +647,20 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
             child.fileExists = false
           }
         }
-        const ranges = children
-          .filter((child) => child.fileExists)
-          .map((child) => {
-            return {
-              path: child.relative_path,
-              extract_type: child.extract_type,
-              start: parseInt(child.range_start),
-              end: parseInt(child.range_end),
-              content: child.content,
-              lineCount: child.content?.split('\n').length,
-            }
-          })
+        const ranges = children.map((child) => {
+          return {
+            path: child.relative_path,
+            extract_type: child.extract_type,
+            start: parseInt(child.range_start),
+            end: parseInt(child.range_end),
+            content: child.fileExists ? child.content : '[Content unavailable]',
+            lineCount: child.fileExists
+              ? child.content
+                ? child.content.split('\n').length
+                : 0
+              : 1,
+          }
+        })
         return ranges
       } else {
         const ranges = children.map((child) => {
@@ -752,12 +754,8 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
       }
 
       // Create a Map for O(1) lookup of children by relative_path
-      // Filter out children that don't exist
-      const childrenMap = new Map(
-        children
-          .filter((c) => (!isMarkdown && !isHTML ? true : c.fileExists))
-          .map((c) => [c.relative_path, c])
-      )
+      // Include all children even if they don't exist
+      const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
 
       // Merging content from grandchild and deeper notes to direct child
       // recur_depth DESC: bottom-to-top traversal
@@ -771,7 +769,7 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
 
         const parent = childrenMap.get(child.parent_path)
 
-        if (parent && parent.content) {
+        if (parent && parent.fileExists && parent.content) {
           // Replace lines in parent with child content
           const lines = parent.content.split('\n')
           // range_start and range_end are 1-based
@@ -780,7 +778,10 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
 
           // Split parent content into: before, (replaced with child), after
           const beforeLines = lines.slice(0, rangeStart)
-          const childLines = child.content.split('\n')
+          const childLines =
+            child.fileExists && child.content
+              ? child.content.split('\n')
+              : ['[Content unavailable]']
           const afterLines = lines.slice(rangeEnd + 1)
 
           // Update parent content
@@ -788,9 +789,9 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
         }
       }
 
-      // Filter to only return direct children (depth=1) that exist
+      // Filter to only return direct children (depth=1)
+      // Include children with missing files, but mark them with unavailable content
       const directChildren = children.filter((c) => {
-        if ((isMarkdown || isHTML) && !c.fileExists) return false
         return c.recur_depth === 1
       })
 
@@ -824,8 +825,8 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
           pageNum: startParsed.page,
           lineStart: startParsed.line,
           lineEnd: endParsed.line,
-          content: child.content,
-          lineCount: child.content ? child.content.split('\n').length : 0,
+          content: child.fileExists ? child.content : '[Content unavailable]',
+          lineCount: child.fileExists ? (child.content ? child.content.split('\n').length : 0) : 1,
         }
       })
 
@@ -1155,9 +1156,14 @@ async function extractNote(
     // Generate or use provided filename
     const parentExt = path.extname(parentFilePath)
 
-    const newFileName = childFileName.endsWith(parentExt)
-      ? childFileName
-      : childFileName + parentExt
+    let finalFileName = childFileName
+    if (!finalFileName) {
+      finalFileName = generateChildNoteName(parentFilePath, rangeStart, rangeEnd, selectedText)
+    }
+
+    const newFileName = finalFileName.endsWith(parentExt)
+      ? finalFileName
+      : finalFileName + parentExt
 
     const newFilePath = path.join(noteFolder, newFileName)
 
@@ -1369,9 +1375,16 @@ async function extractHTML(
 
     // Generate or use provided filename
     const parentExt = path.extname(parentFilePath)
-    const newFileName = childFileName.endsWith(parentExt)
-      ? childFileName
-      : childFileName + parentExt
+
+    let finalFileName = childFileName
+    if (!finalFileName) {
+      // For HTML extraction, we generate a simpler name without line ranges
+      finalFileName = 'extracted-' + Date.now()
+    }
+
+    const newFileName = finalFileName.endsWith(parentExt)
+      ? finalFileName
+      : finalFileName + parentExt
 
     const newFilePath = path.join(noteFolder, newFileName)
 
