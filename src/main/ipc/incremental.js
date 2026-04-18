@@ -1149,15 +1149,26 @@ async function extractNote(
 
   try {
     const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
+    const topLevelFolder = findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+    const parentDir = path.dirname(parentRelativePath)
 
-    // Find the top-level note folder
-    const noteFolder = path.join(
-      path.dirname(parentRelativePath),
-      findTopLevelNoteFolder(parentRelativePath, db, libraryId)
-    )
+    let relativeNoteFolderPath
+    if (parentDir === '.' || parentDir === '') {
+      relativeNoteFolderPath = topLevelFolder
+    } else {
+      const lastSegment = path.basename(parentDir)
+      if (lastSegment === topLevelFolder) {
+        relativeNoteFolderPath = parentDir
+      } else {
+        relativeNoteFolderPath = path.join(parentDir, topLevelFolder)
+      }
+    }
 
+    const absoluteNoteFolderPath = path.join(dbInfo.folderPath, relativeNoteFolderPath)
+
+    const noteFolder = path.relative(dbInfo.folderPath, absoluteNoteFolderPath)
     try {
-      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
+      await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
     } catch (err) {
       return {
         success: false,
@@ -1421,14 +1432,26 @@ async function extractHTML(
   try {
     const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
-    // Find the top-level note folder
-    const noteFolder = path.join(
-      path.dirname(parentRelativePath),
-      findTopLevelNoteFolder(parentRelativePath, db, libraryId)
-    )
+    const topLevelFolder = findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+    const parentDir = path.dirname(parentRelativePath)
 
+    let relativeNoteFolderPath
+    if (parentDir === '.' || parentDir === '') {
+      relativeNoteFolderPath = topLevelFolder
+    } else {
+      const lastSegment = path.basename(parentDir)
+      if (lastSegment === topLevelFolder) {
+        relativeNoteFolderPath = parentDir
+      } else {
+        relativeNoteFolderPath = path.join(parentDir, topLevelFolder)
+      }
+    }
+
+    const absoluteNoteFolderPath = path.join(dbInfo.folderPath, relativeNoteFolderPath)
+
+    const noteFolder = path.relative(dbInfo.folderPath, absoluteNoteFolderPath)
     try {
-      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
+      await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
     } catch (err) {
       return {
         success: false,
@@ -2157,14 +2180,25 @@ async function extractFlashcard(
     try {
       const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
-      // Find the top-level note folder (flat structure)
-      const noteFolder = path.join(
-        path.dirname(parentRelativePath),
-        findTopLevelNoteFolder(parentRelativePath, db, libraryId)
-      )
+      const topLevelFolder = findTopLevelNoteFolder(parentRelativePath, db, libraryId)
+      const parentDir = path.dirname(parentRelativePath)
 
-      // Create note folder if it doesn't exist
-      await fs.mkdir(path.join(dbInfo.folderPath, noteFolder), { recursive: true })
+      let relativeNoteFolderPath
+      if (parentDir === '.' || parentDir === '') {
+        relativeNoteFolderPath = topLevelFolder
+      } else {
+        const lastSegment = path.basename(parentDir)
+        if (lastSegment === topLevelFolder) {
+          relativeNoteFolderPath = parentDir
+        } else {
+          relativeNoteFolderPath = path.join(parentDir, topLevelFolder)
+        }
+      }
+
+      const absoluteNoteFolderPath = path.join(dbInfo.folderPath, relativeNoteFolderPath)
+
+      const noteFolder = path.relative(dbInfo.folderPath, absoluteNoteFolderPath)
+      await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
 
       // Generate new filename using character ranges
       const baseName = generateChildNoteName(parentFilePath, charStart, charEnd, selectedText)
