@@ -1105,7 +1105,7 @@ export class CodeMirrorViewer extends LitElement {
 
   // Lock multiple line ranges when first load the document
   // Ranges data is from database with child content
-  // Format: [{start: 10, end: 15, path: 'note.md', content: '...', lineCount: 5}, ...]
+  // Format: [{start: 10, end: 15, path: 'note.md', content: '...', lineCount: 5, fileExists: true}, ...]
   // Returns: { success: boolean, error?: string }
   async lockLineRanges(filePath, useDynamicContent = true) {
     let ranges
@@ -1122,13 +1122,21 @@ export class CodeMirrorViewer extends LitElement {
       return { success: true }
     }
 
+    // Filter out ranges where child files no longer exist
+    const validRanges = ranges.filter((range) => range.fileExists !== false)
+
+    if (validRanges.length === 0) {
+      this.clearLockedLines()
+      return { success: true }
+    }
+
     // Clear existing data from last document load
     this.lockedLines.clear()
     this.lockedRanges = []
 
     if (useDynamicContent) {
       // Step 1: Calculate line offsets for dynamic expansion/contraction
-      const adjustedRanges = calculateLineOffsets(ranges)
+      const adjustedRanges = calculateLineOffsets(validRanges)
 
       // Step 1.5: Check if we need to expand document to fit all ranges
       const docLines = this.editorView.state.doc.lines
@@ -1185,9 +1193,9 @@ export class CodeMirrorViewer extends LitElement {
             `${adjusted.adjustedStart} to ${adjusted.adjustedEnd}`
           )
           console.error('  - Document lines:', updatedDocLines)
-          console.error('  - Original range:', `${ranges[i].start} to ${ranges[i].end}`)
+          console.error('  - Original range:', `${validRanges[i].start} to ${validRanges[i].end}`)
           console.error('  - Line count:', adjusted.lineCount)
-          console.error('  - Path:', ranges[i].path)
+          console.error('  - Path:', validRanges[i].path)
           console.error('  - Offset:', adjusted.offset)
           hasInvalidRange = true
         }
@@ -1204,8 +1212,8 @@ export class CodeMirrorViewer extends LitElement {
       }
 
       // Step 2: Create LockedRange objects with adjusted positions
-      for (let i = 0; i < ranges.length; i++) {
-        const original = ranges[i]
+      for (let i = 0; i < validRanges.length; i++) {
+        const original = validRanges[i]
         const adjusted = adjustedRanges[i]
 
         // Calculate original span (actual lines in parent file)
@@ -1235,7 +1243,7 @@ export class CodeMirrorViewer extends LitElement {
       return { success: true }
     } else {
       // no dynamic content
-      for (let range of ranges) {
+      for (let range of validRanges) {
         const lockRange = new LockedRange(
           range.start,
           range.end,

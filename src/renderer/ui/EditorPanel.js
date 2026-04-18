@@ -1011,10 +1011,7 @@ export class EditorPanel extends LitElement {
       this.isEditMode = false
       this.codeMirrorEditor.disableEditing()
       // Reload content to discard unsaved changes
-      const result = await window.fileManager.readFile(
-        this.currentFilePath,
-        window.currentFile.libraryId
-      )
+      const result = await window.fileManager.readFile(this.currentFilePath)
       if (result.success) {
         this.codeMirrorEditor.setContent(result.content)
         await this.codeMirrorEditor.lockLineRanges(this.currentFilePath)
@@ -1186,10 +1183,7 @@ export class EditorPanel extends LitElement {
       // Switching from PDF to notes mode - load the note content
       try {
         // Read the current file (which should be the PDF extract note)
-        const result = await window.fileManager.readFile(
-          this.currentFilePath,
-          window.currentFile.libraryId
-        )
+        const result = await window.fileManager.readFile(this.currentFilePath)
         if (!result.success) {
           this._showToast(`Error reading note file: ${result.error}`, true)
           this.isNotesMode = false // Revert state

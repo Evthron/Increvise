@@ -21,6 +21,44 @@ class SourcePositionTracker {
   }
 
   /**
+   * Create a mapping from processed markdown lines to original markdown lines
+   * When we preprocess markdown by adding blank lines, we need to map back to originals
+   */
+  createLineMapping(original, processed) {
+    if (!processed || processed === original) {
+      // No preprocessing, 1:1 mapping
+      return null
+    }
+
+    const processedLines = processed.split('\n')
+    const mapping = {}
+
+    let originalIndex = 0
+    for (let processedIndex = 0; processedIndex < processedLines.length; originalIndex++) {
+      // Map this processed line to the original line
+      mapping[processedIndex] = originalIndex
+
+      // Skip corresponding blank lines in processed (added by preprocessing)
+      processedIndex++ // current line
+      if (processedIndex < processedLines.length && processedLines[processedIndex] === '') {
+        processedIndex++ // skip blank line
+      }
+    }
+
+    return mapping
+  }
+
+  /**
+   * Map a line number from processed markdown back to original markdown
+   */
+  mapLineToOriginal(processedLine) {
+    if (!this.lineMapping) return processedLine
+    return this.lineMapping[processedLine] !== undefined
+      ? this.lineMapping[processedLine]
+      : processedLine
+  }
+
+  /**
    * Count newlines that represent actual line breaks within content.
    * Trailing newlines don't create new content lines, they just terminate the current line.
    * Example: "line1\nline2\n" has 1 internal newline (creates line break), 1 trailing
@@ -153,6 +191,12 @@ class LineNumberRenderer extends marked.Renderer {
     return ` data-line-start="${range.start}" data-line-end="${range.end}"`
   }
 
+  addLineAttrsForLineIndex(token, lineIndex) {
+    const range = this.tracker.findLineRange(token)
+    const lineNum = range.start + lineIndex
+    return ` data-line-start="${lineNum}" data-line-end="${lineNum}"`
+  }
+
   heading(token) {
     const text = this.parser.parseInline(token.tokens)
     const lineAttrs = this.addLineAttrs(token)
@@ -163,7 +207,25 @@ class LineNumberRenderer extends marked.Renderer {
   paragraph(token) {
     const text = this.parser.parseInline(token.tokens)
     const lineAttrs = this.addLineAttrs(token)
+
+    // Split paragraph by <br> tags and wrap each part in its own <p>
+    // This converts single newlines (rendered as <br>) into separate paragraphs
+    if (text.includes('<br>')) {
+      const parts = text.split('<br>')
+      return parts
+        .map((part, idx) => {
+          // Calculate line attributes for each line
+          const attrs = this.addLineAttrsForLineIndex(token, idx)
+          return `<p${attrs}>${part}</p>\n`
+        })
+        .join('')
+    }
+
     return `<p${lineAttrs}>${text}</p>\n`
+  }
+
+  br() {
+    return '<br>'
   }
 
   blockquote(token) {
@@ -291,11 +353,10 @@ class LineNumberRenderer extends marked.Renderer {
  * @returns {string} HTML with data-line-start and data-line-end attributes
  */
 function markdownToHtml(markdown, includeLineNumbers = true) {
-  // Set marked options for both paths (with and without line numbers)
-  // breaks: true converts single newlines to <br> tags
+  // Set marked options
   marked.setOptions({
     gfm: true,
-    breaks: true,
+    breaks: true, // Enable break conversion, but we'll handle it specially
     tables: true,
   })
 
@@ -1196,11 +1257,14 @@ export class MarkdownViewer extends LitElement {
         false
       )
       if (rangesResult && rangesResult.length > 0) {
+        // Filter out ranges where the child file no longer exists
         this.extractedRanges = rangesResult
           .filter((r) => {
             const hasLineStart = r.start !== null && !isNaN(r.start)
             const hasLineEnd = r.end != null && !isNaN(r.end)
-            return hasLineStart && hasLineEnd
+            // Also check if file exists (don't render if deleted)
+            const fileExists = r.fileExists !== false
+            return hasLineStart && hasLineEnd && fileExists
           })
           .map((r) => ({
             start: parseInt(r.start),

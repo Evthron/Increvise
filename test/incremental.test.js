@@ -440,7 +440,7 @@ Line 8: This is test content for line number 8.`
 // Test 13: extractNote - Duplicate filename rejection
 // ========================================
 async function test11_ExtractNote_Duplicate() {
-  printSeparator('Test 11: extractNote - Duplicate rejection')
+  printSeparator('Test 11: extractNote - Duplicate overwrite')
 
   const parentFilePath = path.join(TEST_WORKSPACE, 'test-duplicate.md')
   await createTestFile(parentFilePath, 25)
@@ -463,7 +463,7 @@ async function test11_ExtractNote_Duplicate() {
   }
   console.log('  ✓ First extraction succeeded')
 
-  // Second extraction with same range should fail
+  // Second extraction with same range should now succeed and overwrite
   const result2 = await extractNote(
     parentFilePath,
     selectedText,
@@ -474,16 +474,17 @@ async function test11_ExtractNote_Duplicate() {
     getCentralDbPath
   )
 
-  if (result2.success) {
-    throw new Error('Second extraction should have failed')
+  if (!result2.success) {
+    throw new Error('Second extraction should have succeeded (overwrite): ' + result2.error)
   }
 
-  console.log(`  ✓ Duplicate extraction rejected`)
-  console.log(`    Error: "${result2.error}"`)
+  console.log(`  ✓ Duplicate extraction succeeded and overwrote previous data`)
 
-  if (!result2.error.includes('already exists')) {
-    throw new Error('Expected "already exists" error message')
+  // Verify the file was overwritten (same path returned)
+  if (result2.filePath !== result1.filePath) {
+    throw new Error('Expected same file path on overwrite')
   }
+  console.log(`    File: "${result2.fileName}"`)
 }
 
 // ========================================
