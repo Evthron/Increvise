@@ -632,40 +632,6 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
   }
 }
 
-async function processFilesWithRecovery(db, workspacePath, libraryId, files) {
-  const allFiles = []
-  let hasRecoveredFiles = false
-
-  for (const row of files) {
-    const resolved = await recoverMissingFileInSameDirectory(db, workspacePath, libraryId, row)
-
-    if (resolved.missing) {
-      continue
-    }
-
-    if (resolved.recovered) {
-      hasRecoveredFiles = true
-      console.log(`[processFilesWithRecovery] File recovered: ${resolved.relativePath}`)
-      // Handle extracted notes - rename folders and update paths
-      await syncExtrcationFolderName(
-        db,
-        workspacePath,
-        libraryId,
-        resolved.oldRelativePath,
-        resolved.relativePath
-      )
-    }
-
-    allFiles.push({
-      ...row,
-      relative_path: resolved.relativePath,
-      file_path: resolved.absolutePath,
-    })
-  }
-
-  return { allFiles, hasRecoveredFiles }
-}
-
 // ========================================
 // Retrieval of files for revision
 // ========================================
@@ -727,17 +693,33 @@ async function getFilesForRevision(rootPath) {
         // Get library_id from first row
         const libraryId = rows.length > 0 ? rows[0].library_id : null
         if (libraryId) {
-          const { allFiles: processedFiles, hasRecoveredFiles: recovered } =
-            await processFilesWithRecovery(db, dbRootPath, libraryId, rows)
-          processedFiles.forEach((file) => {
+          for (const row of rows) {
+            const resolved = await recoverMissingFileInSameDirectory(db, dbRootPath, libraryId, row)
+
+            if (resolved.missing) {
+              continue
+            }
+
+            if (resolved.recovered) {
+              hasRecoveredFiles = true
+              console.log(`[getFilesForRevision] File recovered: ${resolved.relativePath}`)
+              // Handle extracted notes - rename folders and update paths
+              await syncExtrcationFolderName(
+                db,
+                dbRootPath,
+                libraryId,
+                resolved.oldRelativePath,
+                resolved.relativePath
+              )
+            }
+
             allFiles.push({
-              ...file,
+              ...row,
+              relative_path: resolved.relativePath,
+              file_path: resolved.absolutePath,
               dbPath,
               workspacePath: dbRootPath,
             })
-          })
-          if (recovered) {
-            hasRecoveredFiles = true
           }
         }
 
@@ -807,19 +789,33 @@ async function getFilesIncludingFuture(rootPath) {
         // Get library_id from first row
         const libraryId = rows.length > 0 ? rows[0].library_id : null
         if (libraryId) {
-          const { allFiles: processedFiles } = await processFilesWithRecovery(
-            db,
-            dbRootPath,
-            libraryId,
-            rows
-          )
-          processedFiles.forEach((file) => {
+          for (const row of rows) {
+            const resolved = await recoverMissingFileInSameDirectory(db, dbRootPath, libraryId, row)
+
+            if (resolved.missing) {
+              continue
+            }
+
+            if (resolved.recovered) {
+              console.log(`[getFilesIncludingFuture] File recovered: ${resolved.relativePath}`)
+              // Handle extracted notes - rename folders and update paths
+              await syncExtrcationFolderName(
+                db,
+                dbRootPath,
+                libraryId,
+                resolved.oldRelativePath,
+                resolved.relativePath
+              )
+            }
+
             allFiles.push({
-              ...file,
+              ...row,
+              relative_path: resolved.relativePath,
+              file_path: resolved.absolutePath,
               dbPath,
               workspacePath: dbRootPath,
             })
-          })
+          }
         }
 
         db.close()
@@ -898,19 +894,38 @@ async function getAllFilesForRevision(getCentralDbPath) {
         // new items are on top
         const workspaceFiles = [...newItems, ...revisionItems]
 
-        const { allFiles: processedFiles } = await processFilesWithRecovery(
-          db,
-          workspace.folder_path,
-          libraryId,
-          workspaceFiles
-        )
-        processedFiles.forEach((file) => {
+        for (const row of workspaceFiles) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            workspace.folder_path,
+            libraryId,
+            row
+          )
+
+          if (resolved.missing) {
+            continue
+          }
+
+          if (resolved.recovered) {
+            console.log(`[getAllFilesForRevision] File recovered: ${resolved.relativePath}`)
+            // Handle extracted notes - rename folders and update paths
+            await syncExtrcationFolderName(
+              db,
+              workspace.folder_path,
+              libraryId,
+              resolved.oldRelativePath,
+              resolved.relativePath
+            )
+          }
+
           allFiles.push({
-            ...file,
+            ...row,
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
           })
-        })
+        }
 
         db.close()
       } catch (err) {
@@ -972,19 +987,38 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
           )
           .all(libraryId)
 
-        const { allFiles: processedFiles } = await processFilesWithRecovery(
-          db,
-          workspace.folder_path,
-          libraryId,
-          allItems
-        )
-        processedFiles.forEach((file) => {
+        for (const row of allItems) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            workspace.folder_path,
+            libraryId,
+            row
+          )
+
+          if (resolved.missing) {
+            continue
+          }
+
+          if (resolved.recovered) {
+            console.log(`[getAllFilesIncludingFuture] File recovered: ${resolved.relativePath}`)
+            // Handle extracted notes - rename folders and update paths
+            await syncExtrcationFolderName(
+              db,
+              workspace.folder_path,
+              libraryId,
+              resolved.oldRelativePath,
+              resolved.relativePath
+            )
+          }
+
           allFiles.push({
-            ...file,
+            ...row,
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
           })
-        })
+        }
 
         db.close()
       } catch (err) {
