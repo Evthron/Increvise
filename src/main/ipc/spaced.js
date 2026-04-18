@@ -41,6 +41,86 @@ async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
   }
 }
 
+async function handleRecoveredFileExtractedNotes(
+  db,
+  workspaceRootPath,
+  libraryId,
+  oldRelativePath,
+  newRelativePath
+) {
+  try {
+    const extractedNotes = db
+      .prepare(
+        `SELECT relative_path, parent_path
+         FROM note_source
+         WHERE library_id = ? AND parent_path = ?`
+      )
+      .all(libraryId, newRelativePath)
+
+    if (extractedNotes.length === 0) {
+      return
+    }
+
+    for (const note of extractedNotes) {
+      const noteAbsolutePath = path.join(workspaceRootPath, note.relative_path)
+      const oldNoteFolder = path.dirname(noteAbsolutePath)
+      const parentNoteFolder = path.dirname(oldNoteFolder)
+
+      // Find the extracted folder that corresponds to the old file
+      const oldExtractedDirName = path.basename(oldRelativePath, path.extname(oldRelativePath))
+
+      // Check if there's an extracted folder for this file
+      try {
+        const parentDirEntries = await fs.readdir(parentNoteFolder, { withFileTypes: true })
+        for (const entry of parentDirEntries) {
+          if (entry.isDirectory() && entry.name.includes(oldExtractedDirName)) {
+            const newExtractedDirName = path.basename(
+              newRelativePath,
+              path.extname(newRelativePath)
+            )
+            const newExtractedFolderPath = path.join(parentNoteFolder, newExtractedDirName)
+
+            try {
+              await fs.rename(oldNoteFolder, newExtractedFolderPath)
+
+              const newPathPrefix = path.relative(workspaceRootPath, newExtractedFolderPath)
+
+              const absoluteNotePath = path.join(workspaceRootPath, note.relative_path)
+              const suffix = path.relative(oldNoteFolder, absoluteNotePath)
+              const newNoteRelativePath = path.join(newPathPrefix, suffix)
+
+              // First update file table - this will trigger ON UPDATE CASCADE on note_source.relative_path
+              db.prepare(
+                `UPDATE file
+                 SET relative_path = ?
+                 WHERE library_id = ? AND relative_path = ?`
+              ).run(newNoteRelativePath, libraryId, note.relative_path)
+
+              console.log(
+                `[handleRecoveredFileExtractedNotes] Updated file and note_source relative_path: ${note.relative_path} → ${newNoteRelativePath}`
+              )
+            } catch (renameErr) {
+              console.warn(
+                `[handleRecoveredFileExtractedNotes] Failed to rename folder or update database: ${renameErr.message}`
+              )
+            }
+            console.log(
+              `Renamed extracted folder from ${oldNoteFolder} to ${newExtractedFolderPath}`
+            )
+            return
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `[handleRecoveredFileExtractedNotes] Error: Failed to read directory ${oldNoteFolder}: ${error.message}`
+        )
+      }
+    }
+  } catch (error) {
+    console.warn(`[handleRecoveredFileExtractedNotes] ${String(error)}`)
+  }
+}
+
 async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryId, row) {
   const missingRelativePath = row.relative_path
   const missingAbsolutePath = path.join(workspaceRootPath, missingRelativePath)
@@ -110,12 +190,11 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           recovered: true,
           absolutePath: candidateAbsolutePath,
           relativePath: recoveredRelativePath,
+          oldRelativePath: missingRelativePath,
         }
       }
     } catch (error) {
-      console.warn(
-        `Failed to fingerprint candidate file ${candidate.name}: ${error instanceof Error ? error.message : String(error)}`
-      )
+      console.warn(`Failed to fingerprint candidate file ${candidate.name}: ${String(error)}`)
       // ignore broken candidates and continue
     }
   }
@@ -146,7 +225,7 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           }
         } catch (error) {
           console.warn(
-            `Failed to compute embedding for candidate file ${candidate.name}: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to compute embedding for candidate file ${candidate.name}: ${String(error)}`
           )
           // ignore broken candidates and continue
         }
@@ -195,6 +274,7 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           recovered: true,
           absolutePath: best.absolutePath,
           relativePath: best.relativePath,
+          oldRelativePath: missingRelativePath,
         }
       }
     }
@@ -552,6 +632,40 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
   }
 }
 
+async function processFilesWithRecovery(db, workspacePath, libraryId, files) {
+  const allFiles = []
+  let hasRecoveredFiles = false
+
+  for (const row of files) {
+    const resolved = await recoverMissingFileInSameDirectory(db, workspacePath, libraryId, row)
+
+    if (resolved.missing) {
+      continue
+    }
+
+    if (resolved.recovered) {
+      hasRecoveredFiles = true
+      console.log(`[processFilesWithRecovery] File recovered: ${resolved.relativePath}`)
+      // Handle extracted notes - rename folders and update paths
+      await handleRecoveredFileExtractedNotes(
+        db,
+        workspacePath,
+        libraryId,
+        resolved.oldRelativePath,
+        resolved.relativePath
+      )
+    }
+
+    allFiles.push({
+      ...row,
+      relative_path: resolved.relativePath,
+      file_path: resolved.absolutePath,
+    })
+  }
+
+  return { allFiles, hasRecoveredFiles }
+}
+
 // ========================================
 // Retrieval of files for revision
 // ========================================
@@ -610,29 +724,21 @@ async function getFilesForRevision(rootPath) {
           )
           .all()
 
-        for (const row of rows) {
-          const resolved = await recoverMissingFileInSameDirectory(
-            db,
-            dbRootPath,
-            row.library_id,
-            row
-          )
-          if (resolved.missing) {
-            continue
-          }
-
-          if (resolved.recovered) {
-            hasRecoveredFiles = true
-            console.log(`[getFilesForRevision] File recovered: ${resolved.relativePath}`)
-          }
-
-          allFiles.push({
-            ...row,
-            relative_path: resolved.relativePath,
-            file_path: resolved.absolutePath,
-            dbPath,
-            workspacePath: dbRootPath,
+        // Get library_id from first row
+        const libraryId = rows.length > 0 ? rows[0].library_id : null
+        if (libraryId) {
+          const { allFiles: processedFiles, hasRecoveredFiles: recovered } =
+            await processFilesWithRecovery(db, dbRootPath, libraryId, rows)
+          processedFiles.forEach((file) => {
+            allFiles.push({
+              ...file,
+              dbPath,
+              workspacePath: dbRootPath,
+            })
           })
+          if (recovered) {
+            hasRecoveredFiles = true
+          }
         }
 
         db.close()
@@ -698,23 +804,21 @@ async function getFilesIncludingFuture(rootPath) {
           )
           .all()
 
-        for (const row of rows) {
-          const resolved = await recoverMissingFileInSameDirectory(
+        // Get library_id from first row
+        const libraryId = rows.length > 0 ? rows[0].library_id : null
+        if (libraryId) {
+          const { allFiles: processedFiles } = await processFilesWithRecovery(
             db,
             dbRootPath,
-            row.library_id,
-            row
+            libraryId,
+            rows
           )
-          if (resolved.missing) {
-            continue
-          }
-
-          allFiles.push({
-            ...row,
-            relative_path: resolved.relativePath,
-            file_path: resolved.absolutePath,
-            dbPath,
-            workspacePath: dbRootPath,
+          processedFiles.forEach((file) => {
+            allFiles.push({
+              ...file,
+              dbPath,
+              workspacePath: dbRootPath,
+            })
           })
         }
 
@@ -794,25 +898,19 @@ async function getAllFilesForRevision(getCentralDbPath) {
         // new items are on top
         const workspaceFiles = [...newItems, ...revisionItems]
 
-        for (const row of workspaceFiles) {
-          const resolved = await recoverMissingFileInSameDirectory(
-            db,
-            workspace.folder_path,
-            libraryId,
-            row
-          )
-          if (resolved.missing) {
-            continue
-          }
-
+        const { allFiles: processedFiles } = await processFilesWithRecovery(
+          db,
+          workspace.folder_path,
+          libraryId,
+          workspaceFiles
+        )
+        processedFiles.forEach((file) => {
           allFiles.push({
-            ...row,
-            relative_path: resolved.relativePath,
-            file_path: resolved.absolutePath,
+            ...file,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
           })
-        }
+        })
 
         db.close()
       } catch (err) {
@@ -874,25 +972,19 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
           )
           .all(libraryId)
 
-        for (const row of allItems) {
-          const resolved = await recoverMissingFileInSameDirectory(
-            db,
-            workspace.folder_path,
-            libraryId,
-            row
-          )
-          if (resolved.missing) {
-            continue
-          }
-
+        const { allFiles: processedFiles } = await processFilesWithRecovery(
+          db,
+          workspace.folder_path,
+          libraryId,
+          allItems
+        )
+        processedFiles.forEach((file) => {
           allFiles.push({
-            ...row,
-            relative_path: resolved.relativePath,
-            file_path: resolved.absolutePath,
+            ...file,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
           })
-        }
+        })
 
         db.close()
       } catch (err) {

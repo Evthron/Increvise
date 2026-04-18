@@ -506,25 +506,13 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
             lineCount
           )
           if (newRange) {
-            const newContent = parentContent
-              .split('\n')
-              .slice(newRange.start - 1, newRange.end)
-              .join('\n')
-            const newhash = crypto.createHash('sha256').update(newContent).digest('hex')
-            // Recovery successful - update database
             db.prepare(
               `
                 UPDATE note_source
-                SET range_start = ?, range_end = ?, source_hash = ?
+                SET range_start = ?, range_end = ?
                 WHERE library_id = ? AND relative_path = ?
               `
-            ).run(
-              String(newRange.start),
-              String(newRange.end),
-              newhash,
-              libraryId,
-              childRelativePath
-            )
+            ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
           }
         } else {
           console.warn(`Failed to recover position for child note: ${childRelativePath}`)
@@ -653,21 +641,24 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
           try {
             child.content = await fs.readFile(childAbsPath, 'utf-8')
+            child.fileExists = true
           } catch (err) {
             console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
-            child.content = '[Content unavailable]'
+            child.fileExists = false
           }
         }
-        const ranges = children.map((child) => {
-          return {
-            path: child.relative_path,
-            extract_type: child.extract_type,
-            start: parseInt(child.range_start),
-            end: parseInt(child.range_end),
-            content: child.content,
-            lineCount: child.content?.split('\n').length,
-          }
-        })
+        const ranges = children
+          .filter((child) => child.fileExists)
+          .map((child) => {
+            return {
+              path: child.relative_path,
+              extract_type: child.extract_type,
+              start: parseInt(child.range_start),
+              end: parseInt(child.range_end),
+              content: child.content,
+              lineCount: child.content?.split('\n').length,
+            }
+          })
         return ranges
       } else {
         const ranges = children.map((child) => {
@@ -752,20 +743,29 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
           const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
           try {
             child.content = await fs.readFile(childAbsPath, 'utf-8')
+            child.fileExists = true
           } catch (err) {
             console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
-            child.content = '[Content unavailable]'
+            child.fileExists = false
           }
         }
       }
 
       // Create a Map for O(1) lookup of children by relative_path
-      const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
+      // Filter out children that don't exist
+      const childrenMap = new Map(
+        children
+          .filter((c) => (!isMarkdown && !isHTML ? true : c.fileExists))
+          .map((c) => [c.relative_path, c])
+      )
 
       // Merging content from grandchild and deeper notes to direct child
       // recur_depth DESC: bottom-to-top traversal
       // range_start DESC: Ensures that replacing lines in a parent does not disrupt the line numbers for other children
       for (const child of children) {
+        // Skip if file doesn't exist (for markdown/HTML)
+        if ((isMarkdown || isHTML) && !child.fileExists) continue
+
         // direct children are skipped
         if (child.recur_depth === 1) continue
 
@@ -788,8 +788,11 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
         }
       }
 
-      // Filter to only return direct children (depth=1)
-      const directChildren = children.filter((c) => c.recur_depth === 1)
+      // Filter to only return direct children (depth=1) that exist
+      const directChildren = children.filter((c) => {
+        if ((isMarkdown || isHTML) && !c.fileExists) return false
+        return c.recur_depth === 1
+      })
 
       // Sort by range_start ASC for final output
       directChildren.sort((a, b) => parseInt(a.range_start) - parseInt(b.range_start))
