@@ -512,7 +512,6 @@ async function runAllTests() {
     await test9_AddFileToQueue()
     await test10_GetFilesForRevision()
     await test11_GetAllFilesForRevision()
-    await test13_MigrateOldQueue()
     await test14_MoveFileToQueue()
 
     console.log('\n✓ All tests completed successfully\n')

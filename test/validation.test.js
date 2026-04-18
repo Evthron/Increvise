@@ -80,6 +80,9 @@ describe('Validation and Recovery Functions', () => {
         range_start TEXT,
         range_end TEXT,
         source_hash TEXT,
+        source_embedding BLOB,
+        embedding_model TEXT,
+        embedding_dim INTEGER,
         PRIMARY KEY (library_id, relative_path),
         FOREIGN KEY (library_id, relative_path) REFERENCES file(library_id, relative_path)
       );
