@@ -92,36 +92,14 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           continue
         }
 
+        // Only update file table - cascade will handle queue_membership and note_source.relative_path
         db.prepare(
           `UPDATE file
-           SET relative_path = ?,
-               content_hash = ?,
-               content_embedding = ?,
-               content_embedding_model = ?,
-               content_embedding_dim = ?
-           WHERE library_id = ? AND relative_path = ?`
-        ).run(
-          recoveredRelativePath,
-          fingerprint.contentHash,
-          null,
-          null,
-          null,
-          libraryId,
-          missingRelativePath
-        )
-
-        db.prepare(
-          `UPDATE queue_membership
            SET relative_path = ?
            WHERE library_id = ? AND relative_path = ?`
         ).run(recoveredRelativePath, libraryId, missingRelativePath)
 
-        db.prepare(
-          `UPDATE note_source
-           SET relative_path = ?
-           WHERE library_id = ? AND relative_path = ?`
-        ).run(recoveredRelativePath, libraryId, missingRelativePath)
-
+        // Handle parent_path references in note_source separately (not covered by CASCADE)
         db.prepare(
           `UPDATE note_source
            SET parent_path = ?
@@ -134,7 +112,10 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           relativePath: recoveredRelativePath,
         }
       }
-    } catch {
+    } catch (error) {
+      console.warn(
+        `Failed to fingerprint candidate file ${candidate.name}: ${error instanceof Error ? error.message : String(error)}`
+      )
       // ignore broken candidates and continue
     }
   }
@@ -163,7 +144,10 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
               fingerprint,
             }
           }
-        } catch {
+        } catch (error) {
+          console.warn(
+            `Failed to compute embedding for candidate file ${candidate.name}: ${error instanceof Error ? error.message : String(error)}`
+          )
           // ignore broken candidates and continue
         }
       }
@@ -178,41 +162,34 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
           return { recovered: false, missing: true }
         }
 
-        db.prepare(
-          `UPDATE file
-           SET relative_path = ?,
-               content_hash = ?,
-               content_embedding = ?,
-               content_embedding_model = ?,
-               content_embedding_dim = ?
-           WHERE library_id = ? AND relative_path = ?`
-        ).run(
-          best.relativePath,
-          best.fingerprint.contentHash,
-          best.fingerprint.contentEmbedding,
-          best.fingerprint.contentEmbeddingModel,
-          best.fingerprint.contentEmbeddingDim,
-          libraryId,
-          missingRelativePath
-        )
+        // Use transaction to ensure all updates succeed or all fail together
+        db.transaction(() => {
+          // Only update file table - cascade will handle queue_membership and note_source.relative_path
+          db.prepare(
+            `UPDATE file
+             SET relative_path = ?,
+                 content_hash = ?,
+                 content_embedding = ?,
+                 content_embedding_model = ?,
+                 content_embedding_dim = ?
+             WHERE library_id = ? AND relative_path = ?`
+          ).run(
+            best.relativePath,
+            best.fingerprint.contentHash,
+            best.fingerprint.contentEmbedding,
+            best.fingerprint.contentEmbeddingModel,
+            best.fingerprint.contentEmbeddingDim,
+            libraryId,
+            missingRelativePath
+          )
 
-        db.prepare(
-          `UPDATE queue_membership
-           SET relative_path = ?
-           WHERE library_id = ? AND relative_path = ?`
-        ).run(best.relativePath, libraryId, missingRelativePath)
-
-        db.prepare(
-          `UPDATE note_source
-           SET relative_path = ?
-           WHERE library_id = ? AND relative_path = ?`
-        ).run(best.relativePath, libraryId, missingRelativePath)
-
-        db.prepare(
-          `UPDATE note_source
-           SET parent_path = ?
-           WHERE library_id = ? AND parent_path = ?`
-        ).run(best.relativePath, libraryId, missingRelativePath)
+          // Handle parent_path references in note_source separately (not covered by CASCADE)
+          db.prepare(
+            `UPDATE note_source
+             SET parent_path = ?
+             WHERE library_id = ? AND parent_path = ?`
+          ).run(best.relativePath, libraryId, missingRelativePath)
+        })()
 
         return {
           recovered: true,
@@ -615,6 +592,7 @@ async function getFilesForRevision(rootPath) {
     console.log('Finding databases under:', rootPath)
     const dbPaths = await findDatabases(rootPath)
     const allFiles = []
+    let hasRecoveredFiles = false
     for (const dbPath of dbPaths) {
       try {
         const db = new Database(dbPath)
@@ -643,6 +621,11 @@ async function getFilesForRevision(rootPath) {
             continue
           }
 
+          if (resolved.recovered) {
+            hasRecoveredFiles = true
+            console.log(`[getFilesForRevision] File recovered: ${resolved.relativePath}`)
+          }
+
           allFiles.push({
             ...row,
             relative_path: resolved.relativePath,
@@ -657,7 +640,7 @@ async function getFilesForRevision(rootPath) {
         console.warn('Failed to read from this database, skip it')
       }
     }
-    return { success: true, files: allFiles }
+    return { success: true, files: allFiles, hasRecoveredFiles }
   } catch (error) {
     console.warn('Failed to read from this database, skip it')
     return { success: false, error: error.message, files: [] }

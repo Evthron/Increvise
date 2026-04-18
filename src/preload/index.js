@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('move-file-to-queue', filePath, libraryId, targetQueue),
 
   // 3. Incremental Reading
-  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  readFile: (filePath, libraryId) => ipcRenderer.invoke('read-file', filePath, libraryId),
   saveNote: (filePath, content, libraryId) =>
     ipcRenderer.invoke('save-note', filePath, content, libraryId),
   extractNote: (filePath, selectedText, childFileName, rangeStart, rangeEnd, libraryId) =>

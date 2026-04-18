@@ -633,6 +633,16 @@ export class RevisionList extends LitElement {
           : window.currentFile.rootPath
         const previousFilePath = this.currentFile?.file_path
         this.files = result.files
+
+        // If files were recovered, refresh the file tree
+        if (result.hasRecoveredFiles) {
+          console.log('[revisionList] Files were recovered, refreshing file tree')
+          const fileTree = document.querySelector('file-tree')
+          if (fileTree) {
+            fileTree.requestUpdate()
+          }
+        }
+
         if (this.files.length == 0) {
           // All files reviewed
           this._showToast('All files reviewed! Great job! 🎉')

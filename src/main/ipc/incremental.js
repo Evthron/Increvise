@@ -880,9 +880,56 @@ async function updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentra
   }
 }
 
-async function readFile(filePath) {
+async function readFile(filePath, libraryId, getCentralDbPath) {
   try {
     const content = await fs.readFile(filePath, 'utf-8')
+
+    // Check if file hash has changed and update database if needed
+    if (libraryId && getCentralDbPath) {
+      try {
+        const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+        if (dbInfo.found) {
+          const db = new Database(dbInfo.dbPath)
+
+          const relativePath = path.relative(dbInfo.folderPath, filePath)
+          const currentFingerprint = await computeFingerprintForText(content, true)
+
+          // Get existing file record
+          const fileRecord = db
+            .prepare('SELECT content_hash FROM file WHERE library_id = ? AND relative_path = ?')
+            .get(libraryId, relativePath)
+
+          // If hash changed, update the database
+          if (fileRecord && fileRecord.content_hash !== currentFingerprint.contentHash) {
+            db.prepare(
+              `
+              UPDATE file
+              SET content_hash = ?,
+                  content_embedding = ?,
+                  content_embedding_model = ?,
+                  content_embedding_dim = ?
+              WHERE library_id = ? AND relative_path = ?
+            `
+            ).run(
+              currentFingerprint.contentHash,
+              currentFingerprint.contentEmbedding,
+              currentFingerprint.contentEmbeddingModel,
+              currentFingerprint.contentEmbeddingDim,
+              libraryId,
+              relativePath
+            )
+
+            console.log(`[readFile] Updated hash for ${relativePath}`)
+          }
+
+          db.close()
+        }
+      } catch (dbError) {
+        // Log but don't fail
+        console.warn(`[readFile] Failed to update file hash:`, dbError.message)
+      }
+    }
+
     return { success: true, content }
   } catch (error) {
     return { success: false, error: error.message }
@@ -954,18 +1001,60 @@ async function replaceChildRangeWithChildContent(
 
       await fs.writeFile(parentPath, updatedParent, 'utf-8')
 
-      const tx = db.transaction(() => {
+      // Compute new fingerprints for parent and child files
+      const [parentFingerprint, childFingerprint] = await Promise.all([
+        computeFingerprintForText(updatedParent, true),
+        computeFingerprintForText(childContent, true),
+      ])
+
+      db.transaction(() => {
+        // Update parent file's hash and embedding
+        db.prepare(
+          `
+          UPDATE file
+          SET content_hash = ?,
+              content_embedding = ?,
+              content_embedding_model = ?,
+              content_embedding_dim = ?
+          WHERE library_id = ? AND relative_path = ?
+        `
+        ).run(
+          parentFingerprint.contentHash,
+          parentFingerprint.contentEmbedding,
+          parentFingerprint.contentEmbeddingModel,
+          parentFingerprint.contentEmbeddingDim,
+          libraryId,
+          parentRelativePath
+        )
+
+        // Update note_source for child with new range and fingerprint
         db.prepare(
           `
           UPDATE note_source
-          SET range_start = ?, range_end = ?
+          SET range_start = ?, 
+              range_end = ?,
+              source_hash = ?,
+              source_embedding = ?,
+              embedding_model = ?,
+              embedding_dim = ?
           WHERE library_id = ?
             AND parent_path = ?
             AND relative_path = ?
             AND extract_type = 'text-lines'
         `
-        ).run(String(oldStart), String(newEnd), libraryId, parentRelativePath, childRelativePath)
+        ).run(
+          String(oldStart),
+          String(newEnd),
+          childFingerprint.contentHash,
+          childFingerprint.contentEmbedding,
+          childFingerprint.contentEmbeddingModel,
+          childFingerprint.contentEmbeddingDim,
+          libraryId,
+          parentRelativePath,
+          childRelativePath
+        )
 
+        // If line count changed, update all ranges of sibling that come after the modified child note
         if (delta !== 0) {
           const siblings = db
             .prepare(
@@ -1006,9 +1095,7 @@ async function replaceChildRangeWithChildContent(
             )
           }
         }
-      })
-
-      tx()
+      })()
 
       return {
         success: true,
@@ -2013,7 +2100,9 @@ async function extractFlashcard(
 }
 
 export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
-  ipcMain.handle('read-file', async (event, filePath) => readFile(filePath))
+  ipcMain.handle('read-file', async (event, filePath, libraryId) =>
+    readFile(filePath, libraryId, getCentralDbPath)
+  )
 
   ipcMain.handle('save-note', async (event, filePath, content, libraryId) =>
     saveNote(filePath, content, libraryId, getCentralDbPath)
