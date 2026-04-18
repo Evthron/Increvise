@@ -41,7 +41,7 @@ async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
   }
 }
 
-async function handleRecoveredFileExtractedNotes(
+async function syncExtrcationFolderName(
   db,
   workspaceRootPath,
   libraryId,
@@ -97,11 +97,11 @@ async function handleRecoveredFileExtractedNotes(
               ).run(newNoteRelativePath, libraryId, note.relative_path)
 
               console.log(
-                `[handleRecoveredFileExtractedNotes] Updated file and note_source relative_path: ${note.relative_path} → ${newNoteRelativePath}`
+                `[syncExtrcationFolderName] Updated file and note_source relative_path: ${note.relative_path} → ${newNoteRelativePath}`
               )
             } catch (renameErr) {
               console.warn(
-                `[handleRecoveredFileExtractedNotes] Failed to rename folder or update database: ${renameErr.message}`
+                `[syncExtrcationFolderName] Failed to rename folder or update database: ${renameErr.message}`
               )
             }
             console.log(
@@ -112,12 +112,12 @@ async function handleRecoveredFileExtractedNotes(
         }
       } catch (error) {
         console.warn(
-          `[handleRecoveredFileExtractedNotes] Error: Failed to read directory ${oldNoteFolder}: ${error.message}`
+          `[syncExtrcationFolderName] Error: Failed to read directory ${oldNoteFolder}: ${error.message}`
         )
       }
     }
   } catch (error) {
-    console.warn(`[handleRecoveredFileExtractedNotes] ${String(error)}`)
+    console.warn(`[syncExtrcationFolderName] ${String(error)}`)
   }
 }
 
@@ -647,7 +647,7 @@ async function processFilesWithRecovery(db, workspacePath, libraryId, files) {
       hasRecoveredFiles = true
       console.log(`[processFilesWithRecovery] File recovered: ${resolved.relativePath}`)
       // Handle extracted notes - rename folders and update paths
-      await handleRecoveredFileExtractedNotes(
+      await syncExtrcationFolderName(
         db,
         workspacePath,
         libraryId,
