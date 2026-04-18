@@ -13,23 +13,41 @@ class SourcePositionTracker {
     this.source = markdown
     this.lines = markdown.split('\n')
     this.tokenPositions = new Map()
+    this.lastProcessedIndex = 0 // Track where we last processed
   }
 
   // Find line range for a given raw text
   findLineRange(raw) {
     if (!raw) return { start: 1, end: 1 }
 
-    // Find the position of this raw text in source
-    const index = this.source.indexOf(raw)
-    if (index === -1) return { start: 1, end: 1 }
+    // Normalize the raw text for comparison (remove trailing newlines for matching)
+    const rawTrimmed = raw.replace(/\n+$/, '')
+
+    // Find the position of this raw text in source, starting from last processed position
+    let index = this.source.indexOf(rawTrimmed, this.lastProcessedIndex)
+    if (index === -1) {
+      // Try with original raw if trimmed version not found
+      index = this.source.indexOf(raw, this.lastProcessedIndex)
+      if (index === -1) {
+        // Fallback: search from beginning
+        index = this.source.indexOf(rawTrimmed)
+        if (index === -1) {
+          index = this.source.indexOf(raw)
+          if (index === -1) return { start: 1, end: 1 }
+        }
+      }
+    }
 
     // Count newlines before this position for start line
     const beforeText = this.source.substring(0, index)
     const startLine = (beforeText.match(/\n/g) || []).length + 1
 
-    // Count newlines within the raw text for end line
-    const newlinesInToken = (raw.match(/\n/g) || []).length
+    // Count newlines within the trimmed raw text for end line
+    const newlinesInToken = (rawTrimmed.match(/\n/g) || []).length
     const endLine = startLine + newlinesInToken
+
+    // Update last processed index to after this token
+    this.lastProcessedIndex = index + rawTrimmed.length
 
     return { start: startLine, end: endLine }
   }
