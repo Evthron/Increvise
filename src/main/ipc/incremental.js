@@ -389,7 +389,10 @@ function findContentByHashAndLineCount(parentContent, targetHash, numberOfLines)
 
   // Try different window lengths
   for (let start = 0; start <= lines.length - numberOfLines; start++) {
-    const content = lines.slice(start, start + numberOfLines).join('\n')
+    const content = lines
+      .slice(start, start + numberOfLines)
+      .join('\n')
+      .trim()
     const hash = crypto.createHash('sha256').update(content).digest('hex')
 
     if (hash === targetHash) {
@@ -417,7 +420,10 @@ async function findContentByEmbeddingAndLineCount(parentContent, targetEmbedding
   let bestMatch = null
 
   for (let start = 0; start <= lines.length - numberOfLines; start++) {
-    const content = lines.slice(start, start + numberOfLines).join('\n')
+    const content = lines
+      .slice(start, start + numberOfLines)
+      .join('\n')
+      .trim()
     const currentEmbedding = await embedText(content)
 
     if (!currentEmbedding || currentEmbedding.length !== targetEmbedding.length) {
@@ -479,10 +485,13 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
       // Validate current position in database
       const startLine = parseInt(child.range_start)
       const endLine = parseInt(child.range_end)
+      // Remove surrounding whitespace and newlines for more robust hashing
       const currentContent = parentContent
         .split('\n')
         .slice(startLine - 1, endLine)
         .join('\n')
+        .trim()
+
       const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex')
 
       // If hash mismatch, try to recover
