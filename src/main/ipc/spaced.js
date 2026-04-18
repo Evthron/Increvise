@@ -10,15 +10,231 @@ import Database from 'better-sqlite3'
 import { getWorkspaceDbPath } from '../db/index.js'
 import { insertInitialData } from '../db/insert-initial-data.js'
 import { migrate } from '../db/migration-workspace.js'
+import {
+  DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
+  cosineSimilarity,
+  deserializeEmbedding,
+  computeFingerprintForPath,
+} from './incremental.js'
 
-function getNearestParentWorkspace(folderPath, getCentralDbPath) {
+async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
+  const fingerprint = await computeFingerprintForPath(absolutePath, true)
+
+  db.prepare(
+    `UPDATE file
+     SET content_hash = ?,
+         content_embedding = ?,
+         content_embedding_model = ?,
+         content_embedding_dim = ?
+     WHERE library_id = ? AND relative_path = ?`
+  ).run(
+    fingerprint.contentHash,
+    fingerprint.contentEmbedding,
+    fingerprint.contentEmbeddingModel,
+    fingerprint.contentEmbeddingDim,
+    libraryId,
+    relativePath
+  )
+
+  if (fingerprint.embeddingError) {
+    console.warn(`Failed to generate embedding for ${relativePath}:`, fingerprint.embeddingError)
+  }
+}
+
+async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryId, row) {
+  const missingRelativePath = row.relative_path
+  const missingAbsolutePath = path.join(workspaceRootPath, missingRelativePath)
+
+  try {
+    await fs.access(missingAbsolutePath)
+    return {
+      recovered: false,
+      absolutePath: missingAbsolutePath,
+      relativePath: missingRelativePath,
+    }
+  } catch {
+    // keep trying recovery
+  }
+
+  const parentRelativeDir = path.dirname(missingRelativePath)
+  const parentAbsoluteDir = path.join(workspaceRootPath, parentRelativeDir)
+
+  let entries
+  try {
+    entries = await fs.readdir(parentAbsoluteDir, { withFileTypes: true })
+  } catch {
+    return { recovered: false, missing: true }
+  }
+
+  const fileCandidates = entries.filter((entry) => entry.isFile())
+
+  if (fileCandidates.length === 0) {
+    return { recovered: false, missing: true }
+  }
+
+  for (const candidate of fileCandidates) {
+    const candidateAbsolutePath = path.join(parentAbsoluteDir, candidate.name)
+    try {
+      const fingerprint = await computeFingerprintForPath(candidateAbsolutePath, false)
+      if (
+        fingerprint.contentHash &&
+        row.content_hash &&
+        fingerprint.contentHash === row.content_hash
+      ) {
+        const recoveredRelativePath = path.join(parentRelativeDir, candidate.name)
+
+        const pathTaken = db
+          .prepare(
+            'SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? AND relative_path != ? LIMIT 1'
+          )
+          .get(libraryId, recoveredRelativePath, missingRelativePath)
+        if (pathTaken) {
+          continue
+        }
+
+        db.prepare(
+          `UPDATE file
+           SET relative_path = ?,
+               content_hash = ?,
+               content_embedding = ?,
+               content_embedding_model = ?,
+               content_embedding_dim = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(
+          recoveredRelativePath,
+          fingerprint.contentHash,
+          null,
+          null,
+          null,
+          libraryId,
+          missingRelativePath
+        )
+
+        db.prepare(
+          `UPDATE queue_membership
+           SET relative_path = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(recoveredRelativePath, libraryId, missingRelativePath)
+
+        db.prepare(
+          `UPDATE note_source
+           SET relative_path = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(recoveredRelativePath, libraryId, missingRelativePath)
+
+        db.prepare(
+          `UPDATE note_source
+           SET parent_path = ?
+           WHERE library_id = ? AND parent_path = ?`
+        ).run(recoveredRelativePath, libraryId, missingRelativePath)
+
+        return {
+          recovered: true,
+          absolutePath: candidateAbsolutePath,
+          relativePath: recoveredRelativePath,
+        }
+      }
+    } catch {
+      // ignore broken candidates and continue
+    }
+  }
+
+  if (row.content_embedding) {
+    const targetEmbedding = deserializeEmbedding(row.content_embedding)
+    if (targetEmbedding) {
+      let best = null
+
+      for (const candidate of fileCandidates) {
+        const candidateAbsolutePath = path.join(parentAbsoluteDir, candidate.name)
+        try {
+          const fingerprint = await computeFingerprintForPath(candidateAbsolutePath, true)
+          if (!fingerprint.contentEmbedding) {
+            continue
+          }
+
+          const candidateEmbedding = deserializeEmbedding(fingerprint.contentEmbedding)
+          const similarity = cosineSimilarity(targetEmbedding, candidateEmbedding)
+
+          if (!best || similarity > best.similarity) {
+            best = {
+              similarity,
+              absolutePath: candidateAbsolutePath,
+              relativePath: path.join(parentRelativeDir, candidate.name),
+              fingerprint,
+            }
+          }
+        } catch {
+          // ignore broken candidates and continue
+        }
+      }
+
+      if (best && best.similarity >= DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD) {
+        const pathTaken = db
+          .prepare(
+            'SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? AND relative_path != ? LIMIT 1'
+          )
+          .get(libraryId, best.relativePath, missingRelativePath)
+        if (pathTaken) {
+          return { recovered: false, missing: true }
+        }
+
+        db.prepare(
+          `UPDATE file
+           SET relative_path = ?,
+               content_hash = ?,
+               content_embedding = ?,
+               content_embedding_model = ?,
+               content_embedding_dim = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(
+          best.relativePath,
+          best.fingerprint.contentHash,
+          best.fingerprint.contentEmbedding,
+          best.fingerprint.contentEmbeddingModel,
+          best.fingerprint.contentEmbeddingDim,
+          libraryId,
+          missingRelativePath
+        )
+
+        db.prepare(
+          `UPDATE queue_membership
+           SET relative_path = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(best.relativePath, libraryId, missingRelativePath)
+
+        db.prepare(
+          `UPDATE note_source
+           SET relative_path = ?
+           WHERE library_id = ? AND relative_path = ?`
+        ).run(best.relativePath, libraryId, missingRelativePath)
+
+        db.prepare(
+          `UPDATE note_source
+           SET parent_path = ?
+           WHERE library_id = ? AND parent_path = ?`
+        ).run(best.relativePath, libraryId, missingRelativePath)
+
+        return {
+          recovered: true,
+          absolutePath: best.absolutePath,
+          relativePath: best.relativePath,
+        }
+      }
+    }
+  }
+
+  return { recovered: false, missing: true }
+}
+
+async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCentralDbPath) {
+  // Get the nearest parent workspace
   const centralDb = new Database(getCentralDbPath(), { readonly: true })
   const workspaces = centralDb
     .prepare('SELECT library_id, folder_path, db_path FROM workspace_history')
     .all()
   centralDb.close()
 
-  let nearestParent = null
+  let nearestParentWorkspace = null
   for (const workspace of workspaces) {
     const relative = path.relative(workspace.folder_path, folderPath)
     const isChildPath = relative && !relative.startsWith('..') && !path.isAbsolute(relative)
@@ -27,54 +243,34 @@ function getNearestParentWorkspace(folderPath, getCentralDbPath) {
       continue
     }
 
-    if (!nearestParent || workspace.folder_path.length > nearestParent.folder_path.length) {
-      nearestParent = workspace
+    if (
+      !nearestParentWorkspace ||
+      workspace.folder_path.length > nearestParentWorkspace.folder_path.length
+    ) {
+      nearestParentWorkspace = workspace
     }
   }
 
-  return nearestParent
-}
-
-function createRelativePathMapper(parentFolderPath, childFolderPath) {
-  const subtreePrefix = path.relative(parentFolderPath, childFolderPath)
-  const subtreePrefixWithSep = `${subtreePrefix}${path.sep}`
-
-  return {
-    subtreePrefix,
-    isInSubtree: (relativePath) =>
-      typeof relativePath === 'string' && relativePath.startsWith(subtreePrefixWithSep),
-    toChildRelativePath: (relativePath) => {
-      const mappedPath = path.relative(subtreePrefix, relativePath)
-      const isValid = mappedPath && !mappedPath.startsWith('..') && !path.isAbsolute(mappedPath)
-      return isValid ? mappedPath : null
-    },
-  }
-}
-
-async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCentralDbPath) {
-  const parentWorkspace = getNearestParentWorkspace(folderPath, getCentralDbPath)
-  if (!parentWorkspace) {
-    return { success: true, migratedFiles: 0 }
-  }
-
   try {
-    await fs.access(parentWorkspace.db_path)
+    await fs.access(nearestParentWorkspace?.db_path)
   } catch {
     return { success: true, migratedFiles: 0 }
   }
 
-  const pathMapper = createRelativePathMapper(parentWorkspace.folder_path, folderPath)
-  const parentDb = new Database(parentWorkspace.db_path)
+  const subtreePrefix = path.relative(nearestParentWorkspace.folder_path, folderPath)
+  const subtreePrefixWithSep = `${subtreePrefix}${path.sep}`
+
+  const parentDb = new Database(nearestParentWorkspace.db_path)
 
   try {
     const sourceFiles = parentDb
       .prepare('SELECT * FROM file WHERE library_id = ?')
-      .all(parentWorkspace.library_id)
-      .filter((row) => pathMapper.isInSubtree(row.relative_path))
+      .all(nearestParentWorkspace.library_id)
+      .filter((row) => row.relative_path.startsWith(subtreePrefixWithSep))
       .map((row) => ({
         ...row,
         source_relative_path: row.relative_path,
-        target_relative_path: pathMapper.toChildRelativePath(row.relative_path),
+        target_relative_path: path.relative(subtreePrefix, row.relativePath),
       }))
       .filter((row) => row.target_relative_path)
 
@@ -90,12 +286,12 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
 
     const sourceMemberships = parentDb
       .prepare('SELECT * FROM queue_membership WHERE library_id = ?')
-      .all(parentWorkspace.library_id)
+      .all(nearestParentWorkspace.library_id)
       .filter((row) => sourcePathSet.has(row.relative_path))
 
     const sourceNoteSources = parentDb
       .prepare('SELECT * FROM note_source WHERE library_id = ?')
-      .all(parentWorkspace.library_id)
+      .all(nearestParentWorkspace.library_id)
       .filter((row) => sourcePathSet.has(row.relative_path))
 
     newDb.exec('BEGIN')
@@ -116,8 +312,12 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
           rotation_interval,
           intermediate_interval,
           extraction_count,
-          last_queue_change
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          last_queue_change,
+          content_hash,
+          content_embedding,
+          content_embedding_model,
+          content_embedding_dim
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       for (const row of sourceFiles) {
@@ -134,7 +334,11 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
           row.rotation_interval,
           row.intermediate_interval,
           row.extraction_count,
-          row.last_queue_change
+          row.last_queue_change,
+          row.content_hash,
+          row.content_embedding,
+          row.content_embedding_model,
+          row.content_embedding_dim
         )
       }
 
@@ -201,9 +405,9 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
       )
 
       for (const row of sourceFiles) {
-        deleteNoteSourceStmt.run(parentWorkspace.library_id, row.source_relative_path)
-        deleteMembershipStmt.run(parentWorkspace.library_id, row.source_relative_path)
-        deleteFileStmt.run(parentWorkspace.library_id, row.source_relative_path)
+        deleteNoteSourceStmt.run(nearestParentWorkspace.library_id, row.source_relative_path)
+        deleteMembershipStmt.run(nearestParentWorkspace.library_id, row.source_relative_path)
+        deleteFileStmt.run(nearestParentWorkspace.library_id, row.source_relative_path)
       }
 
       newDb.exec('COMMIT')
@@ -215,86 +419,86 @@ async function migrateSubtreeReviewData(newDb, newLibraryId, folderPath, getCent
     }
 
     parentDb.close()
-    return { success: true, migratedFiles: sourceFiles.length }
+    return { success: true }
   } catch (error) {
     parentDb.close()
-    return { success: false, error: error.message, migratedFiles: 0 }
+    return { success: false, error: error.message }
   }
 }
 
 async function createDatabase(folderPath, getCentralDbPath) {
+  const increviseFolder = path.join(folderPath, '.increvise')
+  const dbFilePath = path.join(increviseFolder, 'db.sqlite')
+
   try {
-    const increviseFolder = path.join(folderPath, '.increvise')
-    const dbFilePath = path.join(increviseFolder, 'db.sqlite')
     await fs.mkdir(increviseFolder, { recursive: true })
+  } catch (error) {
+    return { success: false, error: `Failed to create .increvise folder: ${error.message}` }
+  }
 
-    // Check if database already exists
-    try {
-      await fs.access(dbFilePath)
-      // Database exists, get its library_id
-      const db = new Database(dbFilePath, { readonly: true })
-      const library = db.prepare('SELECT library_id FROM library LIMIT 1').get()
-      db.close()
+  // Check if database already exists
+  try {
+    await fs.access(dbFilePath)
+    // Database exists, get its library_id
+    const db = new Database(dbFilePath, { readonly: true })
+    const library = db.prepare('SELECT library_id FROM library LIMIT 1').get()
+    db.close()
 
-      if (library) {
-        return { success: true, path: dbFilePath, libraryId: library.library_id }
-      }
-    } catch {
-      // Database file exists but couldn't read library_id, will create new
+    if (library) {
+      return { success: true, path: dbFilePath, libraryId: library.library_id }
+    }
+  } catch {
+    // Database file exists but couldn't read library_id, will create new
+  }
+
+  try {
+    // Create and initialize the database
+    const db = new Database(dbFilePath)
+
+    // Run migrations to create latest schema and insert initial data
+    await migrate(db, dbFilePath)
+
+    const libraryId = crypto.randomUUID()
+    const libraryName = path.basename(folderPath)
+    insertInitialData(db, libraryId, libraryName)
+
+    // Migrate review data from parent workspace
+    const migrationResult = await migrateSubtreeReviewData(
+      db,
+      libraryId,
+      folderPath,
+      getCentralDbPath
+    )
+    if (!migrationResult.success) {
+      console.error('Failed to migrate review data to child workspace:', migrationResult.error)
     }
 
+    db.close()
+
+    // Register in central database
     try {
-      // Create and initialize the database
-      const db = new Database(dbFilePath)
-
-      // Step 1: Run migrations to create latest schema
-      await migrate(db, dbFilePath)
-
-      // Step 2: Insert initial business data
-      const libraryId = crypto.randomUUID()
-      const libraryName = path.basename(folderPath)
-      insertInitialData(db, libraryId, libraryName)
-
-      const migrationResult = await migrateSubtreeReviewData(
-        db,
-        libraryId,
-        folderPath,
-        getCentralDbPath
-      )
-      if (!migrationResult.success) {
-        console.error('Failed to migrate review data to child workspace:', migrationResult.error)
-      }
-
-      db.close()
-
-      // Register in central database
-      try {
-        const centralDbPath = getCentralDbPath()
-        const centralDb = new Database(centralDbPath)
-        centralDb
-          .prepare(
-            `INSERT OR REPLACE INTO workspace_history 
+      const centralDbPath = getCentralDbPath()
+      const centralDb = new Database(centralDbPath)
+      centralDb
+        .prepare(
+          `INSERT OR REPLACE INTO workspace_history 
              (library_id, folder_path, folder_name, db_path, last_opened, open_count)
              VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 1)`
-          )
-          .run(libraryId, folderPath, libraryName, dbFilePath)
-        centralDb.close()
-      } catch (err) {
-        console.error('Failed to register workspace in central database:', err)
-        // Continue anyway - database is created successfully
-      }
-
-      return {
-        success: true,
-        path: dbFilePath,
-        libraryId,
-        migratedFiles: migrationResult?.migratedFiles || 0,
-      }
+        )
+        .run(libraryId, folderPath, libraryName, dbFilePath)
+      centralDb.close()
     } catch (err) {
-      return { success: false, error: err.message }
+      console.error('Failed to register workspace in central database:', err)
+      // Continue anyway - database is created successfully
     }
-  } catch (error) {
-    return { success: false, error: error.message }
+
+    return {
+      success: true,
+      path: dbFilePath,
+      libraryId,
+    }
+  } catch (err) {
+    return { success: false, error: err.message }
   }
 }
 
@@ -349,6 +553,12 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
           VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
       ).run(libraryId, relativePath)
 
+      try {
+        await writeFileFingerprint(db, libraryId, relativePath, filePath)
+      } catch (error) {
+        console.warn(`Failed to fingerprint queued file ${relativePath}:`, error.message)
+      }
+
       // Add to new queue by default
       db.prepare(
         `INSERT INTO queue_membership (library_id, queue_name, relative_path)
@@ -364,6 +574,10 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
     return { success: false, error: error.message }
   }
 }
+
+// ========================================
+// Retrieval of files for revision
+// ========================================
 
 async function getFilesForRevision(rootPath) {
   // Get all the increvise database under the specfied rootPath
@@ -403,7 +617,7 @@ async function getFilesForRevision(rootPath) {
     const allFiles = []
     for (const dbPath of dbPaths) {
       try {
-        const db = new Database(dbPath, { readonly: true })
+        const db = new Database(dbPath)
         const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
         console.log('Reading database at:', dbPath)
         const rows = db
@@ -417,14 +631,27 @@ async function getFilesForRevision(rootPath) {
           `
           )
           .all()
-        allFiles.push(
-          ...rows.map((row) => ({
+
+        for (const row of rows) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            dbRootPath,
+            row.library_id,
+            row
+          )
+          if (resolved.missing) {
+            continue
+          }
+
+          allFiles.push({
             ...row,
-            file_path: path.join(dbRootPath, row.relative_path),
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath,
             workspacePath: dbRootPath,
-          }))
-        )
+          })
+        }
+
         db.close()
       } catch {
         console.warn('Failed to read from this database, skip it')
@@ -474,7 +701,7 @@ async function getFilesIncludingFuture(rootPath) {
     const allFiles = []
     for (const dbPath of dbPaths) {
       try {
-        const db = new Database(dbPath, { readonly: true })
+        const db = new Database(dbPath)
         const dbRootPath = path.dirname(path.dirname(dbPath)) // Remove .increvise/db.sqlite
         const rows = db
           .prepare(
@@ -487,14 +714,27 @@ async function getFilesIncludingFuture(rootPath) {
           `
           )
           .all()
-        allFiles.push(
-          ...rows.map((row) => ({
+
+        for (const row of rows) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            dbRootPath,
+            row.library_id,
+            row
+          )
+          if (resolved.missing) {
+            continue
+          }
+
+          allFiles.push({
             ...row,
-            file_path: path.join(dbRootPath, row.relative_path),
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath,
             workspacePath: dbRootPath,
-          }))
-        )
+          })
+        }
+
         db.close()
       } catch {
         // Failed to read from this database, skip it
@@ -527,7 +767,7 @@ async function getAllFilesForRevision(getCentralDbPath) {
         continue
       }
       try {
-        const db = new Database(workspace.db_path, { readonly: true })
+        const db = new Database(workspace.db_path)
         const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get().library_id
 
         // Get max_per_day config
@@ -571,14 +811,26 @@ async function getAllFilesForRevision(getCentralDbPath) {
         // new items are on top
         const workspaceFiles = [...newItems, ...revisionItems]
 
-        allFiles.push(
-          ...workspaceFiles.map((row) => ({
+        for (const row of workspaceFiles) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            workspace.folder_path,
+            libraryId,
+            row
+          )
+          if (resolved.missing) {
+            continue
+          }
+
+          allFiles.push({
             ...row,
-            file_path: path.join(workspace.folder_path, row.relative_path),
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
-          }))
-        )
+          })
+        }
+
         db.close()
       } catch (err) {
         console.error('Error processing workspace:', err)
@@ -623,7 +875,7 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
         continue
       }
       try {
-        const db = new Database(workspace.db_path, { readonly: true })
+        const db = new Database(workspace.db_path)
         const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get().library_id
 
         // Get ALL files from all queues (no date filtering except archived)
@@ -639,14 +891,26 @@ async function getAllFilesIncludingFuture(getCentralDbPath) {
           )
           .all(libraryId)
 
-        allFiles.push(
-          ...allItems.map((row) => ({
+        for (const row of allItems) {
+          const resolved = await recoverMissingFileInSameDirectory(
+            db,
+            workspace.folder_path,
+            libraryId,
+            row
+          )
+          if (resolved.missing) {
+            continue
+          }
+
+          allFiles.push({
             ...row,
-            file_path: path.join(workspace.folder_path, row.relative_path),
+            relative_path: resolved.relativePath,
+            file_path: resolved.absolutePath,
             dbPath: workspace.db_path,
             workspacePath: workspace.folder_path,
-          }))
-        )
+          })
+        }
+
         db.close()
       } catch (err) {
         console.error('Error processing workspace:', err)
@@ -902,105 +1166,6 @@ async function updateFileRank(filePath, libraryId, newRank, getCentralDbPath) {
 }
 
 // ========================================
-// Migration Functions
-// ========================================
-
-async function migrateSpacedQueue(libraryId, getCentralDbPath) {
-  try {
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: dbInfo.error || 'Database not found' }
-    }
-    try {
-      const db = new Database(dbInfo.dbPath)
-
-      // Check if old 'spaced' queue exists
-      const oldQueue = db
-        .prepare(
-          "SELECT COUNT(*) as count FROM review_queue WHERE library_id = ? AND queue_name = 'spaced'"
-        )
-        .get(libraryId)
-
-      if (oldQueue && oldQueue.count > 0) {
-        // 1. Create new sub-queues (if not exist)
-        const insertQueue = db.prepare(
-          'INSERT OR IGNORE INTO review_queue (library_id, queue_name, description) VALUES (?, ?, ?)'
-        )
-        insertQueue.run(libraryId, 'spaced-casual', 'Spaced Repetition (Casual): ~80% retention')
-        insertQueue.run(
-          libraryId,
-          'spaced-standard',
-          'Spaced Repetition (Standard): ~90% retention'
-        )
-        insertQueue.run(libraryId, 'spaced-strict', 'Spaced Repetition (Strict): ~95% retention')
-
-        // 2. Add configurations for new queues
-        const insertConfig = db.prepare(
-          'INSERT OR IGNORE INTO queue_config (library_id, queue_name, config_key, config_value) VALUES (?, ?, ?, ?)'
-        )
-
-        // Spaced-Casual configs
-        insertConfig.run(libraryId, 'spaced-casual', 'initial_ef', '2.0')
-        insertConfig.run(libraryId, 'spaced-casual', 'min_ef', '1.2')
-        insertConfig.run(libraryId, 'spaced-casual', 'max_ef', '2.5')
-        insertConfig.run(libraryId, 'spaced-casual', 'first_interval', '1')
-        insertConfig.run(libraryId, 'spaced-casual', 'second_interval', '4')
-        insertConfig.run(libraryId, 'spaced-casual', 'fail_threshold', '2')
-
-        // Spaced-Standard configs
-        insertConfig.run(libraryId, 'spaced-standard', 'initial_ef', '2.5')
-        insertConfig.run(libraryId, 'spaced-standard', 'min_ef', '1.3')
-        insertConfig.run(libraryId, 'spaced-standard', 'max_ef', '2.5')
-        insertConfig.run(libraryId, 'spaced-standard', 'first_interval', '1')
-        insertConfig.run(libraryId, 'spaced-standard', 'second_interval', '6')
-        insertConfig.run(libraryId, 'spaced-standard', 'fail_threshold', '2')
-
-        // Spaced-Strict configs
-        insertConfig.run(libraryId, 'spaced-strict', 'initial_ef', '2.8')
-        insertConfig.run(libraryId, 'spaced-strict', 'min_ef', '1.5')
-        insertConfig.run(libraryId, 'spaced-strict', 'max_ef', '3.0')
-        insertConfig.run(libraryId, 'spaced-strict', 'first_interval', '1')
-        insertConfig.run(libraryId, 'spaced-strict', 'second_interval', '8')
-        insertConfig.run(libraryId, 'spaced-strict', 'fail_threshold', '3')
-
-        // 3. Migrate files from old 'spaced' queue to 'spaced-standard' (default)
-        const migrateResult = db
-          .prepare(
-            `UPDATE queue_membership 
-           SET queue_name = 'spaced-standard' 
-           WHERE library_id = ? AND queue_name = 'spaced'`
-          )
-          .run(libraryId)
-
-        // 4. Delete old 'spaced' queue
-        db.prepare("DELETE FROM review_queue WHERE library_id = ? AND queue_name = 'spaced'").run(
-          libraryId
-        )
-
-        // 5. Delete old 'spaced' queue configs (if any)
-        db.prepare("DELETE FROM queue_config WHERE library_id = ? AND queue_name = 'spaced'").run(
-          libraryId
-        )
-
-        db.close()
-        return {
-          success: true,
-          message: 'Migration completed successfully',
-          filesMigrated: migrateResult.changes,
-        }
-      }
-
-      db.close()
-      return { success: true, message: 'No migration needed - already using new queue structure' }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  } catch (error) {
-    return { success: false, error: error.message }
-  }
-}
-
-// ========================================
 // Queue Management Functions
 // ========================================
 
@@ -1151,79 +1316,6 @@ async function moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPat
 
       db.close()
       return { success: true, message: `File moved to ${targetQueue} queue` }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  } catch (error) {
-    return { success: false, error: error.message }
-  }
-}
-
-async function handleExtraction(parentPath, childPath, libraryId, getCentralDbPath) {
-  try {
-    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: dbInfo.error || 'Database not found' }
-    }
-    try {
-      const db = new Database(dbInfo.dbPath)
-      const parentRelPath = path.relative(dbInfo.folderPath, parentPath)
-      const childRelPath = path.relative(dbInfo.folderPath, childPath)
-
-      // Get parent file info
-      const parent = db
-        .prepare('SELECT rank FROM file WHERE library_id = ? AND relative_path = ?')
-        .get(libraryId, parentRelPath)
-
-      if (!parent) {
-        db.close()
-        return { success: false, error: 'Parent file not found' }
-      }
-
-      // Get rank penalty from config
-      const config = db
-        .prepare(
-          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'global' AND config_key = 'rank_penalty'"
-        )
-        .get(libraryId)
-      const rankPenalty = config ? parseInt(config.config_value) : 5
-
-      // Update parent: increase rank (lower priority) and increment extraction count
-      db.prepare(
-        `UPDATE file 
-         SET rank = rank + ?, extraction_count = extraction_count + 1
-         WHERE library_id = ? AND relative_path = ?`
-      ).run(rankPenalty, libraryId, parentRelPath)
-
-      // Get default interval for intermediate queue
-      const defaultIntervalConfig = db
-        .prepare(
-          "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'intermediate' AND config_key = 'default_base'"
-        )
-        .get(libraryId)
-      const defaultInterval = defaultIntervalConfig
-        ? parseInt(defaultIntervalConfig.config_value)
-        : 7
-
-      // Create child file entry (inherit parent rank, set default intermediate interval)
-      db.prepare(
-        `INSERT INTO file (library_id, relative_path, added_time, rank, due_time, intermediate_interval)
-         VALUES (?, ?, datetime('now'), ?, datetime('now'), ?)`
-      ).run(libraryId, childRelPath, parent.rank, defaultInterval)
-
-      // Add child to intermediate queue
-      db.prepare(
-        `INSERT INTO queue_membership (library_id, queue_name, relative_path)
-         VALUES (?, 'intermediate', ?)`
-      ).run(libraryId, childRelPath)
-
-      db.close()
-      return {
-        success: true,
-        message: 'Extraction recorded',
-        childQueue: 'intermediate',
-        parentRankPenalty: rankPenalty,
-      }
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -1484,11 +1576,6 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
     updateRotationInterval(filePath, libraryId, newInterval, getCentralDbPath)
   )
 
-  // Migration
-  ipcMain.handle('migrate-spaced-queue', (_event, libraryId) =>
-    migrateSpacedQueue(libraryId, getCentralDbPath)
-  )
-
   // Queue management
   ipcMain.handle('get-queue-config', (_event, libraryId, queueName, configKey) =>
     getQueueConfig(libraryId, queueName, configKey, getCentralDbPath)
@@ -1501,9 +1588,6 @@ export function registerSpacedIpc(ipcMain, getCentralDbPath) {
   )
   ipcMain.handle('move-file-to-queue', (_event, filePath, libraryId, targetQueue) =>
     moveFileToQueue(filePath, libraryId, targetQueue, getCentralDbPath)
-  )
-  ipcMain.handle('handle-extraction', (_event, parentPath, childPath, libraryId) =>
-    handleExtraction(parentPath, childPath, libraryId, getCentralDbPath)
   )
 
   // Queue-specific feedback
@@ -1535,12 +1619,10 @@ export {
   handleSpacedFeedback,
   forgetFile,
   updateFileRank,
-  migrateSpacedQueue,
   getQueueConfig,
   setQueueConfig,
   getFileQueue,
   moveFileToQueue,
-  handleExtraction,
   handleNewQueueFeedback,
   handleProcessingFeedback,
   handleIntermediateFeedback,

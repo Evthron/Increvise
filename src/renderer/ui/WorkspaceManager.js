@@ -368,6 +368,8 @@ export class WorkspaceManager extends LitElement {
       const folderPath = await window.fileManager.selectFolder()
       if (folderPath) {
         this._handleSingleWorkspaceClick(folderPath)
+        // Optimistically reload workspaces list after opening new folder
+        await this.loadRecentWorkspaces()
       }
     } catch (error) {
       console.error('Error selecting folder:', error)

@@ -46,7 +46,7 @@ async function recordWorkspace(folderPath, getCentralDbPath) {
   }
 }
 
-async function getRecentWorkspaces(limit = 10, getCentralDbPath) {
+async function getRecentWorkspaces(limit = 20, getCentralDbPath) {
   const centralDbPath = getCentralDbPath()
   try {
     const db = new Database(centralDbPath)
@@ -104,7 +104,7 @@ export function registerWorkspaceIpc(ipcMain, getCentralDbPath) {
     recordWorkspace(folderPath, getCentralDbPath)
   )
 
-  ipcMain.handle('get-recent-workspaces', async (event, limit = 10) =>
+  ipcMain.handle('get-recent-workspaces', async (event, limit = 20) =>
     getRecentWorkspaces(limit, getCentralDbPath)
   )
 

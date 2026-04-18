@@ -54,7 +54,8 @@ export class FileTree extends LitElement {
   _renderTreeItem(item) {
     const hasChildren = item.children && item.children.length > 0
     const isLazyDirectory =
-      item.type === 'directory' && (!item.children || item.children.length === 0)
+      (item.type === 'directory' || item.type === 'workspace') &&
+      (!item.children || item.children.length === 0)
 
     return html`
       <sl-tree-item ?lazy=${isLazyDirectory} .__itemData=${item}>
@@ -68,6 +69,8 @@ export class FileTree extends LitElement {
   _renderIcon(item) {
     if (item.type === 'directory') {
       return html`<sl-icon name="folder-fill" style="color: #FFC107"></sl-icon>`
+    } else if (item.type === 'workspace') {
+      return html`<sl-icon name="database-fill" style="color: #4CAF50"></sl-icon>`
     } else if (!item.inQueue) {
       return html`<sl-icon-button
         name="plus-square-fill"
@@ -113,7 +116,7 @@ export class FileTree extends LitElement {
     if (!item) return
 
     // Only open files, not directories
-    if (item.type !== 'directory') {
+    if (item.type !== 'directory' && item.type !== 'workspace') {
       this.selectedPath = item.path
 
       // Set the file's library ID before opening

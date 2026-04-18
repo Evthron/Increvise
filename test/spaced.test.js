@@ -16,7 +16,6 @@ import {
   getFilesForRevision,
   getAllFilesForRevision,
   moveFileToQueue,
-  migrateSpacedQueue,
 } from '../src/main/ipc/spaced.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -454,21 +453,6 @@ async function test12_QueueConfigurations() {
   })
 
   db.close()
-}
-
-// ========================================
-// Test 13: Test migration from old spaced queue
-// ========================================
-async function test13_MigrateOldQueue() {
-  printSeparator('Test 13: Migration Test')
-
-  const libraryId = getLibraryId(TEST_DB_PATH)
-
-  // This should report "no migration needed" since we're using new structure
-  const result = await migrateSpacedQueue(libraryId, getCentralDbPath)
-
-  console.log(`  Migration result: ${result.message}`)
-  console.log('  ✓ Migration function works correctly')
 }
 
 // ========================================

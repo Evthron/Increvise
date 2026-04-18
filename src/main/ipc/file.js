@@ -278,16 +278,37 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
       // Regular directory
       else {
         if (registeredWorkspacePaths.has(fullPath)) {
-          continue
+          // get the library_id for this workspace from the central database
+          let subLbibraryId = null
+          let db
+          try {
+            const db = new Database(getCentralDbPath(), { readonly: true })
+            const row = db
+              .prepare('SELECT library_id FROM workspace_history WHERE folder_path = ?')
+              .get(fullPath)
+            subLbibraryId = row ? row.library_id : null
+            db.close()
+          } catch (error) {
+            console.error('Failed to get library_id for workspace from central database:', error)
+            db.close()
+            continue
+          }
+          tree.push({
+            name: item.name,
+            type: 'workspace',
+            path: fullPath,
+            children: null,
+            library_id: subLbibraryId,
+          })
+        } else {
+          tree.push({
+            name: item.name,
+            type: 'directory',
+            path: fullPath,
+            children: null,
+            library_id: libraryId,
+          })
         }
-
-        tree.push({
-          name: item.name,
-          type: 'directory',
-          path: fullPath,
-          children: null,
-          library_id: libraryId,
-        })
       }
     }
   }

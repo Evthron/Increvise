@@ -71,15 +71,18 @@ export async function migrate(db, dbPath, targetVersion = null) {
 
   console.log(`[workspace] Applying ${pendingMigrations.length} migration(s)...`)
 
-  // Create backup before applying migrations
-  try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
-    const backupPath = `${dbPath}.backup-v${currentVersion}-${timestamp}`
-    fs.copyFileSync(dbPath, backupPath)
-    console.log(`[workspace] Backup created: ${backupPath}`)
-  } catch (err) {
-    console.error('[workspace] Failed to create backup:', err.message)
-    throw new Error('Backup failed - aborting migration for safety')
+  // No need to backup for fresh start
+  if (currentVersion !== 0) {
+    // Create backup before applying migrations
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+      const backupPath = `${dbPath}.backup-v${currentVersion}-${timestamp}`
+      fs.copyFileSync(dbPath, backupPath)
+      console.log(`[workspace] Backup created: ${backupPath}`)
+    } catch (err) {
+      console.error('[workspace] Failed to create backup:', err.message)
+      throw new Error('Backup failed - aborting migration for safety')
+    }
   }
 
   try {

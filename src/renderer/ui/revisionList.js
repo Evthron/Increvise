@@ -490,7 +490,6 @@ export class RevisionViewToggleBar extends LitElement {
     return html`
       <div class="view-toggle-bar">
         <div>
-          <span class="view-toggle-label">Show:</span>
           <button
             class="view-toggle-btn ${!this.showAllFiles ? 'active' : ''}"
             @click=${() => this.handleViewToggle(false)}

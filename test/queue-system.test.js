@@ -13,7 +13,6 @@ import {
   addFileToQueue,
   getFileQueue,
   moveFileToQueue,
-  handleExtraction,
   handleNewQueueFeedback,
   handleProcessingFeedback,
   handleIntermediateFeedback,
@@ -198,56 +197,6 @@ async function test4_ProcessingFeedback() {
     .get(libraryId, 'test-document.md')
   console.log(`  ✓ Due time after 'again': ${file.due_time}`)
   db.close()
-}
-
-// ========================================
-// Test 5: Extract and create child note
-// ========================================
-async function test5_Extraction() {
-  printSeparator('Test 5: Extract and Create Child Note')
-
-  const libraryId = getLibraryId(TEST_DB_PATH)
-  const parentPath = path.join(TEST_WORKSPACE, 'test-document.md')
-  const childPath = path.join(TEST_WORKSPACE, 'test-document', 'extract-1.md')
-
-  const db = new Database(TEST_DB_PATH, { readonly: true })
-  const parentBefore = db
-    .prepare('SELECT rank, extraction_count FROM file WHERE library_id = ? AND relative_path = ?')
-    .get(libraryId, 'test-document.md')
-  console.log(`Parent before extraction:`)
-  console.log(`  - rank: ${parentBefore.rank}`)
-  console.log(`  - extraction_count: ${parentBefore.extraction_count}`)
-  db.close()
-
-  const result = await handleExtraction(parentPath, childPath, libraryId, getCentralDbPath)
-  console.log(`\nExtraction result: ${result.success ? 'success' : 'failed'}`)
-
-  if (result.success) {
-    console.log(`✓ Child queue: ${result.childQueue}`)
-    console.log(`✓ Parent rank penalty: ${result.parentRankPenalty}`)
-
-    const db2 = new Database(TEST_DB_PATH, { readonly: true })
-    const parentAfter = db2
-      .prepare('SELECT rank, extraction_count FROM file WHERE library_id = ? AND relative_path = ?')
-      .get(libraryId, 'test-document.md')
-    console.log(`\nParent after extraction:`)
-    console.log(
-      `  - rank: ${parentAfter.rank} (increased by ${parentAfter.rank - parentBefore.rank})`
-    )
-    console.log(`  - extraction_count: ${parentAfter.extraction_count}`)
-
-    const child = db2
-      .prepare('SELECT rank FROM file WHERE library_id = ? AND relative_path = ?')
-      .get(libraryId, path.relative(TEST_WORKSPACE, childPath))
-    console.log(`\nChild note:`)
-    console.log(`  - rank: ${child.rank} (inherited from parent)`)
-
-    const childQueue = db2
-      .prepare('SELECT queue_name FROM queue_membership WHERE library_id = ? AND relative_path = ?')
-      .get(libraryId, path.relative(TEST_WORKSPACE, childPath))
-    console.log(`  ✓ Child in queue: ${childQueue.queue_name}`)
-    db2.close()
-  }
 }
 
 // ========================================

@@ -61,6 +61,11 @@ export class FileManager extends LitElement {
       await this._openSingleWorkspace(folderPath)
     }
 
+    const workspaceManager = document.querySelector('workspace-manager')
+    if (workspaceManager) {
+      await workspaceManager.loadRecentWorkspaces()
+    }
+
     // Add event listener for tree refresh
     this.addEventListener('tree-refresh-needed', this._handleTreeRefresh)
 
