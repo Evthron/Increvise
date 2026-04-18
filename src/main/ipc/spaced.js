@@ -49,72 +49,87 @@ async function syncExtrcationFolderName(
   newRelativePath
 ) {
   try {
-    const extractedNotes = db
-      .prepare(
-        `SELECT relative_path, parent_path
-         FROM note_source
-         WHERE library_id = ? AND parent_path = ?`
-      )
-      .all(libraryId, newRelativePath)
+    const oldExtractedDirName = path.basename(oldRelativePath, path.extname(oldRelativePath))
+    const newExtractedDirName = path.basename(newRelativePath, path.extname(newRelativePath))
 
-    if (extractedNotes.length === 0) {
+    const parentDir = path.dirname(oldRelativePath)
+    const parentNoteFolder = path.join(workspaceRootPath, parentDir)
+
+    let oldExtractedFolderPath = null
+    let newExtractedFolderPath = null
+
+    try {
+      const parentDirEntries = await fs.readdir(parentNoteFolder, { withFileTypes: true })
+      for (const entry of parentDirEntries) {
+        if (entry.isDirectory() && entry.name.includes(oldExtractedDirName)) {
+          oldExtractedFolderPath = path.join(parentNoteFolder, entry.name)
+          newExtractedFolderPath = path.join(parentNoteFolder, newExtractedDirName)
+          break
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[syncExtrcationFolderName] Failed to read directory ${parentNoteFolder}: ${error.message}`
+      )
       return
     }
 
-    for (const note of extractedNotes) {
-      const noteAbsolutePath = path.join(workspaceRootPath, note.relative_path)
-      const oldNoteFolder = path.dirname(noteAbsolutePath)
-      const parentNoteFolder = path.dirname(oldNoteFolder)
+    if (!oldExtractedFolderPath) {
+      return
+    }
 
-      // Find the extracted folder that corresponds to the old file
-      const oldExtractedDirName = path.basename(oldRelativePath, path.extname(oldRelativePath))
+    const oldPathPrefix = path.relative(workspaceRootPath, oldExtractedFolderPath)
+    const newPathPrefix = path.relative(workspaceRootPath, newExtractedFolderPath)
 
-      // Check if there's an extracted folder for this file
-      try {
-        const parentDirEntries = await fs.readdir(parentNoteFolder, { withFileTypes: true })
-        for (const entry of parentDirEntries) {
-          if (entry.isDirectory() && entry.name.includes(oldExtractedDirName)) {
-            const newExtractedDirName = path.basename(
-              newRelativePath,
-              path.extname(newRelativePath)
-            )
-            const newExtractedFolderPath = path.join(parentNoteFolder, newExtractedDirName)
+    const oldPathPrefixWithSep = `${oldPathPrefix}${path.sep}`
 
-            try {
-              await fs.rename(oldNoteFolder, newExtractedFolderPath)
+    const filesToUpdate = db
+      .prepare(
+        `SELECT relative_path FROM file WHERE library_id = ? AND (relative_path = ? OR relative_path LIKE ?)`
+      )
+      .all(libraryId, oldPathPrefix, `${oldPathPrefixWithSep}%`)
 
-              const newPathPrefix = path.relative(workspaceRootPath, newExtractedFolderPath)
+    const noteSourcesToUpdate = db
+      .prepare(
+        `SELECT relative_path, parent_path FROM note_source WHERE library_id = ? AND (parent_path = ? OR parent_path LIKE ?)`
+      )
+      .all(libraryId, oldPathPrefix, `${oldPathPrefixWithSep}%`)
 
-              const absoluteNotePath = path.join(workspaceRootPath, note.relative_path)
-              const suffix = path.relative(oldNoteFolder, absoluteNotePath)
-              const newNoteRelativePath = path.join(newPathPrefix, suffix)
+    if (filesToUpdate.length === 0 && noteSourcesToUpdate.length === 0) {
+      return
+    }
 
-              // First update file table - this will trigger ON UPDATE CASCADE on note_source.relative_path
-              db.prepare(
-                `UPDATE file
-                 SET relative_path = ?
-                 WHERE library_id = ? AND relative_path = ?`
-              ).run(newNoteRelativePath, libraryId, note.relative_path)
+    try {
+      await fs.rename(oldExtractedFolderPath, newExtractedFolderPath)
+      console.log(
+        `[syncExtrcationFolderName] Renamed folder: ${oldExtractedFolderPath} → ${newExtractedFolderPath}`
+      )
+    } catch (renameErr) {
+      console.warn(`[syncExtrcationFolderName] Failed to rename folder: ${renameErr.message}`)
+      return
+    }
 
-              console.log(
-                `[syncExtrcationFolderName] Updated file and note_source relative_path: ${note.relative_path} → ${newNoteRelativePath}`
-              )
-            } catch (renameErr) {
-              console.warn(
-                `[syncExtrcationFolderName] Failed to rename folder or update database: ${renameErr.message}`
-              )
-            }
-            console.log(
-              `Renamed extracted folder from ${oldNoteFolder} to ${newExtractedFolderPath}`
-            )
-            return
-          }
-        }
-      } catch (error) {
-        console.warn(
-          `[syncExtrcationFolderName] Error: Failed to read directory ${oldNoteFolder}: ${error.message}`
-        )
-      }
+    const updateStmt = db.prepare(
+      `UPDATE file SET relative_path = ? WHERE library_id = ? AND relative_path = ?`
+    )
+    const updateNoteSourceStmt = db.prepare(
+      `UPDATE note_source SET parent_path = ? WHERE library_id = ? AND parent_path = ?`
+    )
+
+    for (const row of filesToUpdate) {
+      const newFileRelativePath = row.relative_path.replace(oldPathPrefix, newPathPrefix)
+      updateStmt.run(newFileRelativePath, libraryId, row.relative_path)
+      console.log(
+        `[syncExtrcationFolderName] Updated file relative_path: ${row.relative_path} → ${newFileRelativePath}`
+      )
+    }
+
+    for (const row of noteSourcesToUpdate) {
+      const newParentPath = row.parent_path.replace(oldPathPrefix, newPathPrefix)
+      updateNoteSourceStmt.run(newParentPath, libraryId, row.parent_path)
+      console.log(
+        `[syncExtrcationFolderName] Updated note_source parent_path: ${row.parent_path} → ${newParentPath}`
+      )
     }
   } catch (error) {
     console.warn(`[syncExtrcationFolderName] ${String(error)}`)
