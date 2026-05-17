@@ -139,7 +139,8 @@ async function syncExtrcationFolderName(
 async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryId, row) {
   const missingRelativePath = row.relative_path
   const missingAbsolutePath = path.join(workspaceRootPath, missingRelativePath)
-
+  const missingFileExt = path.extname(missingRelativePath)
+  
   try {
     await fs.access(missingAbsolutePath)
     return {
@@ -161,7 +162,9 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
     return { recovered: false, missing: true }
   }
 
-  const fileCandidates = entries.filter((entry) => entry.isFile())
+  const fileCandidates = entries
+    .filter((entry) => entry.isFile())
+    .filter((entry) => path.extname(entry.name) === missingFileExt)
 
   if (fileCandidates.length === 0) {
     return { recovered: false, missing: true }
