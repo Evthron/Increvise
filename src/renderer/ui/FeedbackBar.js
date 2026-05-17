@@ -17,13 +17,14 @@ export class FeedbackFileHeader extends LitElement {
   static styles = css`
     .current-file-header {
       display: flex;
-      flex-direction: column;
       gap: 8px;
     }
     .current-file-title {
+      display: flex;
       font-weight: 600;
       font-size: 14px;
       color: var(--text-primary);
+      align-items: center;
     }
     .current-file-meta {
       display: flex;

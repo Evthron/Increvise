@@ -77,6 +77,12 @@ class PdfToolbar extends LitElement {
       cursor: not-allowed;
     }
 
+    .toolbar {
+      display: flex;
+      flex: 1;
+      justify-content: space-between;
+    }
+
     .page-info {
       color: #e0e0e0;
       font-size: 0.875rem;
@@ -98,7 +104,6 @@ class PdfToolbar extends LitElement {
     .selection-mode {
       display: flex;
       gap: 1rem;
-      margin-left: auto;
     }
 
     .selection-mode label {
@@ -108,6 +113,15 @@ class PdfToolbar extends LitElement {
       color: #e0e0e0;
       font-size: 0.875rem;
       cursor: pointer;
+    }
+
+    .selection-mode span {
+      display: flex;
+      color: #e0e0e0;
+      align-items: center;
+      font-size: 0.875rem;
+      min-width: 3rem;
+      text-align: center;
     }
 
     .selected-pages-info {
@@ -158,71 +172,81 @@ class PdfToolbar extends LitElement {
     const maxPage = this.restrictedRange ? this.restrictedRange.end : this.totalPages
 
     return html`
-      <button @click=${this.handlePrevPage} ?disabled=${this.currentPage === minPage}>
-        ← Prev
-      </button>
-      <span class="page-info">
-        ${this.restrictedRange
-          ? `Page ${this.currentPage} / ${this.restrictedRange.end} (of ${this.totalPages} total)`
-          : `Page ${this.currentPage} / ${this.totalPages}`}
-      </span>
-      <button @click=${this.handleNextPage} ?disabled=${this.currentPage === maxPage}>
-        Next →
-      </button>
+      <div class="toolbar">
+        <div class="zoom-controls">
+          <button @click=${this.handleZoomOut} ?disabled=${this.scale <= 0.5}>
+            <sl-icon name="zoom-out"></sl-icon>
+          </button>
+          <span>${Math.round(this.scale * 100)}%</span>
+          <button @click=${this.handleZoomIn} ?disabled=${this.scale >= 3.0}>
+            <sl-icon name="zoom-in"></sl-icon>
+          </button>
+        </div>
 
-      <div class="zoom-controls">
-        <button @click=${this.handleZoomOut} ?disabled=${this.scale <= 0.5}>-</button>
-        <span>${Math.round(this.scale * 100)}%</span>
-        <button @click=${this.handleZoomIn} ?disabled=${this.scale >= 3.0}>+</button>
-      </div>
+        <div>
+          <button @click=${this.handlePrevPage} ?disabled=${this.currentPage === minPage}>
+            <sl-icon name="chevron-up"></sl-icon>
+          </button>
+          <span class="page-info">
+            ${this.restrictedRange
+              ? `${this.currentPage} / ${this.restrictedRange.end} (of ${this.totalPages} total)`
+              : `${this.currentPage} / ${this.totalPages}`}
+          </span>
+          <button @click=${this.handleNextPage} ?disabled=${this.currentPage === maxPage}>
+            <sl-icon name="chevron-down"></sl-icon>
+          </button>
+        </div>
 
-      <div class="selection-mode">
-        <label>
-          <input
-            type="radio"
-            name="mode"
-            value="text"
-            @change=${this.handleSelectionModeChange}
-            ?checked=${this.selectionMode === 'text'}
-          />
-          Text Selection
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="mode"
-            value="page"
-            @change=${this.handleSelectionModeChange}
-            ?checked=${this.selectionMode === 'page'}
-          />
-          Page Selection
-        </label>
-        ${this.selectionMode === 'text'
-          ? html`
-              ${this.selectedLineRange
-                ? html`
-                    <span class="selected-pages-info">
-                      Selected: Lines ${this.selectedLineRange.start}-${this.selectedLineRange.end}
-                    </span>
-                    <button @click=${this.handleClearLineSelection}>Clear</button>
-                  `
-                : ''}
-            `
-          : ''}
-        ${this.selectionMode === 'page'
-          ? html`
-              <button @click=${this.handleOpenRangeDialog}>Select Range</button>
-              ${this.selectedPages.length > 0
-                ? html`
-                    <span class="selected-pages-info">
-                      Selected: ${this.selectedPages.length} page(s)
-                      (${Math.min(...this.selectedPages)}-${Math.max(...this.selectedPages)})
-                    </span>
-                    <button @click=${this.handleClearSelection}>Clear</button>
-                  `
-                : ''}
-            `
-          : ''}
+        <div class="selection-mode">
+          <span> Select: </span>
+          <label>
+            <input
+              type="radio"
+              name="mode"
+              value="text"
+              @change=${this.handleSelectionModeChange}
+              ?checked=${this.selectionMode === 'text'}
+            />
+            Text
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="mode"
+              value="page"
+              @change=${this.handleSelectionModeChange}
+              ?checked=${this.selectionMode === 'page'}
+            />
+            Page
+          </label>
+          ${this.selectionMode === 'text'
+            ? html`
+                ${this.selectedLineRange
+                  ? html`
+                      <span class="selected-pages-info">
+                        Selected: Lines
+                        ${this.selectedLineRange.start}-${this.selectedLineRange.end}
+                      </span>
+                      <button @click=${this.handleClearLineSelection}>Clear</button>
+                    `
+                  : ''}
+              `
+            : ''}
+          ${this.selectionMode === 'page'
+            ? html`
+                <button @click=${this.handleOpenRangeDialog}>Select Range</button>
+                ${this.selectedPages.length > 0
+                  ? html`
+                      <span class="selected-pages-info">
+                        Selected: ${this.selectedPages.length} page(s)
+                        (${Math.min(...this.selectedPages)}-${Math.max(...this.selectedPages)})
+                      </span>
+                      <button @click=${this.handleClearSelection}>Clear</button>
+                    `
+                  : ''}
+              `
+            : ''}
+        </div>
       </div>
     `
   }
