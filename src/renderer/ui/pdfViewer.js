@@ -1319,7 +1319,7 @@ export class PdfViewer extends LitElement {
     }
 
     return {
-      text: textParts.join(''),
+      text: textParts.join(' '),
       pageNum: this.currentPage,
       lineStart: this.selectedLineRange.start,
       lineEnd: this.selectedLineRange.end,
