@@ -387,6 +387,7 @@ export class CodeMirrorViewer extends LitElement {
     #editor-container {
       width: 100%;
       height: 100%;
+      font-size: 1.2rem;
     }
   `
 
