@@ -251,7 +251,6 @@ class PdfCanvas extends LitElement {
       display: flex;
       justify-content: center;
       align-items: flex-start;
-      padding: 2rem;
     }
 
     .pdf-page-container {
@@ -259,7 +258,6 @@ class PdfCanvas extends LitElement {
       position: relative;
       background: white;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      margin-bottom: 1rem;
       /* CSS variables required by PDF.js for proper scaling */
       --scale-factor: 1;
       --user-unit: 1;
