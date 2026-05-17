@@ -24,7 +24,6 @@ export class FeedbackFileHeader extends LitElement {
       font-weight: 600;
       font-size: 14px;
       color: var(--text-primary);
-      align-items: center;
     }
     .current-file-meta {
       display: flex;
@@ -47,8 +46,8 @@ export class FeedbackFileHeader extends LitElement {
   render() {
     return html`
       <div class="current-file-header">
-        <div class="current-file-title">${this.fileName}</div>
         <div class="current-file-meta">
+          <div class="current-file-title">${this.fileName}</div>
           <span class="file-meta-item">
             <span class="meta-icon">📁</span>
             <span>${this.workspaceName}</span>
