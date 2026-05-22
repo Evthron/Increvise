@@ -12,6 +12,7 @@ export class FileTree extends LitElement {
     treeData: { type: Array },
     disabled: { type: Boolean },
     selectedPath: { type: String, state: true },
+    search: { type: String, state: true },
   }
 
   static styles = css`
@@ -23,6 +24,12 @@ export class FileTree extends LitElement {
     sl-icon-button::part(base) {
       padding-left: 0;
     }
+
+    .search-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
   `
 
   constructor() {
@@ -30,6 +37,7 @@ export class FileTree extends LitElement {
     this.treeData = []
     this.disabled = false
     this.selectedPath = null
+    this.search = ''
   }
 
   render() {
@@ -40,10 +48,19 @@ export class FileTree extends LitElement {
     }
 
     return html`
+      <sl-input @sl-input=${this._handleSearch} class="search-bar" size="small">
+        <sl-icon name="search" slot="prefix"></sl-icon>
+      </sl-input>
       <sl-tree @sl-selection-change=${this._handleItemClick} @sl-lazy-load=${this._handleLazyLoad}>
-        ${this.treeData.map((item) => this._renderTreeItem(item))}
+        ${this.treeData
+          .filter((item) => item.name.toLowerCase().includes(this.search))
+          .map((item) => this._renderTreeItem(item))}
       </sl-tree>
     `
+  }
+
+  _handleSearch(e) {
+    this.search = e.target.value.toLowerCase()
   }
 
   _handleSelect(e) {
