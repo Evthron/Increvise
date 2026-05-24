@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('fileManager', {
     ipcRenderer.invoke('replace-child-range-with-child-content', parentPath, childPath, libraryId),
   getNoteExtractInfo: (notePath, libraryId) =>
     ipcRenderer.invoke('get-note-extract-info', notePath, libraryId),
+  findTopLevelParent: (relativePath, libraryId) =>
+    ipcRenderer.invoke('find-top-level-parent', relativePath, libraryId),
 
   // 3b. PDF Extraction
   extractPdfPages: (pdfPath, startPage, endPage, libraryId) =>

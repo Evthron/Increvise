@@ -538,8 +538,11 @@ export class EditorPanel extends LitElement {
     console.log('Opening PDF extract file:', filePath)
     console.log('Extract info:', extractInfo)
 
+    const sourcePdfPath = await window.fileManager.findTopLevelParent(
+      filePath,
+      window.currentFile.libraryId
+    )
     const { parentPath, rangeStart, rangeEnd } = extractInfo
-    const sourcePdfPath = parentPath
 
     let pageStart = null
     let pageEnd = null
@@ -1131,12 +1134,7 @@ export class EditorPanel extends LitElement {
    * PDF Extract Page button handler
    */
   async _handleExtractPage() {
-    const pdfPath = this.pdfViewer.getCurrentPdfPath()
-
-    if (!pdfPath || !pdfPath.endsWith('.pdf')) {
-      this._showToast('Please open a PDF file first', true)
-      return
-    }
+    const parentPath = this.currentFilePath
 
     const selectedPages = this.pdfViewer.getSelectedPages()
     if (!selectedPages || selectedPages.length === 0) {
@@ -1155,7 +1153,7 @@ export class EditorPanel extends LitElement {
 
     try {
       const result = await window.fileManager.extractPdfPages(
-        pdfPath,
+        parentPath,
         startPage,
         endPage,
         window.currentFile.libraryId

@@ -378,6 +378,41 @@ function findTopLevelNoteFolder(fileRelativePath, db, libraryId) {
   return path.basename(topLevelFilePath, path.extname(topLevelFilePath))
 }
 
+// The parent of PDF are no longer directly the PDF itself, can be folder inside folder
+// Need to go through the note_source toble to find the actucl PDF file
+async function findTopLevelParent(fileAbsoletePath, libraryId, getCentralDbPath) {
+  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+  const db = new Database(dbInfo.dbPath)
+  const fileRelativePath = path.relative(dbInfo.folderPath, fileAbsoletePath)
+  const result = db
+    .prepare(
+      `
+      WITH RECURSIVE lineage(relative_path, parent_path, depth) AS (
+        SELECT relative_path, parent_path, 0
+        FROM note_source
+        WHERE library_id = ? AND relative_path = ?
+
+        UNION ALL
+
+        SELECT ns.relative_path, ns.parent_path, lineage.depth + 1
+        FROM note_source ns
+        JOIN lineage ON ns.library_id = ? AND ns.relative_path = lineage.parent_path
+        WHERE lineage.parent_path IS NOT NULL AND lineage.depth < 100
+      )
+      SELECT parent_path AS top_level_parent_path
+      FROM lineage
+      WHERE parent_path IS NOT NULL
+      ORDER BY depth DESC
+      LIMIT 1
+    `
+    )
+    .get(libraryId, fileRelativePath, libraryId)
+
+  // concat with root path to get absolute path
+  const relative = result?.top_level_parent_path
+  return path.join(dbInfo.folderPath, relative)
+}
+
 /**
  * Find content in parent note by hash
  * @param {string} parentContent - Parent note content
@@ -620,6 +655,7 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
     const parentExt = path.extname(parentPath).toLowerCase()
     const isMarkdown = parentExt === '.md'
     const isHTML = parentExt === '.html' || parentExt === '.htm'
+    const isPDF = parentExt === '.pdf'
 
     // Auto-validate and recover all direct children before retrieving ranges
     // This ensures that ranges are up-to-date if parent file was modified externally
@@ -762,6 +798,33 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
             child.fileExists = false
           }
         }
+      }
+
+      if (isPDF) {
+        const ranges = []
+
+        for (const child of children) {
+          const childPath = path.join(dbInfo.folderPath, child.relative_path)
+          let fileExists = true
+
+          try {
+            await fs.access(childPath)
+          } catch {
+            fileExists = false
+          }
+
+          ranges.push({
+            path: child.relative_path,
+            extract_type: child.extract_type,
+            start: parseInt(child.range_start),
+            end: parseInt(child.range_end),
+            fileExists,
+          })
+        }
+
+        db.close()
+
+        return ranges
       }
 
       // Create a Map for O(1) lookup of children by relative_path
@@ -1588,14 +1651,14 @@ async function extractHTML(
 
 /**
  * Extract PDF pages as metadata file
- * @param {string} pdfPath - Path to PDF file
+ * @param {string} parentPath - Path to parent file
  * @param {number} startPage - Start page number (1-indexed)
  * @param {number} endPage - End page number (1-indexed)
  * @param {string} libraryId - Library ID
  * @param {Function} getCentralDbPath - Function to get central DB path
  * @returns {Promise<Object>} - Result object
  */
-async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentralDbPath) {
+async function extractPdfPages(parentPath, startPage, endPage, libraryId, getCentralDbPath) {
   const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
   if (!dbInfo.found) {
     return { success: false, error: 'Database not found' }
@@ -1606,7 +1669,7 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
 
   try {
     // Create PDF container folder
-    const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
+    const containerFolder = path.join(path.dirname(parentPath), path.basename(parentPath, '.pdf'))
 
     try {
       await fs.mkdir(containerFolder, { recursive: true })
@@ -1618,13 +1681,19 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
       }
     }
 
-    const metadataFilePath = path.join(containerFolder, `${startPage}-${endPage}-pages.md`)
-    const relativePath = path.relative(rootPath, metadataFilePath)
-    const parentRelativePath = path.relative(rootPath, pdfPath)
+    const extractionFolderPath = path.join(containerFolder, `p${startPage}-${endPage}/`)
+    const relativePath = path.relative(rootPath, extractionFolderPath)
+    const parentRelativePath = path.relative(rootPath, parentPath)
 
-    // Create metadata file (overwrite if exists)
-    const metadataContent = '## Notes'
-    await fs.writeFile(metadataFilePath, metadataContent, 'utf-8')
+    try {
+      await fs.mkdir(extractionFolderPath, { recursive: true })
+    } catch (e) {
+      console.error('mkdir error', e)
+      return {
+        success: false,
+        error: `Falied to create extraction folder: ${e.message}`,
+      }
+    }
 
     // Insert or update records
     const initialDays = getRandomInitialDays()
@@ -1719,7 +1788,7 @@ async function extractPdfPages(pdfPath, startPage, endPage, libraryId, getCentra
 
     return {
       success: true,
-      filePath: metadataFilePath,
+      filePath: extractionFolderPath,
       fileName: `${startPage}-${endPage}-pages.md`,
     }
   } finally {
@@ -2385,6 +2454,10 @@ export function registerIncrementalIpc(ipcMain, getCentralDbPath) {
         libraryId,
         getCentralDbPath
       )
+  )
+
+  ipcMain.handle('find-top-level-parent', async (event, relativePath, libraryId) =>
+    findTopLevelParent(relativePath, libraryId, getCentralDbPath)
   )
 
   ipcMain.handle(

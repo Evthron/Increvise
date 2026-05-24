@@ -77,7 +77,6 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
 
     // Get all files with hierarchical naming structure (regardless of extension)
     const noteFiles = items
-      .filter((item) => item.isFile())
       .map((item) => {
         const layers = parseHierarchicalNote(item.name)
         return {
@@ -212,7 +211,6 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
   // Filter out compressed files (they should not be treated as parent files)
   const compressedExtensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
   items
-    .filter((item) => item.isFile())
     .filter((item) => {
       const ext = path.extname(item.name).toLowerCase()
       return !compressedExtensions.includes(ext)
