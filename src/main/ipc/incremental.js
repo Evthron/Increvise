@@ -533,7 +533,44 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
             ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
           }
         } else {
-          console.warn(`Failed to recover position for child note: ${childRelativePath}`)
+          const childPath = path.join(dbInfo.folderPath, childRelativePath)
+          const fingerprint = await computeFingerprintForPath(childPath, true)
+          db.prepare(
+            `
+            UPDATE note_source
+            SET source_hash = ?,
+                source_embedding = ?,
+                embedding_model = ?,
+                embedding_dim = ?
+            WHERE library_id = ? AND relative_path = ?
+          `
+          ).run(
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim,
+            libraryId,
+            childRelativePath
+          )
+          const childContent = await fs.readFile(childPath, 'utf-8')
+          const actualLineCount = childContent.split('\n').length
+          const targetEmbedding = deserializeEmbedding(fingerprint.contentEmbedding)
+          newRange = await findContentByEmbeddingAndLineCount(
+            parentContent,
+            targetEmbedding,
+            actualLineCount
+          )
+          if (newRange) {
+            db.prepare(
+              `
+                UPDATE note_source
+                SET range_start = ?, range_end = ?
+                WHERE library_id = ? AND relative_path = ?
+              `
+            ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
+          } else {
+            console.warn(`Failed to recover position for child note: ${childRelativePath}`)
+          }
         }
       }
     }
