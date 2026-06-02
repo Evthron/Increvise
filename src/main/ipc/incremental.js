@@ -19,9 +19,7 @@ let embeddingPipelinePromise = null
 async function getEmbeddingPipeline() {
   if (!embeddingPipelinePromise) {
     env.allowRemoteModels = true
-    embeddingPipelinePromise = pipeline('feature-extraction', DEFAULT_EMBEDDING_MODEL, {
-      quantized: true,
-    })
+    embeddingPipelinePromise = pipeline('feature-extraction', DEFAULT_EMBEDDING_MODEL)
   }
 
   return embeddingPipelinePromise
@@ -73,12 +71,8 @@ function cosineSimilarity(vecA, vecB) {
   return dotProduct / denominator
 }
 
-function hashBuffer(buffer) {
-  return crypto.createHash('sha256').update(buffer).digest('hex')
-}
-
 async function computeFingerprintForText(text, includeEmbedding = true) {
-  const contentHash = hashBuffer(Buffer.from(text, 'utf-8'))
+  const contentHash = crypto.createHash('sha256').update(text).digest('hex')
 
   if (!includeEmbedding) {
     return {
@@ -108,19 +102,34 @@ async function computeFingerprintForText(text, includeEmbedding = true) {
   }
 }
 
-async function computeFingerprintForPath(filePath, includeEmbeddingForText = true) {
-  const ext = path.extname(filePath).toLowerCase()
-  if (ext === '.txt' || ext === '.md') {
-    const text = await fs.readFile(filePath, 'utf-8')
-    return computeFingerprintForText(text, includeEmbeddingForText)
-  }
-
-  const buffer = await fs.readFile(filePath)
+async function computeEmbeddingForText(text) {
+  const embedding = await embedText(text)
+  const serializedEmbedding = serializeEmbedding(embedding)
   return {
-    contentHash: hashBuffer(buffer),
-    contentEmbedding: null,
-    contentEmbeddingModel: null,
-    contentEmbeddingDim: null,
+    contentEmbedding: serializedEmbedding,
+    contentEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
+    contentEmbeddingDim: embedding.length,
+  }
+}
+
+async function computeFingerprintForPath(filePath, includeEmbeddingForText = true) {
+  const buffer = await fs.readFile(filePath)
+  if (includeEmbeddingForText) {
+    const text = buffer.toString('utf-8')
+    const res = await computeEmbeddingForText(text)
+    return {
+      contentHash: crypto.createHash('sha256').update(buffer).digest('hex'),
+      contentEmbedding: res.contentEmbedding,
+      contentEmbeddingModel: res.contentEmbeddingModel,
+      contentEmbeddingDim: res.contentEmbeddingDim,
+    }
+  } else {
+    return {
+      contentHash: crypto.createHash('sha256').update(buffer).digest('hex'),
+      contentEmbedding: null,
+      contentEmbeddingModel: null,
+      contentEmbeddingDim: null,
+    }
   }
 }
 
@@ -897,9 +906,8 @@ async function updateLockedRanges(parentPath, rangeUpdates, libraryId, getCentra
 }
 
 async function readFile(filePath, libraryId, getCentralDbPath) {
+  const buffer = await fs.readFile(filePath)
   try {
-    const content = await fs.readFile(filePath, 'utf-8')
-
     // Check if file hash has changed and update database if needed
     if (libraryId && getCentralDbPath) {
       try {
@@ -908,7 +916,8 @@ async function readFile(filePath, libraryId, getCentralDbPath) {
           const db = new Database(dbInfo.dbPath)
 
           const relativePath = path.relative(dbInfo.folderPath, filePath)
-          const currentFingerprint = await computeFingerprintForText(content, true)
+
+          const currentFingerprint = await computeFingerprintForPath(filePath, true)
 
           // Get existing file record
           const fileRecord = db
@@ -946,6 +955,7 @@ async function readFile(filePath, libraryId, getCentralDbPath) {
       }
     }
 
+    const content = buffer.toString('utf-8')
     return { success: true, content }
   } catch (error) {
     return { success: false, error: error.message }
@@ -997,10 +1007,8 @@ async function replaceChildRangeWithChildContent(
         return { success: false, error: 'Invalid source range for child note' }
       }
 
-      const [parentContent, childContent] = await Promise.all([
-        fs.readFile(parentPath, 'utf-8'),
-        fs.readFile(childAbsolutePath, 'utf-8'),
-      ])
+      const parentContent = await fs.readFile(parentPath, 'utf-8')
+      const childContent = await fs.readFile(childAbsolutePath, 'utf-8')
 
       const parentLines = parentContent.split('\n')
       const childLines = childContent.split('\n')
@@ -1018,10 +1026,8 @@ async function replaceChildRangeWithChildContent(
       await fs.writeFile(parentPath, updatedParent, 'utf-8')
 
       // Compute new fingerprints for parent and child files
-      const [parentFingerprint, childFingerprint] = await Promise.all([
-        computeFingerprintForText(updatedParent, true),
-        computeFingerprintForText(childContent, true),
-      ])
+      const parentFingerprint = await computeFingerprintForPath(parentPath, true)
+      const childFingerprint = await computeFingerprintForPath(childAbsolutePath, true)
 
       db.transaction(() => {
         // Update parent file's hash and embedding
@@ -1196,7 +1202,7 @@ async function extractNote(
     // Insert or update file record
     const relativePath = path.relative(dbInfo.folderPath, newFilePath)
     const initialDays = getRandomInitialDays()
-    const fingerprint = await computeFingerprintForText(selectedText, true)
+    const fingerprint = await computeFingerprintForPath(newFilePath, true)
 
     try {
       db.transaction(() => {
@@ -1374,7 +1380,8 @@ async function saveNote(filePath, content, libraryId, getCentralDbPath) {
   const db = new Database(dbInfo.dbPath)
   // Insert file record
   const relativePath = path.relative(dbInfo.folderPath, filePath)
-  const fingerprint = await computeFingerprintForText(content, true)
+
+  const fingerprint = await computeFingerprintForPath(filePath, true)
 
   try {
     const result = db.transaction(() => {
@@ -1480,7 +1487,8 @@ async function extractHTML(
     // Insert or update records
     const relativePath = path.relative(dbInfo.folderPath, newFilePath)
     const initialDays = getRandomInitialDays()
-    const fingerprint = await computeFingerprintForText(selectedText, false)
+
+    const fingerprint = await computeFingerprintForPath(newFilePath, false)
 
     try {
       db.transaction(() => {
@@ -1807,7 +1815,8 @@ async function extractPdfText(
 
     // Insert or update records
     const initialDays = getRandomInitialDays()
-    const fingerprint = await computeFingerprintForText(text, true)
+
+    const fingerprint = await computeFingerprintForPath(textFilePath, true)
 
     // Store line numbers in range_start and range_end
     // Format: "pageNum:lineStart-lineEnd" or just "pageNum" if no line numbers
@@ -2210,7 +2219,8 @@ async function extractFlashcard(
 
       // Insert or update records
       const relativePath = path.relative(dbInfo.folderPath, newFilePath)
-      const fingerprint = await computeFingerprintForText(selectedText, true)
+
+      const fingerprint = await computeFingerprintForPath(newFilePath, true)
 
       try {
         db.transaction(() => {
