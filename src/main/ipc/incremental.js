@@ -524,13 +524,26 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
             lineCount
           )
           if (newRange) {
+            const newSourceContent = parentContent
+              .split('\n')
+              .slice(newRange.start - 1, newRange.end)
+              .join('\n')
+              .trim()
+            const newSourceHash = crypto.createHash('sha256').update(newSourceContent).digest('hex')
+
             db.prepare(
               `
                 UPDATE note_source
-                SET range_start = ?, range_end = ?
+                SET range_start = ?, range_end = ?, source_hash = ?
                 WHERE library_id = ? AND relative_path = ?
               `
-            ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
+            ).run(
+              String(newRange.start),
+              String(newRange.end),
+              newSourceHash,
+              libraryId,
+              childRelativePath
+            )
           }
         } else {
           const childPath = path.join(dbInfo.folderPath, childRelativePath)
@@ -538,14 +551,12 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
           db.prepare(
             `
             UPDATE note_source
-            SET source_hash = ?,
-                source_embedding = ?,
+            SET source_embedding = ?,
                 embedding_model = ?,
                 embedding_dim = ?
             WHERE library_id = ? AND relative_path = ?
           `
           ).run(
-            fingerprint.contentHash,
             fingerprint.contentEmbedding,
             fingerprint.contentEmbeddingModel,
             fingerprint.contentEmbeddingDim,
@@ -561,13 +572,26 @@ async function validateAndRecoverNoteRange(notePath, libraryId, getCentralDbPath
             actualLineCount
           )
           if (newRange) {
+            const newSourceContent = parentContent
+              .split('\n')
+              .slice(newRange.start - 1, newRange.end)
+              .join('\n')
+              .trim()
+            const newSourceHash = crypto.createHash('sha256').update(newSourceContent).digest('hex')
+
             db.prepare(
               `
                 UPDATE note_source
-                SET range_start = ?, range_end = ?
+                SET range_start = ?, range_end = ?, source_hash = ?
                 WHERE library_id = ? AND relative_path = ?
               `
-            ).run(String(newRange.start), String(newRange.end), libraryId, childRelativePath)
+            ).run(
+              String(newRange.start),
+              String(newRange.end),
+              newSourceHash,
+              libraryId,
+              childRelativePath
+            )
           } else {
             console.warn(`Failed to recover position for child note: ${childRelativePath}`)
           }
