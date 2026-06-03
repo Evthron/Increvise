@@ -381,6 +381,8 @@ export class MarkdownViewer extends LitElement {
     .extracted-recursive-content {
       pointer-events: auto;
       user-select: text;
+      background: rgba(76, 175, 80, 0.15);
+      border-left: 4px solid #2e7d32;
     }
 
     .selected-content {
@@ -1106,6 +1108,7 @@ export class MarkdownViewer extends LitElement {
               const origEl = document.createElement(wrapperData.tagName)
               origEl.innerHTML = wrapperData.originalHtml
               origEl.classList.remove('extracted-recursive-content')
+              origEl.classList.add('extracted-content')
               if (wrapperData.lineStart) {
                 origEl.setAttribute('data-line-start', wrapperData.lineStart)
               }
