@@ -4,386 +4,8 @@
 
 // MarkdownViewer.js
 import { LitElement, html, css } from 'lit'
-import { marked } from 'marked'
 import { basename, extname } from './path.js'
-
-// Track source positions using marked tokens with proper offset tracking
-class SourcePositionTracker {
-  constructor(markdown) {
-    this.source = markdown
-    this.lines = markdown.split('\n')
-
-    // Use a WeakMap with token objects as keys to avoid conflicts when raw text repeats
-    this.tokenPositions = new WeakMap()
-
-    // Track scanning position in the source to ensure ordered processing
-    this.currentPosition = 0
-  }
-
-  /**
-   * Create a mapping from processed markdown lines to original markdown lines
-   * When we preprocess markdown by adding blank lines, we need to map back to originals
-   */
-  createLineMapping(original, processed) {
-    if (!processed || processed === original) {
-      // No preprocessing, 1:1 mapping
-      return null
-    }
-
-    const processedLines = processed.split('\n')
-    const mapping = {}
-
-    let originalIndex = 0
-    for (let processedIndex = 0; processedIndex < processedLines.length; originalIndex++) {
-      // Map this processed line to the original line
-      mapping[processedIndex] = originalIndex
-
-      // Skip corresponding blank lines in processed (added by preprocessing)
-      processedIndex++ // current line
-      if (processedIndex < processedLines.length && processedLines[processedIndex] === '') {
-        processedIndex++ // skip blank line
-      }
-    }
-
-    return mapping
-  }
-
-  /**
-   * Map a line number from processed markdown back to original markdown
-   */
-  mapLineToOriginal(processedLine) {
-    if (!this.lineMapping) return processedLine
-    return this.lineMapping[processedLine] !== undefined
-      ? this.lineMapping[processedLine]
-      : processedLine
-  }
-
-  /**
-   * Count newlines that represent actual line breaks within content.
-   * Trailing newlines don't create new content lines, they just terminate the current line.
-   * Example: "line1\nline2\n" has 1 internal newline (creates line break), 1 trailing
-   */
-  countContentNewlines(text) {
-    if (!text) return 0
-    // Count all newlines, then subtract trailing newlines
-    const totalNewlines = (text.match(/\n/g) || []).length
-    const trailingNewlines = (text.match(/\n+$/g) || []).length
-    // Internal newlines = total - trailing
-    return Math.max(0, totalNewlines - trailingNewlines)
-  }
-
-  /**
-   * Recursively build a position map for all tokens.
-   * Key points:
-   * 1. Use the token object itself as the WeakMap key (unique, avoids collisions)
-   * 2. Search starting from currentPosition to preserve token order
-   * 3. Update currentPosition so the next token search begins after the previous one
-   * 4. Count only internal newlines (not trailing ones) for line range calculation
-   */
-  buildPositionMap(tokens) {
-    if (!tokens || !Array.isArray(tokens)) return
-
-    for (const token of tokens) {
-      if (!token.raw || typeof token.raw !== 'string') continue
-
-      // Search for this token.raw text after the current scanning position
-      let index = this.source.indexOf(token.raw, this.currentPosition)
-
-      // If not found, the token.raw may have trailing newlines
-      // Try trimming trailing newlines and search again
-      if (index === -1) {
-        const rawTrimmed = token.raw.replace(/\n+$/, '')
-        if (rawTrimmed !== token.raw) {
-          index = this.source.indexOf(rawTrimmed, this.currentPosition)
-          if (index !== -1) {
-            token.raw = rawTrimmed // update token.raw to trimmed version
-          }
-        }
-      }
-
-      // If still not found, it might be the first occurrence of this content
-      // Fallback: search from the start (should be rare)
-      if (index === -1) {
-        const rawTrimmed = token.raw.replace(/\n+$/, '')
-        index = this.source.indexOf(rawTrimmed)
-        if (index === -1) {
-          index = this.source.indexOf(token.raw)
-        }
-      }
-
-      // Successfully found the token position
-      if (index !== -1) {
-        const startLine = this.getLineNumber(index)
-        // Only count internal newlines, not trailing ones
-        const internalNewlines = this.countContentNewlines(token.raw)
-        const endLine = startLine + internalNewlines
-
-        // Store the token object as a key in the WeakMap
-        // Even if token.raw is identical, different token objects will be distinct keys
-        this.tokenPositions.set(token, {
-          start: startLine,
-          end: endLine,
-        })
-
-        // Update scanning position to after this token
-        // Next token search will begin from this new position
-        this.currentPosition = index + token.raw.length
-      }
-
-      // Recursively process nested tokens
-      // currentPosition is updated so nested token searches use correct offsets
-      if (token.tokens && Array.isArray(token.tokens)) {
-        this.buildPositionMap(token.tokens)
-      }
-    }
-  }
-
-  /**
-   * Compute line number (1-indexed) from character position in the source
-   */
-  getLineNumber(position) {
-    if (position < 0) return 1
-    const beforeText = this.source.substring(0, position)
-    return (beforeText.match(/\n/g) || []).length + 1
-  }
-
-  /**
-   * Find line range for a token for the renderer.
-   * Directly use the token object as the key to avoid conflicts when raw text repeats.
-   */
-  findLineRange(token) {
-    if (!token) return { start: 1, end: 1 }
-
-    // Directly look up this token object's position from the WeakMap
-    const range = this.tokenPositions.get(token)
-    if (range) {
-      return range
-    }
-
-    // Fallback: if not found (e.g., dynamically created token), try searching by raw text
-    if (token.raw && typeof token.raw === 'string') {
-      const index = this.source.indexOf(token.raw, this.currentPosition)
-      if (index !== -1) {
-        const startLine = this.getLineNumber(index)
-        const internalNewlines = this.countContentNewlines(token.raw)
-        return {
-          start: startLine,
-          end: startLine + internalNewlines,
-        }
-      }
-    }
-
-    return { start: 1, end: 1 }
-  }
-}
-
-// Custom renderer that adds source line numbers to all HTML tags
-class LineNumberRenderer extends marked.Renderer {
-  constructor(options, tracker) {
-    super(options)
-    this.tracker = tracker
-  }
-
-  // Helper to add data-line-start and data-line-end attributes
-  // Directly use the token object to look up positions in the WeakMap
-  addLineAttrs(token) {
-    const range = this.tracker.findLineRange(token)
-    return ` data-line-start="${range.start}" data-line-end="${range.end}"`
-  }
-
-  addLineAttrsForLineIndex(token, lineIndex) {
-    const range = this.tracker.findLineRange(token)
-    const lineNum = range.start + lineIndex
-    return ` data-line-start="${lineNum}" data-line-end="${lineNum}"`
-  }
-
-  heading(token) {
-    const text = this.parser.parseInline(token.tokens)
-    const lineAttrs = this.addLineAttrs(token)
-    const tag = 'h' + token.depth
-    return `<${tag}${lineAttrs}>${text}</${tag}>\n`
-  }
-
-  paragraph(token) {
-    const text = this.parser.parseInline(token.tokens)
-    const lineAttrs = this.addLineAttrs(token)
-
-    // Split paragraph by <br> tags and wrap each part in its own <p>
-    // This converts single newlines (rendered as <br>) into separate paragraphs
-    if (text.includes('<br>')) {
-      const parts = text.split('<br>')
-      return parts
-        .map((part, idx) => {
-          // Calculate line attributes for each line
-          const attrs = this.addLineAttrsForLineIndex(token, idx)
-          return `<p${attrs}>${part}</p>\n`
-        })
-        .join('')
-    }
-
-    return `<p${lineAttrs}>${text}</p>\n`
-  }
-
-  br() {
-    return '<br>'
-  }
-
-  blockquote(token) {
-    const body = this.parser.parse(token.tokens)
-    const lineAttrs = this.addLineAttrs(token)
-    return `<blockquote${lineAttrs}>\n${body}</blockquote>\n`
-  }
-
-  list(token) {
-    const lineAttrs = this.addLineAttrs(token)
-    const type = token.ordered ? 'ol' : 'ul'
-    const startatt = token.ordered && token.start !== 1 ? ' start="' + token.start + '"' : ''
-    const body = token.items
-      .map((item) => {
-        return this.listitem(item)
-      })
-      .join('')
-    return `<${type}${startatt}${lineAttrs}>\n${body}</${type}>\n`
-  }
-
-  listitem(item) {
-    const lineAttrs = this.addLineAttrs(item)
-    let text = ''
-    if (item.task) {
-      const checkbox = `<input ${item.checked ? 'checked="" ' : ''}disabled="" type="checkbox">`
-      if (item.loose) {
-        if (item.tokens.length > 0 && item.tokens[0].type === 'paragraph') {
-          item.tokens[0].text = checkbox + ' ' + item.tokens[0].text
-          if (
-            item.tokens[0].tokens &&
-            item.tokens[0].tokens.length > 0 &&
-            item.tokens[0].tokens[0].type === 'text'
-          ) {
-            item.tokens[0].tokens[0].text = checkbox + ' ' + item.tokens[0].tokens[0].text
-          }
-        } else {
-          item.tokens.unshift({
-            type: 'text',
-            raw: checkbox + ' ',
-            text: checkbox + ' ',
-          })
-        }
-      } else {
-        text += checkbox + ' '
-      }
-    }
-    text += this.parser.parse(item.tokens, item.loose)
-    return `<li${lineAttrs}>${text}</li>\n`
-  }
-
-  code(token) {
-    const lineAttrs = this.addLineAttrs(token)
-    const lang = token.lang || ''
-    const langClass = lang ? ` class="language-${lang}"` : ''
-    const escapedCode = token.text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-    return `<pre${lineAttrs}><code${langClass}>${escapedCode}</code></pre>\n`
-  }
-
-  table(token) {
-    const lineAttrs = this.addLineAttrs(token)
-
-    let thead = '<thead>\n<tr>'
-    token.header.forEach((cell, i) => {
-      const align = token.align[i]
-      const alignAttr = align ? ` align="${align}"` : ''
-      thead += `<th${alignAttr}>${this.parser.parseInline(cell.tokens)}</th>`
-    })
-    thead += '</tr>\n</thead>\n'
-
-    let tbody = ''
-    if (token.rows.length > 0) {
-      tbody += '<tbody>\n'
-      token.rows.forEach((row) => {
-        tbody += '<tr>'
-        row.forEach((cell, i) => {
-          const align = token.align[i]
-          const alignAttr = align ? ` align="${align}"` : ''
-          tbody += `<td${alignAttr}>${this.parser.parseInline(cell.tokens)}</td>`
-        })
-        tbody += '</tr>\n'
-      })
-      tbody += '</tbody>\n'
-    }
-
-    return `<table${lineAttrs}>\n${thead}${tbody}</table>\n`
-  }
-
-  hr(token) {
-    const lineAttrs = this.addLineAttrs(token)
-    return `<hr${lineAttrs}>\n`
-  }
-
-  strong(token) {
-    const text = this.parser.parseInline(token.tokens)
-    return `<strong>${text}</strong>`
-  }
-
-  em(token) {
-    const text = this.parser.parseInline(token.tokens)
-    return `<em>${text}</em>`
-  }
-
-  codespan(token) {
-    return `<code>${token.text}</code>`
-  }
-
-  link(token) {
-    const text = this.parser.parseInline(token.tokens)
-    return `<a href="${token.href}"${token.title ? ` title="${token.title}"` : ''}>${text}</a>`
-  }
-
-  image(token) {
-    return `<img src="${token.href}" alt="${token.text}"${token.title ? ` title="${token.title}"` : ''}>`
-  }
-}
-
-/**
- * Convert markdown to HTML with source line numbers
- * @param {string} markdown - Markdown text to convert
- * @returns {string} HTML with data-line-start and data-line-end attributes
- */
-function markdownToHtml(markdown, includeLineNumbers = true) {
-  // Set marked options
-  marked.setOptions({
-    gfm: true,
-    breaks: true, // Enable break conversion, but we'll handle it specially
-    tables: true,
-  })
-
-  if (!includeLineNumbers) {
-    return marked.parse(markdown)
-  }
-
-  // CRITICAL FIX: Get tokens first, then reuse them in parsing
-  // This ensures the WeakMap keys match the tokens used during rendering
-  const tokens = marked.lexer(markdown)
-
-  // Create tracker and build position map using the SAME token objects
-  const tracker = new SourcePositionTracker(markdown)
-  try {
-    tracker.buildPositionMap(tokens)
-  } catch (err) {
-    console.warn('Failed to build token position map:', err.message)
-  }
-
-  // Create renderer with the tracker
-  const renderer = new LineNumberRenderer({}, tracker)
-
-  // CRITICAL: Use marked.Parser directly with the token tree
-  // This avoids marked.parse() creating a new token tree
-  const parser = new marked.Parser({ renderer })
-  return parser.parse(tokens)
-}
+import { markdownToHtml } from './markdown-renderer.js'
 
 /**
  * Parse a hierarchical note filename
@@ -759,6 +381,8 @@ export class MarkdownViewer extends LitElement {
     .extracted-recursive-content {
       pointer-events: auto;
       user-select: text;
+      background: rgba(76, 175, 80, 0.15);
+      border-left: 4px solid #2e7d32;
     }
 
     .selected-content {
@@ -846,6 +470,7 @@ export class MarkdownViewer extends LitElement {
     this._extractedElements = new Map() // path -> elements[]
     this._extractedOriginals = new WeakMap() // element -> { html, start, end }
     this._toggleHosts = new Map() // path -> element
+    this._recursiveWrapperData = new WeakMap() // wrapper -> { tagName, lineStart, lineEnd, originalHtml }
     this._linkHandler = (event) => {
       const anchor = event.composedPath().find((n) => n?.tagName === 'A')
       const href = anchor?.getAttribute?.('href') || ''
@@ -1146,9 +771,8 @@ export class MarkdownViewer extends LitElement {
    * Add a toggle button to an extracted content element
    */
   _addExtractedToggle(el, elStart, elEnd) {
-    // Remove existing toggle if any
-    const existingControls = el.querySelector('.extracted-controls')
-    if (existingControls) existingControls.remove()
+    // Remove all existing controls
+    el.querySelectorAll('.extracted-controls').forEach((c) => c.remove())
 
     // Find the matching range to get the child note path
     const range = this.extractedRanges.find((r) => elStart <= r.end && elEnd >= r.start)
@@ -1238,6 +862,7 @@ export class MarkdownViewer extends LitElement {
     this.renderModes.clear()
     this._extractedElements.clear()
     this._extractedOriginals = new WeakMap()
+    this._recursiveWrapperData = new WeakMap()
     this._toggleHosts.clear()
     this._isDragging = false
     this._dragStartLine = null
@@ -1332,10 +957,10 @@ export class MarkdownViewer extends LitElement {
     const elements = this._extractedElements.get(path) || []
 
     elements.forEach((el) => {
-      const toggle = el.querySelector('.extracted-toggle')
-      if (!toggle) return
-      toggle.classList.toggle('active', mode === 'recursive')
-      toggle.textContent = mode === 'recursive' ? 'Recursive' : 'Original'
+      el.querySelectorAll('.extracted-toggle').forEach((toggle) => {
+        toggle.classList.toggle('active', mode === 'recursive')
+        toggle.textContent = mode === 'recursive' ? 'Recursive' : 'Original'
+      })
     })
   }
 
@@ -1431,21 +1056,81 @@ export class MarkdownViewer extends LitElement {
 
         elements.forEach((el, index) => {
           const controls = el.querySelector('.extracted-controls')
+          // Detach controls before reading el.innerHTML so controls markup
+          // is not captured in originalHtml (avoiding duplicate controls on restore)
+          if (controls && controls.parentNode === el) {
+            el.removeChild(controls)
+          }
           if (index === 0) {
-            el.innerHTML = renderedHtml
+            // Replace with <div> wrapper to avoid invalid HTML nesting
+            // (e.g., putting <h1>/<p> inside parent <p> or <h1>)
+            const wrapper = document.createElement('div')
+            wrapper.innerHTML = renderedHtml
+            wrapper.classList.add('extracted-recursive-content')
+            if (el.classList.contains('extracted-content')) {
+              wrapper.classList.add('extracted-content')
+            }
+            wrapper.style.position = 'relative'
+            // Store restoration data keyed on the WRAPPER (not el),
+            // since we'll look it up via elements[] which now holds the wrapper
+            this._recursiveWrapperData.set(wrapper, {
+              tagName: el.tagName,
+              lineStart: el.getAttribute('data-line-start'),
+              lineEnd: el.getAttribute('data-line-end'),
+              originalHtml: el.innerHTML,
+            })
+            if (controls) {
+              wrapper.appendChild(controls)
+            }
+            el.parentNode.replaceChild(wrapper, el)
+            elements[index] = wrapper
+            this._toggleHosts.set(range.path, wrapper)
           } else {
             el.innerHTML = ''
+            el.classList.add('extracted-recursive-content')
+            el.removeAttribute('data-line-start')
+            el.removeAttribute('data-line-end')
           }
-          if (controls) {
-            el.appendChild(controls)
-          }
-          el.classList.add('extracted-recursive-content')
-          el.removeAttribute('data-line-start')
-          el.removeAttribute('data-line-end')
+        })
+        // Ensure only element[0] has controls (cleanup duplicates)
+        elements.forEach((el, index) => {
+          if (index === 0) return
+          const ctrl = el.querySelector('.extracted-controls')
+          if (ctrl) ctrl.remove()
         })
       } else {
         // Restore original HTML and attributes
-        elements.forEach((el) => {
+        elements.forEach((el, index) => {
+          if (index === 0) {
+            // Check if this element is a wrapper from previous recursive rendering
+            const wrapperData = this._recursiveWrapperData.get(el)
+            if (wrapperData) {
+              const origEl = document.createElement(wrapperData.tagName)
+              origEl.innerHTML = wrapperData.originalHtml
+              origEl.classList.remove('extracted-recursive-content')
+              origEl.classList.add('extracted-content')
+              if (wrapperData.lineStart) {
+                origEl.setAttribute('data-line-start', wrapperData.lineStart)
+              }
+              if (wrapperData.lineEnd) {
+                origEl.setAttribute('data-line-end', wrapperData.lineEnd)
+              }
+              origEl.style.position = 'relative'
+              // Move controls from wrapper to restored element
+              const wrapperControls = el.querySelector('.extracted-controls')
+              if (wrapperControls) {
+                origEl.appendChild(wrapperControls)
+              } else {
+                this._toggleHosts.delete(range.path)
+                this._addExtractedToggle(origEl, wrapperData.lineStart, wrapperData.lineEnd)
+              }
+              el.parentNode.replaceChild(origEl, el)
+              this._recursiveWrapperData.delete(el)
+              elements[index] = origEl
+              this._toggleHosts.set(range.path, origEl)
+              return
+            }
+          }
           const original = this._extractedOriginals.get(el)
           if (!original) return
           el.innerHTML = original.html
@@ -1453,6 +1138,12 @@ export class MarkdownViewer extends LitElement {
           el.setAttribute('data-line-start', original.start)
           el.setAttribute('data-line-end', original.end)
           this._addExtractedToggle(el, original.start, original.end)
+        })
+        // Ensure only element[0] has controls (cleanup duplicates)
+        elements.forEach((el, index) => {
+          if (index === 0) return
+          const ctrl = el.querySelector('.extracted-controls')
+          if (ctrl) ctrl.remove()
         })
       }
     }
