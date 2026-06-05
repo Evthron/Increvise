@@ -1108,6 +1108,24 @@ async function replaceChildRangeWithChildContent(
 
     const db = new Database(dbInfo.dbPath)
     try {
+      const grandChild = db
+        .prepare(
+          `
+        select relative_path
+        from note_source
+        where parent_path = ?
+        `
+        )
+        .get(childRelativePath)
+
+      if (grandChild) {
+        // Don't allow replacement if any grandchild exists
+        return {
+          success: false,
+          error: 'There are still extracted ranges in child note, up-patch all ranges first',
+        }
+      }
+
       const source = db
         .prepare(
           `
@@ -1134,6 +1152,10 @@ async function replaceChildRangeWithChildContent(
       const parentContent = await fs.readFile(parentPath, 'utf-8')
       const childContent = await fs.readFile(childAbsolutePath, 'utf-8')
 
+      if (childContent.trim() === '') {
+        return { success: false, error: 'Child note content is empty' }
+      }
+
       const parentLines = parentContent.split('\n')
       const childLines = childContent.split('\n')
       const oldLineCount = oldEnd - oldStart + 1
@@ -1151,7 +1173,6 @@ async function replaceChildRangeWithChildContent(
 
       // Compute new fingerprints for parent and child files
       const parentFingerprint = await computeFingerprintForPath(parentPath, true)
-      const childFingerprint = await computeFingerprintForPath(childAbsolutePath, true)
 
       db.transaction(() => {
         // Update parent file's hash and embedding
@@ -1171,33 +1192,6 @@ async function replaceChildRangeWithChildContent(
           parentFingerprint.contentEmbeddingDim,
           libraryId,
           parentRelativePath
-        )
-
-        // Update note_source for child with new range and fingerprint
-        db.prepare(
-          `
-          UPDATE note_source
-          SET range_start = ?, 
-              range_end = ?,
-              source_hash = ?,
-              source_embedding = ?,
-              embedding_model = ?,
-              embedding_dim = ?
-          WHERE library_id = ?
-            AND parent_path = ?
-            AND relative_path = ?
-            AND extract_type = 'text-lines'
-        `
-        ).run(
-          String(oldStart),
-          String(newEnd),
-          childFingerprint.contentHash,
-          childFingerprint.contentEmbedding,
-          childFingerprint.contentEmbeddingModel,
-          childFingerprint.contentEmbeddingDim,
-          libraryId,
-          parentRelativePath,
-          childRelativePath
         )
 
         // If line count changed, update all ranges of sibling that come after the modified child note
@@ -1241,7 +1235,21 @@ async function replaceChildRangeWithChildContent(
             )
           }
         }
+
+        // Delete the child note entry after replacement
+        db.prepare(
+          `
+          DELETE FROM file
+          WHERE library_id = ?
+            AND relative_path = ?
+        `
+        ).run(libraryId, childRelativePath)
       })()
+
+      // delete the child note file after
+      fs.unlink(childAbsolutePath).catch((err) => {
+        console.warn(`Failed to delete child note file ${childAbsolutePath}:`, err.message)
+      })
 
       return {
         success: true,
