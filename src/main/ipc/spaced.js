@@ -18,7 +18,8 @@ import {
 } from './incremental.js'
 
 async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
-  const fingerprint = await computeFingerprintForPath(absolutePath, true)
+  const needEmbedding = relativePath.endsWith('.md') || relativePath.endsWith('.txt')
+  const fingerprint = await computeFingerprintForPath(absolutePath, needEmbedding)
 
   db.prepare(
     `UPDATE file
@@ -36,7 +37,7 @@ async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
     relativePath
   )
 
-  if (fingerprint.embeddingError) {
+  if (needEmbedding && fingerprint.embeddingError) {
     console.warn(`Failed to generate embedding for ${relativePath}:`, fingerprint.embeddingError)
   }
 }
@@ -140,7 +141,7 @@ async function recoverMissingFileInSameDirectory(db, workspaceRootPath, libraryI
   const missingRelativePath = row.relative_path
   const missingAbsolutePath = path.join(workspaceRootPath, missingRelativePath)
   const missingFileExt = path.extname(missingRelativePath)
-  
+
   try {
     await fs.access(missingAbsolutePath)
     return {
