@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Incremental Reading IPC Handlers
-import { Buffer } from 'node:buffer'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
@@ -69,37 +68,6 @@ function cosineSimilarity(vecA, vecB) {
   }
 
   return dotProduct / denominator
-}
-
-async function computeFingerprintForText(text, includeEmbedding = true) {
-  const contentHash = crypto.createHash('sha256').update(text).digest('hex')
-
-  if (!includeEmbedding) {
-    return {
-      contentHash,
-      contentEmbedding: null,
-      contentEmbeddingModel: null,
-      contentEmbeddingDim: null,
-    }
-  }
-
-  try {
-    const embedding = await embedText(text)
-    return {
-      contentHash,
-      contentEmbedding: serializeEmbedding(embedding),
-      contentEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
-      contentEmbeddingDim: embedding?.length || null,
-    }
-  } catch (error) {
-    return {
-      contentHash,
-      contentEmbedding: null,
-      contentEmbeddingModel: null,
-      contentEmbeddingDim: null,
-      embeddingError: error.message,
-    }
-  }
 }
 
 async function computeEmbeddingForText(text) {

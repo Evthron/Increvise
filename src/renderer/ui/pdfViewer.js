@@ -178,7 +178,7 @@ class PdfToolbar extends LitElement {
             <sl-icon name="zoom-out"></sl-icon>
           </button>
           <span>${Math.round(this.scale * 100)}%</span>
-          <button @click=${this.handleZoomIn} ?disabled=${this.scale >= 3.0}>
+          <button @click=${this.handleZoomIn} ?disabled=${this.scale >= 4.0}>
             <sl-icon name="zoom-in"></sl-icon>
           </button>
         </div>
@@ -1146,7 +1146,7 @@ export class PdfViewer extends LitElement {
   }
 
   zoomIn() {
-    if (this.scale < 3.0) {
+    if (this.scale < 4.0) {
       this.scale += 0.25
     }
   }
