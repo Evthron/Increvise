@@ -17,31 +17,6 @@ import {
   computeFingerprintForPath,
 } from './incremental.js'
 
-async function writeFileFingerprint(db, libraryId, relativePath, absolutePath) {
-  const needEmbedding = relativePath.endsWith('.md') || relativePath.endsWith('.txt')
-  const fingerprint = await computeFingerprintForPath(absolutePath, needEmbedding)
-
-  db.prepare(
-    `UPDATE file
-     SET content_hash = ?,
-         content_embedding = ?,
-         content_embedding_model = ?,
-         content_embedding_dim = ?
-     WHERE library_id = ? AND relative_path = ?`
-  ).run(
-    fingerprint.contentHash,
-    fingerprint.contentEmbedding,
-    fingerprint.contentEmbeddingModel,
-    fingerprint.contentEmbeddingDim,
-    libraryId,
-    relativePath
-  )
-
-  if (needEmbedding && fingerprint.embeddingError) {
-    console.warn(`Failed to generate embedding for ${relativePath}:`, fingerprint.embeddingError)
-  }
-}
-
 async function syncExtrcationFolderName(
   db,
   workspaceRootPath,
@@ -630,7 +605,31 @@ async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
       ).run(libraryId, relativePath)
 
       try {
-        await writeFileFingerprint(db, libraryId, relativePath, filePath)
+        const needEmbedding = relativePath.endsWith('.md') || relativePath.endsWith('.txt')
+        const fingerprint = await computeFingerprintForPath(filePath, needEmbedding)
+
+        db.prepare(
+          `UPDATE file
+          SET content_hash = ?,
+              content_embedding = ?,
+              content_embedding_model = ?,
+              content_embedding_dim = ?
+          WHERE library_id = ? AND relative_path = ?`
+        ).run(
+          fingerprint.contentHash,
+          fingerprint.contentEmbedding,
+          fingerprint.contentEmbeddingModel,
+          fingerprint.contentEmbeddingDim,
+          libraryId,
+          relativePath
+        )
+
+        if (needEmbedding && fingerprint.embeddingError) {
+          console.warn(
+            `Failed to generate embedding for ${relativePath}:`,
+            fingerprint.embeddingError
+          )
+        }
       } catch (error) {
         console.warn(`Failed to fingerprint queued file ${relativePath}:`, error.message)
       }
