@@ -123,32 +123,22 @@ export async function migrateAllWorkspaces() {
 
 // Get workspace database path by library UUID
 export async function getWorkspaceDbPath(libraryId, getCentralDbPath) {
-  try {
-    const centralDbPath = getCentralDbPath()
-    const db = new Database(centralDbPath, { readonly: true })
+  const centralDbPath = getCentralDbPath()
+  const db = new Database(centralDbPath, { readonly: true })
 
-    const result = db
-      .prepare('SELECT db_path, folder_path FROM workspace_history WHERE library_id = ?')
-      .get(libraryId)
+  const result = db
+    .prepare('SELECT db_path, folder_path FROM workspace_history WHERE library_id = ?')
+    .get(libraryId)
 
-    db.close()
+  db.close()
 
-    if (result) {
-      // Verify database file still exists
-      try {
-        await fs.access(result.db_path)
-        return {
-          found: true,
-          dbPath: result.db_path,
-          folderPath: result.folder_path,
-        }
-      } catch {
-        return { found: false, error: 'Database file not found at registered path' }
-      }
+  if (result) {
+    return {
+      found: true,
+      dbPath: result.db_path,
+      folderPath: result.folder_path,
     }
-
+  } else {
     return { found: false, error: 'Library ID not found in central database' }
-  } catch (err) {
-    return { found: false, error: err.message }
   }
 }

@@ -11,7 +11,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
-import { extractNote, getChildRanges } from '../src/main/ipc/incremental.js'
+import { getChildRanges } from '../src/main/ipc/incremental.js'
 
 // Mock getCentralDbPath function
 function createMockCentralDbPath(tempDir) {

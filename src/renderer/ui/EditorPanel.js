@@ -1035,48 +1035,39 @@ export class EditorPanel extends LitElement {
   async _handleExtract() {
     if (!this.currentFilePath) {
       this._showToast('Please open a file first', true)
-      return
-    }
-
-    // HTML viewer active
-    if (!this.htmlViewer.classList.contains('hidden')) {
-      const result = await this.htmlViewer.extractSelection(this.currentFilePath)
-      if (!result.success) {
-        this._showToast(result.error || 'Extraction failed', true)
-      } else {
-        // Success: reload locked content, show toast, refresh file manager
-        await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
-        this._showToast('Note extracted successfully')
-        this._refreshFileManager()
+    } else if (!this.htmlViewer.classList.contains('hidden')) {
+      try {
+        await this.htmlViewer.extractSelection(this.currentFilePath)
+      } catch (e) {
+        this._showToast('Extraction failed: ' + e.message, true)
+        return
       }
-      return
-    }
 
-    // Markdown viewer active
-    if (!this.markdownViewer.classList.contains('hidden')) {
-      const result = await this.markdownViewer.extractSelection(this.currentFilePath)
-      if (!result.success) {
-        this._showToast(result.error || 'Extraction failed', true)
-      } else {
-        // Success: reload locked content, show toast, refresh file manager
-        await this.markdownViewer.loadAndLockExtractedContent(this.currentFilePath)
-        this._showToast('Note extracted successfully')
-        this._refreshFileManager()
+      // Success: reload locked content, show toast, refresh file manager
+      await this.htmlViewer.loadAndLockExtractedContent(this.currentFilePath)
+      this._showToast('Note extracted successfully')
+      this._refreshFileManager()
+    } else if (!this.markdownViewer.classList.contains('hidden')) {
+      try {
+        await this.markdownViewer.extractSelection(this.currentFilePath)
+      } catch (e) {
+        this._showToast('Extraction failed: ' + e.message, true)
+        return
       }
-      return
-    }
-
-    // Check edit mode
-    if (this.isEditMode === true) {
+      // Success: reload locked content, show toast, refresh file manager
+      await this.markdownViewer.loadAndLockExtractedContent(this.currentFilePath)
+      this._showToast('Note extracted successfully')
+      this._refreshFileManager()
+    } else if (this.isEditMode === true) {
       this._showToast('Please switch to extract mode before extracting', true)
       return
-    }
-
-    // Call CodeMirror extraction
-    const result = await this.codeMirrorEditor.extractSelection(this.currentFilePath)
-    if (!result.success) {
-      this._showToast(result.error || 'Extraction failed', true)
     } else {
+      try {
+        await this.codeMirrorEditor.extractSelection(this.currentFilePath)
+      } catch (e) {
+        this._showToast('Extraction failed: ' + e.message, true)
+        return
+      }
       this._showToast('Note extracted successfully')
       this._refreshFileManager()
     }

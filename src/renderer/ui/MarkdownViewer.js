@@ -633,17 +633,10 @@ export class MarkdownViewer extends LitElement {
    */
   async extractSelection(filePath) {
     // Check if there's a drag selection
-    if (this._dragStartLine === null || this._dragEndLine === null) {
-      return { success: false, error: 'No content selected' }
-    }
-
-    if (!filePath) {
-      return { success: false, error: 'File path not provided' }
-    }
-
-    if (!this.markdownSource) {
-      return { success: false, error: 'No markdown source available' }
-    }
+    if (this._dragStartLine === null || this._dragEndLine === null)
+      throw Error('No content selected')
+    if (!filePath) throw Error('File path not provided')
+    if (!this.markdownSource) throw Error('Markdown source not available for extraction')
 
     // Calculate line range
     const minLine = Math.min(this._dragStartLine, this._dragEndLine)
@@ -654,39 +647,24 @@ export class MarkdownViewer extends LitElement {
     const selectedLines = lines.slice(minLine - 1, maxLine) // Line numbers are 1-indexed
     const selectedText = selectedLines.join('\n').trim()
 
-    if (!selectedText) {
-      return { success: false, error: 'No text selected' }
-    }
+    if (!selectedText) throw Error('Selected content is empty')
 
     const libraryId = window.currentFile.libraryId
 
-    try {
-      // Generate child note filename with line range
-      const childFileName = generateChildNoteName(filePath, minLine, maxLine, selectedText)
+    // Generate child note filename with line range
+    const childFileName = generateChildNoteName(filePath, minLine, maxLine, selectedText)
 
-      // Extract note with generated filename and line numbers
-      const result = await window.fileManager.extractNote(
-        filePath,
-        selectedText,
-        childFileName,
-        minLine,
-        maxLine,
-        libraryId
-      )
+    await window.fileManager.extractNote(
+      filePath,
+      selectedText,
+      childFileName,
+      minLine,
+      maxLine,
+      libraryId
+    )
 
-      // Check if extraction was successful
-      if (!result.success) {
-        return { success: false, error: result.error || 'Unknown extraction error' }
-      }
-
-      // Clear the selection after successful extraction
-      this.clearSelectedContent()
-
-      return { success: true }
-    } catch (error) {
-      console.error('Failed to extract drag selection:', error)
-      return { success: false, error: error.message }
-    }
+    // Clear the selection after successful extraction
+    this.clearSelectedContent()
   }
 
   async replaceRangeWithChildContent(childPath) {

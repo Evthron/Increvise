@@ -1244,16 +1244,9 @@ async function extractNote(
   libraryId,
   getCentralDbPath
 ) {
-  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-  if (!dbInfo.found) {
-    return {
-      success: false,
-      error: dbInfo.error || 'Database not found',
-    }
-  }
-  const db = new Database(dbInfo.dbPath)
-
   try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    const db = new Database(dbInfo.dbPath, { fileMustExist: true })
     const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
     const topLevelFolder = findTopLevelNoteFolder(parentRelativePath, db, libraryId)
     const parentDir = path.dirname(parentRelativePath)
@@ -1273,15 +1266,7 @@ async function extractNote(
     const absoluteNoteFolderPath = path.join(dbInfo.folderPath, relativeNoteFolderPath)
 
     const noteFolder = path.relative(dbInfo.folderPath, absoluteNoteFolderPath)
-    try {
-      await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
-    } catch (err) {
-      return {
-        success: false,
-        error: `Failed to create note folder: ${err.message}`,
-      }
-    }
-
+    await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
     // Generate or use provided filename
     const parentExt = path.extname(parentFilePath)
 
@@ -1304,17 +1289,16 @@ async function extractNote(
     const initialDays = getRandomInitialDays()
     const fingerprint = await computeFingerprintForPath(newFilePath, true)
 
-    try {
-      db.transaction(() => {
-        // Check if file record already exists
-        const existingFile = db
-          .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-          .get(libraryId, relativePath)
+    db.transaction(() => {
+      // Check if file record already exists
+      const existingFile = db
+        .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
+        .get(libraryId, relativePath)
 
-        if (existingFile) {
-          // Update existing file record
-          db.prepare(
-            `
+      if (existingFile) {
+        // Update existing file record
+        db.prepare(
+          `
             UPDATE file
             SET content_hash = ?,
                 content_embedding = ?,
@@ -1322,18 +1306,18 @@ async function extractNote(
                 content_embedding_dim = ?
             WHERE library_id = ? AND relative_path = ?
           `
-          ).run(
-            fingerprint.contentHash,
-            fingerprint.contentEmbedding,
-            fingerprint.contentEmbeddingModel,
-            fingerprint.contentEmbeddingDim,
-            libraryId,
-            relativePath
-          )
-        } else {
-          // Insert new file record
-          db.prepare(
-            `
+        ).run(
+          fingerprint.contentHash,
+          fingerprint.contentEmbedding,
+          fingerprint.contentEmbeddingModel,
+          fingerprint.contentEmbeddingDim,
+          libraryId,
+          relativePath
+        )
+      } else {
+        // Insert new file record
+        db.prepare(
+          `
             INSERT INTO file (
               library_id,
               relative_path,
@@ -1363,37 +1347,37 @@ async function extractNote(
               ?
             )
           `
-          ).run(
-            libraryId,
-            relativePath,
-            initialDays,
-            fingerprint.contentHash,
-            fingerprint.contentEmbedding,
-            fingerprint.contentEmbeddingModel,
-            fingerprint.contentEmbeddingDim
-          )
+        ).run(
+          libraryId,
+          relativePath,
+          initialDays,
+          fingerprint.contentHash,
+          fingerprint.contentEmbedding,
+          fingerprint.contentEmbeddingModel,
+          fingerprint.contentEmbeddingDim
+        )
 
-          db.prepare(
-            `
+        db.prepare(
+          `
             INSERT INTO queue_membership (library_id, queue_name, relative_path)
             VALUES (?, 'intermediate', ?)
           `
-          ).run(libraryId, relativePath)
-        }
+        ).run(libraryId, relativePath)
+      }
 
-        // Has line ranges, for non-html extraction
-        if (rangeStart != null && rangeEnd != null) {
-          // Check if note_source record already exists
-          const existingSource = db
-            .prepare(
-              'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
-            )
-            .get(libraryId, relativePath)
+      // Has line ranges, for non-html extraction
+      if (rangeStart != null && rangeEnd != null) {
+        // Check if note_source record already exists
+        const existingSource = db
+          .prepare(
+            'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
+          )
+          .get(libraryId, relativePath)
 
-          if (existingSource) {
-            // Update existing note_source record
-            db.prepare(
-              `
+        if (existingSource) {
+          // Update existing note_source record
+          db.prepare(
+            `
               UPDATE note_source
               SET parent_path = ?,
                   range_start = ?,
@@ -1404,21 +1388,21 @@ async function extractNote(
                   embedding_dim = ?
               WHERE library_id = ? AND relative_path = ?
             `
-            ).run(
-              parentRelativePath,
-              String(rangeStart),
-              String(rangeEnd),
-              fingerprint.contentHash,
-              fingerprint.contentEmbedding,
-              fingerprint.contentEmbeddingModel,
-              fingerprint.contentEmbeddingDim,
-              libraryId,
-              relativePath
-            )
-          } else {
-            // Insert new note_source record
-            db.prepare(
-              `
+          ).run(
+            parentRelativePath,
+            String(rangeStart),
+            String(rangeEnd),
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim,
+            libraryId,
+            relativePath
+          )
+        } else {
+          // Insert new note_source record
+          db.prepare(
+            `
               INSERT INTO note_source (
                 library_id,
                 relative_path,
@@ -1433,35 +1417,25 @@ async function extractNote(
               )
               VALUES (?, ?, ?, 'text-lines', ?, ?, ?, ?, ?, ?)
             `
-            ).run(
-              libraryId,
-              relativePath,
-              parentRelativePath,
-              String(rangeStart),
-              String(rangeEnd),
-              fingerprint.contentHash,
-              fingerprint.contentEmbedding,
-              fingerprint.contentEmbeddingModel,
-              fingerprint.contentEmbeddingDim
-            )
-          }
+          ).run(
+            libraryId,
+            relativePath,
+            parentRelativePath,
+            String(rangeStart),
+            String(rangeEnd),
+            fingerprint.contentHash,
+            fingerprint.contentEmbedding,
+            fingerprint.contentEmbeddingModel,
+            fingerprint.contentEmbeddingDim
+          )
         }
-      })()
-    } catch (err) {
-      console.error('Failed to insert/update extracted note records:', err.message)
-      return {
-        success: false,
-        error: `Failed to insert/update extracted note records: ${err.message}`,
       }
-    }
+    })()
 
-    return {
-      success: true,
-      fileName: newFileName,
-      filePath: newFilePath,
-    }
-  } finally {
     db.close()
+  } catch (e) {
+    console.error('Failed to extract note:', e.stack)
+    throw e
   }
 }
 
@@ -1527,16 +1501,14 @@ async function extractHTML(
   libraryId,
   getCentralDbPath
 ) {
-  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-  if (!dbInfo.found) {
-    return {
-      success: false,
-      error: dbInfo.error || 'Database not found',
-    }
-  }
-  const db = new Database(dbInfo.dbPath)
-
   try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+    if (!dbInfo.found) {
+      console.error('Database not found for library:', libraryId)
+      throw Error('Database not found')
+    }
+
+    const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentFilePath)
 
     const topLevelFolder = findTopLevelNoteFolder(parentRelativePath, db, libraryId)
@@ -1545,27 +1517,16 @@ async function extractHTML(
     let relativeNoteFolderPath
     if (parentDir === '.' || parentDir === '') {
       relativeNoteFolderPath = topLevelFolder
+    } else if (path.basename(parentDir) === topLevelFolder) {
+      relativeNoteFolderPath = parentDir
     } else {
-      const lastSegment = path.basename(parentDir)
-      if (lastSegment === topLevelFolder) {
-        relativeNoteFolderPath = parentDir
-      } else {
-        relativeNoteFolderPath = path.join(parentDir, topLevelFolder)
-      }
+      relativeNoteFolderPath = path.join(parentDir, topLevelFolder)
     }
 
     const absoluteNoteFolderPath = path.join(dbInfo.folderPath, relativeNoteFolderPath)
 
     const noteFolder = path.relative(dbInfo.folderPath, absoluteNoteFolderPath)
-    try {
-      await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
-    } catch (err) {
-      return {
-        success: false,
-        error: `Failed to create note folder: ${err.message}`,
-      }
-    }
-
+    await fs.mkdir(absoluteNoteFolderPath, { recursive: true })
     // Generate or use provided filename
     const parentExt = path.extname(parentFilePath)
 
@@ -1590,26 +1551,25 @@ async function extractHTML(
 
     const fingerprint = await computeFingerprintForPath(newFilePath, false)
 
-    try {
-      db.transaction(() => {
-        // Check if file record already exists
-        const existingFile = db
-          .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-          .get(libraryId, relativePath)
+    db.transaction(() => {
+      // Check if file record already exists
+      const existingFile = db
+        .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
+        .get(libraryId, relativePath)
 
-        if (existingFile) {
-          // Update existing file record
-          db.prepare(
-            `
+      if (existingFile) {
+        // Update existing file record
+        db.prepare(
+          `
             UPDATE file
             SET content_hash = ?
             WHERE library_id = ? AND relative_path = ?
           `
-          ).run(fingerprint.contentHash, libraryId, relativePath)
-        } else {
-          // Insert new file record
-          db.prepare(
-            `
+        ).run(fingerprint.contentHash, libraryId, relativePath)
+      } else {
+        // Insert new file record
+        db.prepare(
+          `
               INSERT INTO file (
                 library_id,
                 relative_path,
@@ -1633,37 +1593,35 @@ async function extractHTML(
                 ?
               )
             `
-          ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
+        ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
 
-          db.prepare(
-            `
+        db.prepare(
+          `
               INSERT INTO queue_membership (library_id, queue_name, relative_path)
               VALUES (?, 'intermediate', ?)
             `
-          ).run(libraryId, relativePath)
-        }
+        ).run(libraryId, relativePath)
+      }
 
-        // Check if note_source record already exists
-        const existingSource = db
-          .prepare(
-            'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
-          )
-          .get(libraryId, relativePath)
+      // Check if note_source record already exists
+      const existingSource = db
+        .prepare('SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?')
+        .get(libraryId, relativePath)
 
-        if (existingSource) {
-          // Update existing note_source record
-          db.prepare(
-            `
+      if (existingSource) {
+        // Update existing note_source record
+        db.prepare(
+          `
             UPDATE note_source
             SET parent_path = ?,
                 source_hash = ?
             WHERE library_id = ? AND relative_path = ?
           `
-          ).run(parentRelativePath, fingerprint.contentHash, libraryId, relativePath)
-        } else {
-          // Insert new note_source record
-          db.prepare(
-            `
+        ).run(parentRelativePath, fingerprint.contentHash, libraryId, relativePath)
+      } else {
+        // Insert new note_source record
+        db.prepare(
+          `
               INSERT INTO note_source (
                 library_id,
                 relative_path,
@@ -1673,24 +1631,15 @@ async function extractHTML(
               )
               VALUES (?, ?, ?, 'html', ?)
             `
-          ).run(libraryId, relativePath, parentRelativePath, fingerprint.contentHash)
-        }
-      })()
-    } catch (err) {
-      console.error('Failed to insert/update extracted note records:', err.message)
-      return {
-        success: false,
-        error: `Failed to insert/update extracted note records: ${err.message}`,
+        ).run(libraryId, relativePath, parentRelativePath, fingerprint.contentHash)
       }
-    }
+    })()
 
-    return {
-      success: true,
-      fileName: newFileName,
-      filePath: newFilePath,
-    }
-  } finally {
     db.close()
+  } catch (e) {
+    // log at ipc main bonudary
+    console.error('Failed to extract HTML:', e.stack)
+    throw e
   }
 }
 

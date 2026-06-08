@@ -999,54 +999,30 @@ export class CodeMirrorViewer extends LitElement {
   async extractSelection(filePath) {
     // Get selected lines
     const selectedLines = this.getSelectedLines()
-    if (!selectedLines || selectedLines.length === 0) {
-      return { success: false, error: 'Please select lines to extract' }
-    }
+    if (!selectedLines || selectedLines.length === 0) throw Error('Please select lines to extract')
 
     const selectedText = selectedLines.map((line) => line.text).join('\n')
-    if (!selectedText.trim()) {
-      return { success: false, error: 'Please select text to extract' }
-    }
-
-    if (!filePath) {
-      return { success: false, error: 'File path not provided' }
-    }
+    if (!selectedText.trim()) throw Error('Please select non-empty lines to extract')
 
     // Extract line numbers for range tracking
     const rangeStart = selectedLines[0].number
     const rangeEnd = selectedLines[selectedLines.length - 1].number
     const libraryId = window.currentFile.libraryId
 
-    if (!libraryId) {
-      return { success: false, error: 'Library ID not set' }
-    }
+    // Generate child note filename
+    const childFileName = generateChildNoteName(filePath, rangeStart, rangeEnd, selectedText)
+    // Call extraction API with generated filename
+    await window.fileManager.extractNote(
+      filePath,
+      selectedText,
+      childFileName,
+      rangeStart,
+      rangeEnd,
+      libraryId
+    )
 
-    try {
-      // Generate child note filename
-      const childFileName = generateChildNoteName(filePath, rangeStart, rangeEnd, selectedText)
-
-      // Call extraction API with generated filename
-      const result = await window.fileManager.extractNote(
-        filePath,
-        selectedText,
-        childFileName,
-        rangeStart,
-        rangeEnd,
-        libraryId
-      )
-
-      // Check if extraction was successful
-      if (!result.success) {
-        return { success: false, error: result.error || 'Unknown extraction error' }
-      }
-
-      await this.lockLineRanges(filePath)
-      this.clearHistory()
-      return { success: true }
-    } catch (error) {
-      console.error('Failed to extract note:', error)
-      return { success: false, error: error.message }
-    }
+    await this.lockLineRanges(filePath)
+    this.clearHistory()
   }
 
   // Lock the currently selected lines

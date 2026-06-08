@@ -640,13 +640,9 @@ export class HTMLViewer extends LitElement {
    */
   async extractSelection(filePath) {
     const selection = this.getSemanticSelection()
-    if (!selection || !selection.text) {
-      return { success: false, error: 'No text selected' }
-    }
+    if (!selection || !selection.text) throw Error('No extraction text selected')
+    if (!filePath) throw Error('File path not provided')
 
-    if (!filePath) {
-      return { success: false, error: 'File path not provided' }
-    }
     let text = selection.html || selection.text
     // Generate child note filename
     // For semantic extractions (no line numbers), use null ranges
@@ -706,20 +702,8 @@ export class HTMLViewer extends LitElement {
 
     const libraryId = window.currentFile.libraryId
 
-    try {
-      // Extract note with generated filename
-      const result = await window.fileManager.extractHTML(filePath, text, childFileName, libraryId)
-
-      // Check if extraction was successful
-      if (!result.success) {
-        return { success: false, error: result.error || 'Unknown extraction error' }
-      }
-
-      return { success: true }
-    } catch (error) {
-      console.error('Failed to extract note:', error)
-      return { success: false, error: error.message }
-    }
+    // Extract note with generated filename
+    await window.fileManager.extractHTML(filePath, text, childFileName, libraryId)
   }
 
   connectedCallback() {
