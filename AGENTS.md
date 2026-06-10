@@ -65,6 +65,7 @@ Electron app with:
 ## Coding Style Guidelines
 
 - **Avoid Defensive Coding**: Don't use layered try-catch blocks when one is sufficient, or redundant null checks when values are not supposed to be null. Write code that assumes valid inputs unless there's a specific need for validation.
+- **Error Handling — Use Exceptions, Not Result Objects**: Do not return `{success, error}` result objects. Use exceptions instead. Validate preconditions with `throw Error('message')`. In the main process (IPC handlers), wrap the entire function body in a single try-catch: log via `console.error(e.stack)` at the main boundary, then `throw e` to propagate. In the UI layer, call APIs directly without try-catch wrapping; let the caller (the top-level UI handler that interacts with the user) catch and display feedback via toast. Never nest try-catch — one at the appropriate boundary is sufficient.
 - **Simple Styling**: Avoid complicated handcrafted CSS styling. Keep styles simple and maintainable.
 - **Event Handling**: Avoid event handling when data updates are involved - use direct function calls instead. Only use events when no data update is needed (e.g., pure UI interactions).
 - **State Management**: Check `src/renderer/ui/states.js` to directly modify global variables (e.g., `window.mode`, `window.currentWorkspace`, `window.currentFile`). Use `querySelector` to tell other components to update their states. Avoid keeping local state copies when possible - prefer direct global state access.
