@@ -290,10 +290,6 @@ export class EditorPanel extends LitElement {
   }
 
   _renderBreadcrumb() {
-    if (!this.breadcrumbItems || this.breadcrumbItems.length === 0) {
-      return html`<span id="current-file-path">${this.displayText}</span>`
-    }
-
     return html`
       <sl-breadcrumb>
         ${this.breadcrumbItems.map(
@@ -342,28 +338,28 @@ export class EditorPanel extends LitElement {
         if (this.isEditMode) {
           // Notes editing mode: [Save] [Select] [Back to PDF]
           return html`
-            <button @click=${this._handleSave}>Save</button>
-            <button @click=${this._handleEditSource}>Select</button>
-            <button @click=${this._handlePanelSwitch}>Back to PDF</button>
+            <sl-button @click=${this._handleSave}>Save</sl-button>
+            <sl-button @click=${this._handleEditSource}>Select</sl-button>
+            <sl-button @click=${this._handlePanelSwitch}>Back to PDF</sl-button>
           `
         } else {
           // Notes readonly mode: [Edit] [Back to PDF]
           return html`
-            <button @click=${this._handleEditSource}>Edit</button>
-            <button @click=${this._handlePanelSwitch}>Back to PDF</button>
+            <sl-button @click=${this._handleEditSource}>Edit</sl-button>
+            <sl-button @click=${this._handlePanelSwitch}>Back to PDF</sl-button>
           `
         }
       } else {
         // In PDF view mode: [Extract Text] [Extract Page] [View Notes]
         return html`
-          <button @click=${this._handleExtractText}>Extract Text</button>
-          <button @click=${this._handleExtractPage}>Extract Page</button>
-          <button @click=${this._handlePanelSwitch}>View Notes</button>
+          <sl-button @click=${this._handleExtractText}>Extract Text</sl-button>
+          <sl-button @click=${this._handleExtractPage}>Extract Page</sl-button>
+          <sl-button @click=${this._handlePanelSwitch}>View Notes</sl-button>
         `
       }
     } else if (this.currentViewerType === 'video') {
       // Video mode: [Extract Clip]
-      return html`<button @click=${this._handleExtractVideoClip}>Extract Clip</button>`
+      return html`<sl-button @click=${this._handleExtractVideoClip}>Extract Clip</sl-button>`
     } else if (this.currentViewerType === 'flashcard') {
       // Flashcard mode: no action buttons
       return html``
@@ -371,30 +367,30 @@ export class EditorPanel extends LitElement {
       // Preview mode (markdown/html rendered): [Extract] [View Source]
       // Add [Cloze] button if in intermediate queue
       return html`
-        <button @click=${this._handleExtract}>Extract</button>
+        <sl-button @click=${this._handleExtract}>Extract</sl-button>
         ${this.currentQueue === 'intermediate'
-          ? html`<button @click=${this._handleCloze}>Cloze</button>`
+          ? html`<sl-button @click=${this._handleCloze}>Cloze</sl-button>`
           : ''}
-        <button @click=${this._handleToggleEdit}>View Source</button>
+        <sl-button @click=${this._handleToggleEdit}>View Source</sl-button>
       `
     } else if (this.currentDisplayMode === 'source') {
       // Source mode
       if (this.isEditMode) {
         // Source editable: [Save] [Select] [Preview]
         return html`
-          <button @click=${this._handleSave}>Save</button>
-          <button @click=${this._handleEditSource}>Select</button>
-          <button @click=${this._handleToggleEdit}>Preview</button>
+          <sl-button @click=${this._handleSave}>Save</sl-button>
+          <sl-button @click=${this._handleEditSource}>Select</sl-button>
+          <sl-button @click=${this._handleToggleEdit}>Preview</sl-button>
         `
       } else {
         // Source readonly: [Extract] [Cloze (if intermediate)] [Edit] [Preview]
         return html`
-          <button @click=${this._handleExtract}>Extract</button>
+          <sl-button @click=${this._handleExtract}>Extract</sl-button>
           ${this.currentQueue === 'intermediate'
-            ? html`<button @click=${this._handleCloze}>Cloze</button>`
+            ? html`<sl-button @click=${this._handleCloze}>Cloze</sl-button>`
             : ''}
-          <button @click=${this._handleEditSource}>Edit</button>
-          <button @click=${this._handleToggleEdit}>Preview</button>
+          <sl-button @click=${this._handleEditSource}>Edit</sl-button>
+          <sl-button @click=${this._handleToggleEdit}>Preview</sl-button>
         `
       }
     }
