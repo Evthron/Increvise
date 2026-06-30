@@ -6,6 +6,7 @@
 // Handles rendering and interaction with the file/directory/note tree
 
 import { LitElement, html, css } from 'lit'
+import { extractOrigFilename } from './filetags.js'
 
 export class FileTree extends LitElement {
   static properties = {
@@ -73,11 +74,12 @@ export class FileTree extends LitElement {
     const isLazyDirectory =
       (item.type === 'directory' || item.type === 'workspace') &&
       (!item.children || item.children.length === 0)
+    const origName = extractOrigFilename(item.name)
 
     return html`
       <sl-tree-item ?lazy=${isLazyDirectory} .__itemData=${item}>
         ${this._renderIcon(item)}
-        <span class="tree-label">${item.name}</span>
+        <span class="tree-label">${origName}</span>
         ${hasChildren ? html` ${item.children.map((child) => this._renderTreeItem(child))} ` : ''}
       </sl-tree-item>
     `

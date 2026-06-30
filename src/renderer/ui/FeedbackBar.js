@@ -6,8 +6,9 @@
 // Manages revision workflow state and feedback controls
 
 import { LitElement, html, css } from 'lit'
+import { extractOrigFilename } from './filetags.js'
 import './QueueMenu.js'
-import '@shoelace-style/shoelace/dist/components/details/details.js';
+import '@shoelace-style/shoelace/dist/components/details/details.js'
 
 export class FeedbackFileHeader extends LitElement {
   static properties = {
@@ -702,17 +703,17 @@ export class FeedbackBar extends LitElement {
       color: var(--border-color);
     }
 
-    sl-details::part(header){
+    sl-details::part(header) {
       padding: 0.5rem 1rem;
     }
 
     /* set icon to the middle by setting flex:1 instead of flex:0 (in the corner)*/
-    sl-details::part(summary-icon){
+    sl-details::part(summary-icon) {
       flex: 1;
       rotate: none;
     }
 
-    sl-details::part(content){
+    sl-details::part(content) {
       display: flex;
       flex-direction: column;
       flex: 1;
@@ -945,6 +946,7 @@ export class FeedbackBar extends LitElement {
     }
 
     const fileName = this.file.file_path.split('/').pop()
+    const origFilename = extractOrigFilename(fileName)
     const workspaceName = this.file.workspacePath
       ? this.file.workspacePath.split('/').pop()
       : 'Unknown'
@@ -954,11 +956,11 @@ export class FeedbackBar extends LitElement {
     this.setAttribute('visible', '')
 
     return html`
-      <sl-details open >
+      <sl-details open>
         <sl-icon name="chevron-up" slot="expand-icon"></sl-icon>
         <sl-icon name="chevron-down" slot="collapse-icon"></sl-icon>
         <div id="current-file-name">
-          <feedback-file-header .fileName=${fileName} .workspaceName=${workspaceName}>
+          <feedback-file-header .fileName=${origFilename} .workspaceName=${workspaceName}>
             <span class="file-meta-separator">•</span>
             <feedback-rank-control
               .rank=${rank}
