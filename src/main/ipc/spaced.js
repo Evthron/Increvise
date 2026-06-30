@@ -1561,7 +1561,9 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
 
     // Get current interval
     const file = db
-      .prepare('SELECT intermediate_interval FROM file WHERE library_id = ? AND relative_path = ?')
+      .prepare(
+        'SELECT intermediate_interval, review_count FROM file WHERE library_id = ? AND relative_path = ?'
+      )
       .get(libraryId, relativePath)
 
     if (!file) {
@@ -1602,9 +1604,10 @@ async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedb
       `UPDATE file 
        SET intermediate_interval = ?,
            due_time = datetime('now', '+' || ? || ' days'),
+           review_count = ?,
            last_revised_time = datetime('now')
        WHERE library_id = ? AND relative_path = ?`
-    ).run(newInterval, newInterval, libraryId, relativePath)
+    ).run(newInterval, newInterval, file.review_count + 1, libraryId, relativePath)
 
     db.close()
     return {
