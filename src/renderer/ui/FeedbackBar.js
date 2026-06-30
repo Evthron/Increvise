@@ -7,6 +7,7 @@
 
 import { LitElement, html, css } from 'lit'
 import './QueueMenu.js'
+import '@shoelace-style/shoelace/dist/components/details/details.js';
 
 export class FeedbackFileHeader extends LitElement {
   static properties = {
@@ -679,7 +680,7 @@ export class FeedbackBar extends LitElement {
       background-color: var(--toolbar-bg);
       padding: 16px;
       flex-shrink: 0;
-      max-height: 200px;
+      max-height: 250px;
       overflow-y: auto;
     }
 
@@ -699,6 +700,23 @@ export class FeedbackBar extends LitElement {
 
     .file-meta-separator {
       color: var(--border-color);
+    }
+
+    sl-details::part(header){
+      padding: 0.5rem 1rem;
+    }
+
+    /* set icon to the middle by setting flex:1 instead of flex:0 (in the corner)*/
+    sl-details::part(summary-icon){
+      flex: 1;
+      rotate: none;
+    }
+
+    sl-details::part(content){
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding-top: 0;
     }
   `
 
@@ -936,29 +954,33 @@ export class FeedbackBar extends LitElement {
     this.setAttribute('visible', '')
 
     return html`
-      <div id="current-file-name">
-        <feedback-file-header .fileName=${fileName} .workspaceName=${workspaceName}>
-          <span class="file-meta-separator">•</span>
-          <feedback-rank-control
-            .rank=${rank}
-            @rank-change=${(e) => this._handleRankChange(e.detail)}
-          ></feedback-rank-control>
-          <span class="file-meta-separator">•</span>
-          <feedback-interval-control
-            .intervalInfo=${intervalInfo}
-            @interval-change=${(e) => this._handleIntervalChange(e.detail)}
-          ></feedback-interval-control>
-          <span class="file-meta-separator">•</span>
-          <feedback-queue-control
-            .currentQueue=${this.currentQueue}
-            @queue-select=${this._handleDropdownSelect}
-          ></feedback-queue-control>
-        </feedback-file-header>
-      </div>
-      <feedback-buttons
-        .currentQueue=${this.currentQueue}
-        @feedback=${(e) => this._handleFeedback(e.detail)}
-      ></feedback-buttons>
+      <sl-details open >
+        <sl-icon name="chevron-up" slot="expand-icon"></sl-icon>
+        <sl-icon name="chevron-down" slot="collapse-icon"></sl-icon>
+        <div id="current-file-name">
+          <feedback-file-header .fileName=${fileName} .workspaceName=${workspaceName}>
+            <span class="file-meta-separator">•</span>
+            <feedback-rank-control
+              .rank=${rank}
+              @rank-change=${(e) => this._handleRankChange(e.detail)}
+            ></feedback-rank-control>
+            <span class="file-meta-separator">•</span>
+            <feedback-interval-control
+              .intervalInfo=${intervalInfo}
+              @interval-change=${(e) => this._handleIntervalChange(e.detail)}
+            ></feedback-interval-control>
+            <span class="file-meta-separator">•</span>
+            <feedback-queue-control
+              .currentQueue=${this.currentQueue}
+              @queue-select=${this._handleDropdownSelect}
+            ></feedback-queue-control>
+          </feedback-file-header>
+        </div>
+        <feedback-buttons
+          .currentQueue=${this.currentQueue}
+          @feedback=${(e) => this._handleFeedback(e.detail)}
+        ></feedback-buttons>
+      </sl-details>
     `
   }
 }
