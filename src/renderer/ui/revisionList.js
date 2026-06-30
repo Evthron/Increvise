@@ -10,6 +10,7 @@ import '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js'
 import '@shoelace-style/shoelace/dist/components/button/button.js'
 import '@shoelace-style/shoelace/dist/components/menu/menu.js'
 import '@shoelace-style/shoelace/dist/components/menu-item/menu-item.js'
+import { extractOrigFilename } from './filetags.js'
 
 // File item component
 export class RevisionFileItem extends LitElement {
@@ -210,6 +211,7 @@ export class RevisionFileItem extends LitElement {
 
   render() {
     const fileName = this.file.file_path.split('/').pop()
+    const origFilename = extractOrigFilename(fileName)
     const filePath = this.file.file_path
 
     // Calculate if file is due in the future
@@ -229,7 +231,7 @@ export class RevisionFileItem extends LitElement {
         <div class="revision-item-main">
           <div class="revision-item-icon">📄</div>
           <div class="revision-item-content">
-            <div class="revision-item-name">${fileName}</div>
+            <div class="revision-item-name">${origFilename}</div>
             <div class="revision-item-meta">
               <span class="revision-meta-item">
                 <span class="meta-icon">🔄</span>
