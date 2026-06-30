@@ -117,7 +117,7 @@ export class FeedbackRankControl extends LitElement {
         <button
           class="rank-btn rank-decrease"
           @click=${() =>
-            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank - 1 }))}
+            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank - 5 }))}
           title="Decrease rank"
         >
           −
@@ -138,7 +138,7 @@ export class FeedbackRankControl extends LitElement {
         <button
           class="rank-btn rank-increase"
           @click=${() =>
-            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank + 1 }))}
+            this.dispatchEvent(new CustomEvent('rank-change', { detail: this.rank + 5 }))}
           title="Increase rank"
         >
           +
