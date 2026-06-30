@@ -354,10 +354,6 @@ export class FeedbackQueueControl extends LitElement {
 customElements.define('feedback-queue-control', FeedbackQueueControl)
 
 export class ProcessingFeedbackBar extends LitElement {
-  static properties = {
-    disabled: { type: Boolean },
-  }
-
   static styles = css`
     :host {
       display: block;
@@ -384,11 +380,6 @@ export class ProcessingFeedbackBar extends LitElement {
       position: relative;
       overflow: hidden;
       color: white;
-    }
-
-    .feedback-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
     }
 
     .feedback-btn::before {
@@ -419,7 +410,7 @@ export class ProcessingFeedbackBar extends LitElement {
       background: linear-gradient(135deg, #ff9500 0%, #f57c00 100%);
     }
 
-    .feedback-btn.skip:hover:not(:disabled) {
+    .feedback-btn.skip:hover {
       background: linear-gradient(135deg, #e68600 0%, #ef6c00 100%);
       box-shadow: 0 4px 8px rgba(255, 149, 0, 0.3);
       transform: translateY(-1px);
@@ -429,7 +420,7 @@ export class ProcessingFeedbackBar extends LitElement {
       background: linear-gradient(135deg, #34c759 0%, #2db34a 100%);
     }
 
-    .feedback-btn.viewed:hover:not(:disabled) {
+    .feedback-btn.viewed:hover {
       background: linear-gradient(135deg, #2db34a 0%, #28a745 100%);
       box-shadow: 0 4px 8px rgba(52, 199, 89, 0.3);
       transform: translateY(-1px);
@@ -454,13 +445,7 @@ export class ProcessingFeedbackBar extends LitElement {
     }
   `
 
-  constructor() {
-    super()
-    this.disabled = false
-  }
-
   _handleSkip() {
-    if (this.disabled) return
     this.dispatchEvent(
       new CustomEvent('processing-feedback', {
         detail: { feedback: 'skip' },
@@ -471,7 +456,6 @@ export class ProcessingFeedbackBar extends LitElement {
   }
 
   _handleViewed() {
-    if (this.disabled) return
     this.dispatchEvent(
       new CustomEvent('processing-feedback', {
         detail: { feedback: 'viewed' },
@@ -487,7 +471,6 @@ export class ProcessingFeedbackBar extends LitElement {
         <button
           class="feedback-btn skip"
           @click=${this._handleSkip}
-          ?disabled=${this.disabled}
           title="Skip this file, review again tomorrow"
         >
           <div class="button-label">
@@ -497,7 +480,6 @@ export class ProcessingFeedbackBar extends LitElement {
         <button
           class="feedback-btn viewed"
           @click=${this._handleViewed}
-          ?disabled=${this.disabled}
           title="Mark as viewed, review in rotation cycle"
         >
           <div class="button-label">
