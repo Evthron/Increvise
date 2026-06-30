@@ -9,6 +9,7 @@ import { LitElement, html, css } from 'lit'
 import { pdfOptions } from './pdfViewer.js'
 import { videoOptions } from './VideoViewer.js'
 import { basename, extname } from './path'
+import { extractOrigFilename } from './filetags.js'
 
 /**
  * Convert database extractedRanges to pdfViewer-ready format
@@ -878,8 +879,9 @@ export class EditorPanel extends LitElement {
       const base = basename(currentPath, extname(currentPath))
       const layers = parseNoteFileName(base)
       const label = layers?.length ? layers[layers.length - 1].name || base : base
+      const origLabel = extractOrigFilename(label)
       chain.unshift({
-        label,
+        label: origLabel,
         path: currentPath,
       })
 
