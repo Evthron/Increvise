@@ -1289,147 +1289,91 @@ async function extractNote(
     const initialDays = getRandomInitialDays()
     const fingerprint = await computeFingerprintForPath(newFilePath, true)
 
+    // extracted note should inherit parent rank
+    const parentData = db
+      .prepare('select rank from file where library_id = ? and relative_path = ?')
+      .get(libraryId, parentRelativePath)
+
     db.transaction(() => {
-      // Check if file record already exists
-      const existingFile = db
-        .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-        .get(libraryId, relativePath)
+      // Add entry in file table
+      db.prepare(
+        `
+          INSERT INTO file (
+            library_id,
+            relative_path,
+            added_time,
+            review_count,
+            easiness,
+            rank,
+            due_time,
+            intermediate_interval,
+            content_hash,
+            content_embedding,
+            content_embedding_model,
+            content_embedding_dim
+          )
+          VALUES (
+            ?,
+            ?,
+            datetime('now'),
+            0,
+            0.0,
+            ?,
+            datetime('now', '+' || ? || ' days'),
+            7,
+            ?,
+            ?,
+            ?,
+            ?
+          )
+        `
+      ).run(
+        libraryId,
+        relativePath,
+        parentData.rank,
+        initialDays,
+        fingerprint.contentHash,
+        fingerprint.contentEmbedding,
+        fingerprint.contentEmbeddingModel,
+        fingerprint.contentEmbeddingDim
+      )
 
-      if (existingFile) {
-        // Update existing file record
-        db.prepare(
-          `
-            UPDATE file
-            SET content_hash = ?,
-                content_embedding = ?,
-                content_embedding_model = ?,
-                content_embedding_dim = ?
-            WHERE library_id = ? AND relative_path = ?
-          `
-        ).run(
-          fingerprint.contentHash,
-          fingerprint.contentEmbedding,
-          fingerprint.contentEmbeddingModel,
-          fingerprint.contentEmbeddingDim,
-          libraryId,
-          relativePath
-        )
-      } else {
-        // Insert new file record
-        db.prepare(
-          `
-            INSERT INTO file (
-              library_id,
-              relative_path,
-              added_time,
-              review_count,
-              easiness,
-              rank,
-              due_time,
-              intermediate_interval,
-              content_hash,
-              content_embedding,
-              content_embedding_model,
-              content_embedding_dim
-            )
-            VALUES (
-              ?,
-              ?,
-              datetime('now'),
-              0,
-              0.0,
-              70.0,
-              datetime('now', '+' || ? || ' days'),
-              7,
-              ?,
-              ?,
-              ?,
-              ?
-            )
-          `
-        ).run(
-          libraryId,
-          relativePath,
-          initialDays,
-          fingerprint.contentHash,
-          fingerprint.contentEmbedding,
-          fingerprint.contentEmbeddingModel,
-          fingerprint.contentEmbeddingDim
-        )
-
-        db.prepare(
-          `
-            INSERT INTO queue_membership (library_id, queue_name, relative_path)
+      // Insert to membership table
+      db.prepare(
+        `
+            INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
             VALUES (?, 'intermediate', ?)
           `
-        ).run(libraryId, relativePath)
-      }
+      ).run(libraryId, relativePath)
 
-      // Has line ranges, for non-html extraction
-      if (rangeStart != null && rangeEnd != null) {
-        // Check if note_source record already exists
-        const existingSource = db
-          .prepare(
-            'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
+      // Insert to note_source table
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO note_source (
+            library_id,
+            relative_path,
+            parent_path,
+            extract_type,
+            range_start,
+            range_end,
+            source_hash,
+            source_embedding,
+            embedding_model,
+            embedding_dim
           )
-          .get(libraryId, relativePath)
-
-        if (existingSource) {
-          // Update existing note_source record
-          db.prepare(
-            `
-              UPDATE note_source
-              SET parent_path = ?,
-                  range_start = ?,
-                  range_end = ?,
-                  source_hash = ?,
-                  source_embedding = ?,
-                  embedding_model = ?,
-                  embedding_dim = ?
-              WHERE library_id = ? AND relative_path = ?
-            `
-          ).run(
-            parentRelativePath,
-            String(rangeStart),
-            String(rangeEnd),
-            fingerprint.contentHash,
-            fingerprint.contentEmbedding,
-            fingerprint.contentEmbeddingModel,
-            fingerprint.contentEmbeddingDim,
-            libraryId,
-            relativePath
-          )
-        } else {
-          // Insert new note_source record
-          db.prepare(
-            `
-              INSERT INTO note_source (
-                library_id,
-                relative_path,
-                parent_path,
-                extract_type,
-                range_start,
-                range_end,
-                source_hash,
-                source_embedding,
-                embedding_model,
-                embedding_dim
-              )
-              VALUES (?, ?, ?, 'text-lines', ?, ?, ?, ?, ?, ?)
-            `
-          ).run(
-            libraryId,
-            relativePath,
-            parentRelativePath,
-            String(rangeStart),
-            String(rangeEnd),
-            fingerprint.contentHash,
-            fingerprint.contentEmbedding,
-            fingerprint.contentEmbeddingModel,
-            fingerprint.contentEmbeddingDim
-          )
-        }
-      }
+          VALUES (?, ?, ?, 'text-lines', ?, ?, ?, ?, ?, ?)
+        `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        String(rangeStart),
+        String(rangeEnd),
+        fingerprint.contentHash,
+        fingerprint.contentEmbedding,
+        fingerprint.contentEmbeddingModel,
+        fingerprint.contentEmbeddingDim
+      )
     })()
 
     db.close()
@@ -1551,88 +1495,60 @@ async function extractHTML(
 
     const fingerprint = await computeFingerprintForPath(newFilePath, false)
 
+    // extracted note should inherit parent rank
+    const parentData = db
+      .prepare('select rank from file where library_id = ? and relative_path = ?')
+      .get(libraryId, parentRelativePath)
+
     db.transaction(() => {
-      // Check if file record already exists
-      const existingFile = db
-        .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-        .get(libraryId, relativePath)
+      // Insert new file record
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO file (
+            library_id,
+            relative_path,
+            added_time,
+            review_count,
+            easiness,
+            rank,
+            due_time,
+            intermediate_interval,
+            content_hash
+          )
+          VALUES (
+            ?,
+            ?,
+            datetime('now'),
+            0,
+            0.0,
+            ?,
+            datetime('now', '+' || ? || ' days'),
+            7,
+            ?
+          )
+        `
+      ).run(libraryId, relativePath, parentData.rank, initialDays, fingerprint.contentHash)
 
-      if (existingFile) {
-        // Update existing file record
-        db.prepare(
-          `
-            UPDATE file
-            SET content_hash = ?
-            WHERE library_id = ? AND relative_path = ?
-          `
-        ).run(fingerprint.contentHash, libraryId, relativePath)
-      } else {
-        // Insert new file record
-        db.prepare(
-          `
-              INSERT INTO file (
-                library_id,
-                relative_path,
-                added_time,
-                review_count,
-                easiness,
-                rank,
-                due_time,
-                intermediate_interval,
-                content_hash
-              )
-              VALUES (
-                ?,
-                ?,
-                datetime('now'),
-                0,
-                0.0,
-                70.0,
-                datetime('now', '+' || ? || ' days'),
-                7,
-                ?
-              )
-            `
-        ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
+          VALUES (?, 'intermediate', ?)
+        `
+      ).run(libraryId, relativePath)
 
-        db.prepare(
-          `
-              INSERT INTO queue_membership (library_id, queue_name, relative_path)
-              VALUES (?, 'intermediate', ?)
-            `
-        ).run(libraryId, relativePath)
-      }
-
-      // Check if note_source record already exists
-      const existingSource = db
-        .prepare('SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?')
-        .get(libraryId, relativePath)
-
-      if (existingSource) {
-        // Update existing note_source record
-        db.prepare(
-          `
-            UPDATE note_source
-            SET parent_path = ?,
-                source_hash = ?
-            WHERE library_id = ? AND relative_path = ?
-          `
-        ).run(parentRelativePath, fingerprint.contentHash, libraryId, relativePath)
-      } else {
-        // Insert new note_source record
-        db.prepare(
-          `
-              INSERT INTO note_source (
-                library_id,
-                relative_path,
-                parent_path,
-                extract_type,
-                source_hash
-              )
-              VALUES (?, ?, ?, 'html', ?)
-            `
-        ).run(libraryId, relativePath, parentRelativePath, fingerprint.contentHash)
-      }
+      // Insert new note_source record
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO note_source (
+            library_id,
+            relative_path,
+            parent_path,
+            extract_type,
+            source_hash
+          )
+          VALUES (?, ?, ?, 'html', ?)
+        `
+      ).run(libraryId, relativePath, parentRelativePath, fingerprint.contentHash)
     })()
 
     db.close()
@@ -1692,85 +1608,58 @@ async function extractPdfPages(parentPath, startPage, endPage, libraryId, getCen
     // Insert or update records
     const initialDays = getRandomInitialDays()
 
+    const parentData = db
+      .prepare('select rank from file where library_id = ? and relative_path = ?')
+      .get(libraryId, parentRelativePath)
+
     try {
       db.transaction(() => {
-        // Check if file record already exists
-        const existingFile = db
-          .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-          .get(libraryId, relativePath)
-
-        if (existingFile) {
-          // Update existing file record (PDF pages don't have content hash)
-          // Just update the timestamps if needed
-        } else {
-          // Insert new file record
-          db.prepare(
-            `
-                INSERT INTO file (
-                  library_id,
-                  relative_path,
-                  added_time,
-                  review_count,
-                  easiness,
-                  rank,
-                  due_time,
-                  intermediate_interval
-                )
-                VALUES (
-                  ?,
-                  ?,
-                  datetime('now'),
-                  0,
-                  0.0,
-                  70.0,
-                  datetime('now', '+' || ? || ' days'),
-                  7
-                )
-              `
-          ).run(libraryId, relativePath, initialDays)
-
-          db.prepare(
-            `
-                INSERT INTO queue_membership (library_id, queue_name, relative_path)
-                VALUES (?, 'intermediate', ?)
-              `
-          ).run(libraryId, relativePath)
-        }
-
-        // Check if note_source record already exists
-        const existingSource = db
-          .prepare(
-            'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
-          )
-          .get(libraryId, relativePath)
-
-        if (existingSource) {
-          // Update existing note_source record
-          db.prepare(
-            `
-            UPDATE note_source
-            SET parent_path = ?,
-                range_start = ?,
-                range_end = ?
-            WHERE library_id = ? AND relative_path = ?
+        // Insert new file record
+        db.prepare(
           `
-          ).run(parentRelativePath, String(startPage), String(endPage), libraryId, relativePath)
-        } else {
-          // Insert new note_source record
-          db.prepare(
-            `
-                INSERT INTO note_source (
-                  library_id,
-                  relative_path,
-                  parent_path,
-                  extract_type,
-                  range_start,
-                  range_end
-                )
-                VALUES (?, ?, ?, 'pdf-page', ?, ?)
-              `
-          ).run(libraryId, relativePath, parentRelativePath, String(startPage), String(endPage))
-        }
+            INSERT INTO file (
+              library_id,
+              relative_path,
+              added_time,
+              review_count,
+              easiness,
+              rank,
+              due_time,
+              intermediate_interval
+            )
+            VALUES (
+              ?,
+              ?,
+              datetime('now'),
+              0,
+              0.0,
+              ?,
+              datetime('now', '+' || ? || ' days'),
+              7
+            )
+          `
+        ).run(libraryId, relativePath, parentData.rank, initialDays)
+
+        db.prepare(
+          `
+            INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
+            VALUES (?, 'intermediate', ?)
+          `
+        ).run(libraryId, relativePath)
+        // Insert new note_source record
+        db.prepare(
+          `
+            INSERT OR REPLACE INTO note_source (
+              library_id,
+              relative_path,
+              parent_path,
+              extract_type,
+              range_start,
+              range_end
+            )
+            VALUES (?, ?, ?, 'pdf-page', ?, ?)
+          `
+        ).run(libraryId, relativePath, parentRelativePath, String(startPage), String(endPage))
       })()
     } catch (err) {
       console.error('Failed to insert/update extracted note records:', err.message)
@@ -1880,27 +1769,16 @@ async function extractPdfText(
     const rangeEnd =
       lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
 
+    const parentData = db
+      .prepare('select rank from file where library_id = ? and relative_path = ?')
+      .get(libraryId, parentRelativePath)
+
     try {
       db.transaction(() => {
-        // Check if file record already exists
-        const existingFile = db
-          .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-          .get(libraryId, relativePath)
-
-        if (existingFile) {
-          // Update existing file record
-          db.prepare(
-            `
-            UPDATE file
-            SET content_hash = ?
-            WHERE library_id = ? AND relative_path = ?
+        // Insert new file record
+        db.prepare(
           `
-          ).run(fingerprint.contentHash, libraryId, relativePath)
-        } else {
-          // Insert new file record
-          db.prepare(
-            `
-                INSERT INTO file (
+                INSERT OR REPLACE INTO file (
                   library_id,
                   relative_path,
                   added_time,
@@ -1917,53 +1795,25 @@ async function extractPdfText(
                   datetime('now'),
                   0,
                   0.0,
-                  70.0,
+                  ?,
                   datetime('now', '+' || ? || ' days'),
                   7,
                   ?
                 )
               `
-          ).run(libraryId, relativePath, initialDays, fingerprint.contentHash)
+        ).run(libraryId, relativePath, parentData.rank, initialDays, fingerprint.contentHash)
 
-          db.prepare(
-            `
-                INSERT INTO queue_membership (library_id, queue_name, relative_path)
+        db.prepare(
+          `
+                INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
                 VALUES (?, 'intermediate', ?)
               `
-          ).run(libraryId, relativePath)
-        }
+        ).run(libraryId, relativePath)
 
-        // Check if note_source record already exists
-        const existingSource = db
-          .prepare(
-            'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
-          )
-          .get(libraryId, relativePath)
-
-        if (existingSource) {
-          // Update existing note_source record
-          db.prepare(
-            `
-            UPDATE note_source
-            SET parent_path = ?,
-                range_start = ?,
-                range_end = ?,
-                source_hash = ?
-            WHERE library_id = ? AND relative_path = ?
+        // Insert new note_source record
+        db.prepare(
           `
-          ).run(
-            parentRelativePath,
-            rangeStart,
-            rangeEnd,
-            fingerprint.contentHash,
-            libraryId,
-            relativePath
-          )
-        } else {
-          // Insert new note_source record
-          db.prepare(
-            `
-                INSERT INTO note_source (
+                INSERT OR REPLACE INTO note_source (
                   library_id,
                   relative_path,
                   parent_path,
@@ -1974,15 +1824,14 @@ async function extractPdfText(
                 )
                 VALUES (?, ?, ?, 'pdf-text', ?, ?, ?)
               `
-          ).run(
-            libraryId,
-            relativePath,
-            parentRelativePath,
-            rangeStart,
-            rangeEnd,
-            fingerprint.contentHash
-          )
-        }
+        ).run(
+          libraryId,
+          relativePath,
+          parentRelativePath,
+          rangeStart,
+          rangeEnd,
+          fingerprint.contentHash
+        )
       })()
     } catch (err) {
       console.error('Failed to insert/update extracted note records:', err.message)
@@ -2052,20 +1901,15 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
       // Insert or update records
       const initialDays = getRandomInitialDays()
 
+      const parentData = db
+        .prepare('select rank from file where library_id = ? and relative_path = ?')
+        .get(libraryId, parentRelativePath)
+
       try {
         db.transaction(() => {
-          // Check if file record already exists
-          const existingFile = db
-            .prepare('SELECT relative_path FROM file WHERE library_id = ? AND relative_path = ?')
-            .get(libraryId, relativePath)
-
-          if (existingFile) {
-            // Update existing file record (video metadata doesn't have content hash)
-            // Just update the timestamps if needed
-          } else {
-            // Insert new file record
-            db.prepare(
-              `
+          // Insert new file record
+          db.prepare(
+            `
                 INSERT INTO file (
                   library_id,
                   relative_path,
@@ -2082,43 +1926,23 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
                   datetime('now'),
                   0,
                   0.0,
-                  70.0,
+                  ?,
                   datetime('now', '+' || ? || ' days'),
                   7
                 )
               `
-            ).run(libraryId, relativePath, initialDays)
+          ).run(libraryId, relativePath, parentData.rank, initialDays)
 
-            db.prepare(
-              `
+          db.prepare(
+            `
                 INSERT INTO queue_membership (library_id, queue_name, relative_path)
                 VALUES (?, 'intermediate', ?)
               `
-            ).run(libraryId, relativePath)
-          }
+          ).run(libraryId, relativePath)
 
-          // Check if note_source record already exists
-          const existingSource = db
-            .prepare(
-              'SELECT relative_path FROM note_source WHERE library_id = ? AND relative_path = ?'
-            )
-            .get(libraryId, relativePath)
-
-          if (existingSource) {
-            // Update existing note_source record
-            db.prepare(
-              `
-              UPDATE note_source
-              SET parent_path = ?,
-                  range_start = ?,
-                  range_end = ?
-              WHERE library_id = ? AND relative_path = ?
+          // Insert new note_source record
+          db.prepare(
             `
-            ).run(parentRelativePath, String(startTime), String(endTime), libraryId, relativePath)
-          } else {
-            // Insert new note_source record
-            db.prepare(
-              `
                 INSERT INTO note_source (
                   library_id,
                   relative_path,
@@ -2129,8 +1953,7 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
                 )
                 VALUES (?, ?, ?, 'video-clip', ?, ?)
               `
-            ).run(libraryId, relativePath, parentRelativePath, String(startTime), String(endTime))
-          }
+          ).run(libraryId, relativePath, parentRelativePath, String(startTime), String(endTime))
         })()
       } catch (err) {
         console.error('Failed to insert extracted note records:', err.message)
