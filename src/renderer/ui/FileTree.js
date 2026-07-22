@@ -157,19 +157,14 @@ export class FileTree extends LitElement {
     e.stopPropagation()
 
     try {
-      const result = await window.fileManager.addFileToQueue(item.path, item.library_id)
-      if (result.success || result.alreadyExists) {
-        item.inQueue = true
-        this.requestUpdate()
+      await window.fileManager.addFileToQueue(item.path, item.library_id)
+      item.inQueue = true
+      this.requestUpdate()
 
-        // Notify revision list to refresh if file was added to queue
-        const revisionList = document.querySelector('revision-list')
-        if (revisionList) {
-          await revisionList.refreshFileList()
-        }
-      } else {
-        alert(`Error: ${result.error}`)
-        console.error('Error adding file to queue:', result.error)
+      // Notify revision list to refresh if file was added to queue
+      const revisionList = document.querySelector('revision-list')
+      if (revisionList) {
+        await revisionList.refreshFileList()
       }
     } catch (error) {
       console.error('Error adding file to queue:', error)

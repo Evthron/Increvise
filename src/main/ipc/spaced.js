@@ -581,72 +581,48 @@ async function checkFileInQueue(filePath, libraryId, getCentralDbPath) {
 async function addFileToQueue(filePath, libraryId, getCentralDbPath) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: dbInfo.error || 'Database not found' }
-    }
-    try {
-      const db = new Database(dbInfo.dbPath)
-      const relativePath = path.relative(dbInfo.folderPath, filePath)
+    const db = new Database(dbInfo.dbPath)
+    const relativePath = path.relative(dbInfo.folderPath, filePath)
 
-      const { exists_flag } = db
-        .prepare(
-          'SELECT EXISTS ( SELECT 1 FROM file WHERE library_id = ? AND relative_path = ? ) AS exists_flag'
-        )
-        .get(libraryId, relativePath)
-      const exists = exists_flag === 1
-      if (exists) {
-        db.close()
-        return { success: false, error: 'File already in queue', alreadyExists: true }
-      }
-
-      db.prepare(
-        `INSERT INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
+    db.prepare(
+      `INSERT OR REPLACE INTO file (library_id, relative_path, added_time, review_count, easiness, rank, due_time)
           VALUES (?, ?, datetime('now'), 0, 2.5, 70.0, datetime('now'))`
-      ).run(libraryId, relativePath)
+    ).run(libraryId, relativePath)
 
-      try {
-        const needEmbedding = relativePath.endsWith('.md') || relativePath.endsWith('.txt')
-        const fingerprint = await computeFingerprintForPath(filePath, needEmbedding)
+    const needEmbedding = relativePath.endsWith('.md') || relativePath.endsWith('.txt')
+    const fingerprint = await computeFingerprintForPath(filePath, needEmbedding)
 
-        db.prepare(
-          `UPDATE file
+    if (needEmbedding && fingerprint.embeddingError) {
+      console.warn(`Failed to generate embedding for ${relativePath}:`, fingerprint.embeddingError)
+    }
+
+    db.prepare(
+      `UPDATE file
           SET content_hash = ?,
               content_embedding = ?,
               content_embedding_model = ?,
               content_embedding_dim = ?
           WHERE library_id = ? AND relative_path = ?`
-        ).run(
-          fingerprint.contentHash,
-          fingerprint.contentEmbedding,
-          fingerprint.contentEmbeddingModel,
-          fingerprint.contentEmbeddingDim,
-          libraryId,
-          relativePath
-        )
+    ).run(
+      fingerprint.contentHash,
+      fingerprint.contentEmbedding,
+      fingerprint.contentEmbeddingModel,
+      fingerprint.contentEmbeddingDim,
+      libraryId,
+      relativePath
+    )
 
-        if (needEmbedding && fingerprint.embeddingError) {
-          console.warn(
-            `Failed to generate embedding for ${relativePath}:`,
-            fingerprint.embeddingError
-          )
-        }
-      } catch (error) {
-        console.warn(`Failed to fingerprint queued file ${relativePath}:`, error.message)
-      }
-
-      // Add to new queue by default
-      db.prepare(
-        `INSERT INTO queue_membership (library_id, queue_name, relative_path)
+    // Add to new queue by default
+    db.prepare(
+      `INSERT INTO queue_membership (library_id, queue_name, relative_path)
           VALUES (?, 'new', ?)`
-      ).run(libraryId, relativePath)
+    ).run(libraryId, relativePath)
 
-      db.close()
-      return { success: true, message: 'File added to new queue' }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  } catch (error) {
-    return { success: false, error: error.message }
+    db.close()
+    return { success: true, message: 'File added to new queue' }
+  } catch (e) {
+    console.error('Failed to add file:', e.stack)
+    throw e
   }
 }
 
