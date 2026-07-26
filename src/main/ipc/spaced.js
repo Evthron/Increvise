@@ -1530,6 +1530,14 @@ async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedbac
   }
 }
 
+function quadraticMultiplier(baseInterval, maxMultiplier, timeLasped) {
+  const a = (1 - maxMultiplier) / baseInterval ** 2
+  const b = (2 * (1 - maxMultiplier)) / baseInterval
+  const c = 1
+  const newMultiplier = a * Math.pow(timeLasped, 2) + b * timeLasped + c
+  return newMultiplier
+}
+
 async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback) {
   // feedback: 'decrease' (more often, ÷1.5), 'maintain' (same), 'increase' (less often, ×1.5)
   try {
@@ -1732,4 +1740,5 @@ export {
   handleNewQueueFeedback,
   handleProcessingFeedback,
   handleIntermediateFeedback,
+  quadraticMultiplier,
 }
