@@ -126,5 +126,8 @@
     "asarUnpack": [
       "**/*.node"
     ]
+  },
+  "allowScripts": {
+    "better-sqlite3@12.5.0": true
   }
 }
