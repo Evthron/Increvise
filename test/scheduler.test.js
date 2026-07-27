@@ -9,7 +9,7 @@ import Database from 'better-sqlite3'
 import {
   createDatabase,
   addFileToQueue,
-  getFileQueue,
+  quadraticMultiplier,
   moveFileToQueue,
   handleNewQueueFeedback,
   handleProcessingFeedback,
@@ -18,6 +18,7 @@ import {
   setQueueConfig,
   getAllFilesForRevision,
 } from '../src/main/ipc/spaced.js'
+import { error } from 'node:console'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TEST_WORKSPACE = path.join(__dirname, 'test-workspace')
@@ -66,7 +67,8 @@ async function test1_CreateDatabaseWithQueues() {
   const db = new Database(TEST_DB_PATH)
   const libraryId = db.prepare('SELECT library_id FROM library LIMIT 1').get().library_id
 
-  const filePath = path.join(TEST_WORKSPACE, 'test-document.md')
+  const relativePath = 'test-document.md'
+  const filePath = path.join(TEST_WORKSPACE, relativePath)
 
   const content = `### test`
 
@@ -80,34 +82,42 @@ async function test1_CreateDatabaseWithQueues() {
 
   await addFileToQueue(filePath, libraryId, getCentralDbPath)
 
+  const dayMilli = 3600 * 1000 * 24
+  const dueTime = new Date(Date.now() - dayMilli * 7)
+  let dueTimeString = dueTime.toISOString()
+  const date = dueTimeString.split('T')[0]
+  const time = dueTimeString.split('T')[1].split('.')[0]
+  dueTimeString = date + ' ' + time
+  console.log('dueTimeString', dueTimeString)
+
+  // check updated count not zero
   db.prepare(
     `
     update file
-    set due_time = datetime('now')
+    set due_time = ?
     where relative_path = ?
     `
-  ).run(filePath)
+  ).run(dueTimeString, relativePath)
 
-  const res = db
-    .prepare(
-      `select added_time,
-       last_revised_time,
-          due_time,
-          intermediate_interval
-        from file
-      `
-    )
-    .all()
-
-  for (const r of res) {
-    const date = r.due_time.split(' ')[0]
-    const time = r.due_time.split(' ')[1]
-    const hour = time.split(':')[0]
-    const minute = time.split(':')[1]
-    const second = time.split(':')[2]
-    const d = new Date(2024, 2, 10, 2, 30)
-    console.log(date, time)
+  const res = await handleIntermediateFeedback(TEST_DB_PATH, libraryId, relativePath, 'maintain')
+  if (res.success) {
+    console.log('success')
+  } else {
+    console.error(res.error)
+    throw Error('error handling feedback')
   }
+
+  const file = db
+    .prepare(
+      `select due_time
+     from file
+     where relative_path = ?
+     `
+    )
+    .get(relativePath)
+
+  console.log('due_time after updaet', file.due_time)
+
   db.close()
 }
 

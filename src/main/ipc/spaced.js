@@ -1530,58 +1530,62 @@ async function handleProcessingFeedback(dbPath, libraryId, relativePath, feedbac
   }
 }
 
-function quadraticMultiplier(baseInterval, maxMultiplier, timeLasped) {
+function quadraticMultiplier(baseInterval, maxMultiplier, timeLapsed) {
   const a = (1 - maxMultiplier) / baseInterval ** 2
-  const b = (2 * (1 - maxMultiplier)) / baseInterval
+  const b = -(2 * (1 - maxMultiplier)) / baseInterval
   const c = 1
-  const newMultiplier = a * Math.pow(timeLasped, 2) + b * timeLasped + c
-  return newMultiplier
+  const multiplier = a * Math.pow(timeLapsed, 2) + b * timeLapsed + c
+  return multiplier
 }
 
 async function handleIntermediateFeedback(dbPath, libraryId, relativePath, feedback) {
-  // feedback: 'decrease' (more often, ÷1.5), 'maintain' (same), 'increase' (less often, ×1.5)
   try {
     const db = new Database(dbPath)
-
-    // Get current interval
     const file = db
       .prepare(
-        'SELECT intermediate_interval, review_count FROM file WHERE library_id = ? AND relative_path = ?'
+        'SELECT intermediate_interval, review_count, due_time FROM file WHERE library_id = ? AND relative_path = ?'
       )
       .get(libraryId, relativePath)
 
-    if (!file) {
-      db.close()
-      return { success: false, error: 'File not found' }
-    }
+    const date = file.due_time.split(' ')[0]
+    const time = file.due_time.split(' ')[1]
+    const dueTime = new Date(date + 'T' + time + 'Z')
+    const revisionTime = new Date()
+    // TimeLapsed in terms of days
+    const timeLapsed = Math.max(0, revisionTime - dueTime) / 1000 / 3600 / 24
 
-    // Get min_interval from config (default to 1)
+    const baseMultiplier = 1.5 // TODO: need to put this in queueConfig
+    const timeLapseMultiplier = quadraticMultiplier(
+      file.intermediate_interval,
+      baseMultiplier,
+      timeLapsed
+    )
+
+    // Get min_inlɛpval from config
     const minIntervalConfig = db
       .prepare(
-        "SELECT config_value FROM queue_config WHERE library_id = ? AND queue_name = 'intermediate' AND config_key = 'min_interval'"
+        "SELECT config_value FROM queue_config WHERE queue_name = 'intermediate' AND config_key = 'min_interval'"
       )
-      .get(libraryId)
-    const minInterval = minIntervalConfig ? parseInt(minIntervalConfig.config_value) : 1
+      .get()
+    const minInterval = parseInt(minIntervalConfig.config_value)
 
-    // Calculate new interval based on feedback
+    // Additional multiplier based on feedback
+    const feedbackRaito = 1.1 // Also put this in queueConfig
     const intervalChanges = {
-      decrease: 1 / 1.5, // More often: reduce interval by 33%
-      maintain: 1.0, // Same: keep interval unchanged
-      increase: 1.5, // Less often: increase interval by 50%
+      decrease: 1 / feedbackRaito,
+      maintain: 1,
+      increase: feedbackRaito,
     }
 
-    const changeRatio = intervalChanges[feedback]
-    if (changeRatio === undefined) {
-      db.close()
-      return { success: false, error: `Invalid feedback value: ${feedback}` }
-    }
-
-    // Calculate and enforce minimum
-    let newInterval = Math.floor(file.intermediate_interval * changeRatio)
+    const feedbackMultiplier = intervalChanges[feedback]
+    let newInterval = Math.floor(
+      file.intermediate_interval * timeLapseMultiplier * feedbackMultiplier
+    )
+    newInterval = Math.max(newInterval, minInterval)
+    console.log('new Interval', newInterval)
     // Add a random jitter of ±10% to prevent review clustering
     const jitter = Math.round(newInterval * (Math.random() * 0.2 - 0.1))
     newInterval += jitter
-    newInterval = Math.max(newInterval, minInterval)
 
     // Update database
     db.prepare(

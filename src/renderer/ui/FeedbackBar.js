@@ -611,21 +611,21 @@ export class FeedbackButtons extends LitElement {
           <button
             class="feedback-btn decrease"
             @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'decrease' }))}
-            title="Review more frequently (interval ÷1.5)"
+            title="Smaller multiplier"
           >
             More Often
           </button>
           <button
             class="feedback-btn maintain"
             @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'maintain' }))}
-            title="Keep same review interval"
+            title="Keep current multiplier"
           >
             Same
           </button>
           <button
             class="feedback-btn increase"
             @click=${() => this.dispatchEvent(new CustomEvent('feedback', { detail: 'increase' }))}
-            title="Review less frequently (interval ×1.5)"
+            title="Larger multiplier"
           >
             Less Often
           </button>
