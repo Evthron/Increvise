@@ -128,6 +128,11 @@
     ]
   },
   "allowScripts": {
-    "better-sqlite3@12.5.0": true
+    "better-sqlite3": true,
+    "electron": true,
+    "esbuild": true,
+    "electron-winstaller": true,
+    "protobufjs": true,
+    "sharp": true
   }
 }
