@@ -20,11 +20,10 @@ export class pdfOptions {
     extractedPages = [],
     extractedLineRanges = new Map(),
   } = {}) {
-    // Page range restriction - start page
+    // Page range restriction - start and end page
     this.pageStart = pageStart
-    // Page range restriction - end page
     this.pageEnd = pageEnd
-    // Last read page number
+    // Last read page
     this.lastReadPage = lastReadPage
     // Already extracted pages (whole page extracts) - Array<number>
     this.extractedPages = extractedPages
@@ -391,6 +390,8 @@ class PdfCanvas extends LitElement {
     this._globalMouseUpHandler = this._handleMouseUp.bind(this)
     this.extractedLineRanges = []
     this.lineToNotePath = new Map()
+    this.isRendering = false
+    this.pageNumPending = null
   }
 
   connectedCallback() {
@@ -404,18 +405,6 @@ class PdfCanvas extends LitElement {
     // Remove global mouseup handler
     document.removeEventListener('mouseup', this._globalMouseUpHandler)
 
-    // Cancel any scheduled render
-    if (this._renderScheduled) {
-      cancelAnimationFrame(this._renderScheduled)
-      this._renderScheduled = null
-    }
-
-    // Cancel any pending render task
-    if (this.currentRenderTask) {
-      this.currentRenderTask.cancel()
-      this.currentRenderTask = null
-    }
-
     // Cancel text layer rendering
     if (this.textLayer) {
       this.textLayer.cancel()
@@ -423,12 +412,7 @@ class PdfCanvas extends LitElement {
     }
   }
 
-  /**
-   * Lit lifecycle: responds to property changes
-   */
   updated(changedProperties) {
-    super.updated(changedProperties)
-
     // Check if only highlighting-related properties changed
     const highlightOnlyProps = ['selectedLineRange', 'extractedLineRanges', 'lineToNotePath']
     const pageRenderProps = ['pdfDocument', 'currentPage', 'scale', 'selectionMode']
@@ -441,16 +425,11 @@ class PdfCanvas extends LitElement {
     )
 
     if (needsPageRender) {
-      // Cancel any previously scheduled render
-      if (this._renderScheduled) {
-        cancelAnimationFrame(this._renderScheduled)
-      }
-
-      // Schedule full page render using requestAnimationFrame
-      this._renderScheduled = requestAnimationFrame(() => {
-        this._renderScheduled = null
+      if (this.isRendering) {
+        this.pageNumRendering = this.currentPage
+      } else {
         this._renderPage()
-      })
+      }
     } else if (needsHighlightUpdate && this.selectionMode === 'text') {
       // Only update highlighting without re-rendering the page
       this._applyHighlighting()
@@ -461,33 +440,14 @@ class PdfCanvas extends LitElement {
    * Internal method: renders the current PDF page to canvas
    */
   async _renderPage() {
-    if (!this.pdfDocument) {
-      return
-    }
-
     try {
-      // Cancel any pending render
-      if (this.currentRenderTask) {
-        this.currentRenderTask.cancel()
-        this.currentRenderTask = null
-      }
+      this.isRendering = true
 
       const page = await this.pdfDocument.getPage(this.currentPage)
       const viewport = page.getViewport({ scale: this.scale })
       const outputScale = window.devicePixelRatio || 1
 
-      // Access our own shadow DOM
       const canvas = this.shadowRoot.querySelector('.pdf-canvas')
-      if (!canvas) {
-        console.error('Canvas element not found in PdfCanvas shadow DOM')
-        this.dispatchEvent(
-          new CustomEvent('render-error', {
-            detail: { error: 'Canvas not ready' },
-          })
-        )
-        return
-      }
-
       const context = canvas.getContext('2d')
 
       canvas.width = Math.floor(viewport.width * outputScale)
@@ -505,7 +465,6 @@ class PdfCanvas extends LitElement {
 
       this.currentRenderTask = page.render(renderContext)
       await this.currentRenderTask.promise
-      this.currentRenderTask = null
 
       // Render text layer for text selection (only in text mode)
       if (this.selectionMode === 'text') {
@@ -519,21 +478,15 @@ class PdfCanvas extends LitElement {
         }
       }
 
-      page.cleanup()
-
-      // Notify parent that render is complete
-      this.dispatchEvent(new CustomEvent('render-complete'))
-    } catch (error) {
-      // Ignore cancellation errors
-      if (error.name === 'RenderingCancelledException') {
-        return
+      this.isRendering = false
+      if (this.pageNumPending !== null) {
+        this.currentPage = this.pageNumPending
+        await this._renderPage()
+        this.pageNumPending = null
       }
+    } catch (error) {
       console.error('Error rendering page:', error)
-      this.dispatchEvent(
-        new CustomEvent('render-error', {
-          detail: { error: error.message },
-        })
-      )
+      this.errorMessage = `Failed to render PDF: ${error.detail.error}`
     }
   }
 
@@ -1367,10 +1320,6 @@ export class PdfViewer extends LitElement {
     return this.extractedPages?.has(this.currentPage)
   }
 
-  handleRenderError(e) {
-    this.errorMessage = `Failed to render PDF: ${e.detail.error}`
-  }
-
   disconnectedCallback() {
     super.disconnectedCallback()
 
@@ -1423,7 +1372,6 @@ export class PdfViewer extends LitElement {
         .selectedLineRange=${this.selectedLineRange}
         .selectionMode=${this.selectionMode}
         @page-click=${this.handlePageClick}
-        @render-error=${this.handleRenderError}
         @line-click=${this.handleLineClick}
         @line-range-select=${this.handleLineRangeSelect}
         @clear-selection-immediate=${this.handleClearSelectionImmediate}
