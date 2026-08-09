@@ -23,8 +23,8 @@ function processExtractedRanges(ranges) {
   for (const range of ranges) {
     // Handle pdf-page extracts (whole page extracts)
     if (range.extract_type === 'pdf-page') {
-      const startPage = parseInt(range.start)
-      const endPage = parseInt(range.end)
+      const startPage = range.page_start
+      const endPage = range.page_end
 
       // Add all pages in the range
       for (let page = startPage; page <= endPage; page++) {
@@ -33,17 +33,17 @@ function processExtractedRanges(ranges) {
     }
 
     // Handle pdf-text extracts (line range extracts)
-    if (range.extract_type === 'pdf-text' && range.lineStart !== null && range.lineEnd !== null) {
-      const pageNum = range.pageNum
-
+    if (range.extract_type === 'pdf-text') {
+      // Not hondle the case where text extract is more than one page for now
+      const pageStart = range.page_start
       // Organize by page number
-      if (!extractedLineRanges.has(pageNum)) {
-        extractedLineRanges.set(pageNum, [])
+      if (!extractedLineRanges.has(pageStart)) {
+        extractedLineRanges.set(pageStart, [])
       }
 
-      extractedLineRanges.get(pageNum).push({
-        start: range.lineStart,
-        end: range.lineEnd,
+      extractedLineRanges.get(pageStart).push({
+        start: range.line_start,
+        end: range.line_end,
         notePath: range.path,
       })
     }
@@ -417,106 +417,80 @@ export class EditorPanel extends LitElement {
       await this._updateBreadcrumb(filePath)
 
       // Check if file is a PDF extract by querying database
-      let pdfExtractInfo = null
-      let flashcardExtractInfo = null
-      let videoExtractInfo = null
-
       if (window.currentFile.libraryId && !this.isMobile) {
+        // Determine file type and dispatch to appropriate handler
+
+        const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase() // wrong for folder, no ext
         const extractInfo = await window.fileManager.getNoteExtractInfo(
           filePath,
           window.currentFile.libraryId
         )
-
-        console.log('[openFile] Extract info check:', {
-          filePath,
-          success: extractInfo?.success,
-          found: extractInfo?.found,
-          extractType: extractInfo?.extractType,
-        })
-
-        if (extractInfo && extractInfo.success && extractInfo.found) {
-          // Check extract type and assign to appropriate variable
+        if (extractInfo !== undefined) {
+          // Is folder === virtual extract === pdf extract page for now
           if (extractInfo.extractType === 'pdf-page') {
-            pdfExtractInfo = extractInfo
-            console.log('[openFile] ✓ Detected PDF extract')
+            await this._openPdfExtract(filePath, extractInfo)
           } else if (extractInfo.extractType === 'flashcard') {
-            flashcardExtractInfo = extractInfo
-            console.log('[openFile] ✓ Detected FLASHCARD extract')
+            await this._openFlashcard(filePath, extractInfo)
           } else if (extractInfo.extractType === 'video-clip') {
-            videoExtractInfo = extractInfo
-            console.log('[openFile] ✓ Detected video extract')
+            await this._openVideoClip(filePath, extractInfo)
+          } else if (
+            extractInfo.extractType === 'text-lines' ||
+            extractInfo.extractType === 'pdf-text'
+          ) {
+            // Text file (markdown, html, or other)
+            this.pdfViewer?.resetView?.()
+            const result = await window.fileManager.readFile(filePath, window.currentFile.libraryId)
+            if (!result.success) {
+              // Enter recovery logic
+              console.warn('Failed to read file, attempting recovery:', result.error)
+              // Use source hash from the note_soruce table, recusviely calculate the hash of the files with the same extension in the same directory, and find the file with the matching hash
+            }
+            await this._openTextFile(filePath, result.content)
+          }
+        } else {
+          const isPdf = ext === '.pdf'
+          const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].includes(ext)
+          const isText = ['.md', '.txt', '.html'].includes(ext)
+          if (isPdf) {
+            // Regular PDF file
+            await this._openRegularPdf(filePath)
+          } else if (isVideo) {
+            // Regular video file
+            await this._openRegularVideo(filePath)
+          } else if (isText) {
+            // Text file (markdown, html, or other)
+            this.pdfViewer?.resetView?.()
+            const result = await window.fileManager.readFile(filePath, window.currentFile.libraryId)
+            if (!result.success) {
+              // Enter recovery logic
+              console.warn('Failed to read file, attempting recovery:', result.error)
+              // Use source hash from the note_soruce table, recusviely calculate the hash of the files with the same extension in the same directory, and find the file with the matching hash
+            }
+            await this._openTextFile(filePath, result.content)
+          } else {
+            // do nothing
+            alert('Unsupported file type')
+            return
           }
         }
-      }
 
-      // Determine file type and dispatch to appropriate handler
-      const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
-      const isPdf = ext === '.pdf'
-      const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].includes(ext)
-
-      console.log('[openFile] Routing decision:', {
-        ext,
-        isPdf,
-        isVideo,
-        hasPdfExtract: !!pdfExtractInfo,
-        hasFlashcard: !!flashcardExtractInfo,
-        hasVideoExtract: !!videoExtractInfo,
-        willRoute: pdfExtractInfo
-          ? 'PDF extract'
-          : flashcardExtractInfo
-            ? 'Flashcard'
-            : videoExtractInfo
-              ? 'Video extract'
-              : isPdf
-                ? 'Regular PDF'
-                : isVideo
-                  ? 'Regular Video'
-                  : 'Text file',
-      })
-
-      if (pdfExtractInfo) {
-        // PDF extract file
-        await this._openPdfExtract(filePath, pdfExtractInfo)
-      } else if (flashcardExtractInfo) {
-        // Flashcard file
-        await this._openFlashcard(filePath, flashcardExtractInfo)
-      } else if (videoExtractInfo) {
-        // Video extract file
-        await this._openVideoClip(filePath, videoExtractInfo)
-      } else if (isPdf) {
-        // Regular PDF file
-        await this._openRegularPdf(filePath)
-      } else if (isVideo) {
-        // Regular video file
-        await this._openRegularVideo(filePath)
-      } else {
-        // Text file (markdown, html, or other)
-        this.pdfViewer?.resetView?.()
-        const result = await window.fileManager.readFile(filePath, window.currentFile.libraryId)
-        if (!result.success) {
-          // Enter recovery logic
-          console.warn('Failed to read file, attempting recovery:', result.error)
-          // Use source hash from the note_soruce table, recusviely calculate the hash of the files with the same extension in the same directory, and find the file with the matching hash
-        }
-        await this._openTextFile(filePath, result.content)
-      }
-
-      // Check if the opened file is in a queue
-      // Load queue info to determine if we should show Cloze button
-      if (window.currentFile.libraryId) {
-        try {
-          const queueResult = await window.fileManager.getFileQueue(
-            filePath,
-            window.currentFile.libraryId
-          )
-          if (queueResult && queueResult.queueName) {
-            this.currentQueue = queueResult.queueName
-          } else {
+        // Check if the opened file is in a queue
+        // Load queue info to determine if we should show Cloze button
+        if (window.currentFile.libraryId) {
+          try {
+            const queueResult = await window.fileManager.getFileQueue(
+              filePath,
+              window.currentFile.libraryId
+            )
+            if (queueResult && queueResult.queueName) {
+              this.currentQueue = queueResult.queueName
+            } else {
+              this.currentQueue = null
+            }
+          } catch (error) {
+            console.error('Error getting file queue:', error)
             this.currentQueue = null
           }
-        } catch (error) {
-          console.error('Error getting file queue:', error)
-          this.currentQueue = null
         }
       }
     } catch (error) {
@@ -532,41 +506,19 @@ export class EditorPanel extends LitElement {
    * @param {Object} extractInfo
    */
   async _openPdfExtract(filePath, extractInfo) {
-    console.log('Opening PDF extract file:', filePath)
-    console.log('Extract info:', extractInfo)
-
     const sourcePdfPath = await window.fileManager.findTopLevelParent(
       filePath,
       window.currentFile.libraryId
     )
-    const { parentPath, rangeStart, rangeEnd } = extractInfo
+    const { rangeStart, rangeEnd } = extractInfo
 
-    let pageStart = null
-    let pageEnd = null
-    let lineStart = null
-    let lineEnd = null
+    let pageStart = rangeStart
+    let pageEnd = rangeEnd
     let displayText = ''
 
-    console.log('Parsing range:', { rangeStart, rangeEnd, type: typeof rangeStart })
-
-    const isTextExtract = typeof rangeStart === 'string' && rangeStart.includes(':')
-    if (isTextExtract) {
-      // Text extract with line numbers: "pageNum:lineNum"
-      const [pageStr, lineStartStr] = rangeStart.split(':')
-      const [endPageStr, lineEndStr] = rangeEnd.split(':')
-      pageStart = parseInt(pageStr)
-      pageEnd = parseInt(endPageStr)
-      lineStart = parseInt(lineStartStr)
-      lineEnd = parseInt(lineEndStr)
-      displayText = `(Page ${pageStart}, Lines ${lineStart}-${lineEnd})`
-      console.log('Text extract detected:', { pageStart, pageEnd, lineStart, lineEnd })
-    } else {
-      // Page extract: just page numbers
-      pageStart = typeof rangeStart === 'string' ? parseInt(rangeStart) : rangeStart
-      pageEnd = typeof rangeEnd === 'string' ? parseInt(rangeEnd) : rangeEnd
-      displayText = `(Pages ${pageStart}-${pageEnd})`
-      console.log('Page extract detected:', { pageStart, pageEnd })
-    }
+    pageStart = parseInt(rangeStart)
+    pageEnd = parseInt(rangeEnd)
+    displayText = `(Pages ${pageStart}-${pageEnd})`
 
     // Update state
     this.currentFilePath = filePath
@@ -585,8 +537,8 @@ export class EditorPanel extends LitElement {
 
     // Filter ranges to only those within the current extract range
     const filteredRangesResult = rangesResult
-      .filter((range) => range.start >= pageStart && range.end <= pageEnd)
-      .filter((range) => !(range.start === pageStart && range.end === pageEnd))
+      .filter((range) => range.page_start >= pageStart && range.page_end <= pageEnd)
+      .filter((range) => !(range.page_start === pageStart && range.page_end === pageEnd)) // Remove the page itself
 
     // Convert database ranges to pdfViewer format
     const { extractedPages, extractedLineRanges } = processExtractedRanges(
@@ -885,8 +837,10 @@ export class EditorPanel extends LitElement {
         currentPath,
         window.currentFile.libraryId
       )
+      if (info === undefined) {
+        break
+      }
 
-      if (!info || !info.success || !info.found || !info.parentPath) break
       currentPath = info.parentPath
       depth += 1
     }

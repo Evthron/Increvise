@@ -681,10 +681,6 @@ async function compareFilenameWithDbRange(notePath, libraryId, getCentralDbPath)
 async function getChildRanges(parentPath, libraryId, useDynamicContent = true, getCentralDbPath) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      console.error('Database not found for library:', libraryId)
-      return []
-    }
 
     const db = new Database(dbInfo.dbPath)
     const parentRelativePath = path.relative(dbInfo.folderPath, parentPath)
@@ -790,7 +786,9 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
             relative_path,
             parent_path, 
             range_start,
+            range_start_sub,
             range_end,
+            range_end_sub,
             extract_type,
             1 AS recur_depth
           FROM note_source
@@ -802,11 +800,13 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
             ns.relative_path,
             ns.parent_path,
             ns.range_start,
+            ns.range_start_sub,
             ns.range_end,
+            ns.range_end_sub,
             ns.extract_type,
             pc.recur_depth + 1
           FROM parent_chain AS pc
-          INNER JOIN note_source AS ns ON pc.relative_path = ns.parent_path
+          JOIN note_source AS ns ON pc.relative_path = ns.parent_path
           WHERE ns.library_id = ? AND recur_depth < 10 -- max 10 child layers 
         )
   
@@ -814,7 +814,9 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
           relative_path,
           parent_path,
           range_start,
+          range_start_sub,
           range_end,
+          range_end_sub,
           extract_type,
           recur_depth
         FROM parent_chain
@@ -822,21 +824,6 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
       `
         )
         .all(libraryId, parentRelativePath, libraryId)
-
-      if (isMarkdown || isHTML) {
-        // Read all children content (for markdown and HTML files)
-        for (let i = 0; i < children.length; i++) {
-          const child = children[i]
-          const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
-          try {
-            child.content = await fs.readFile(childAbsPath, 'utf-8')
-            child.fileExists = true
-          } catch (err) {
-            console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
-            child.fileExists = false
-          }
-        }
-      }
 
       if (isPDF) {
         const ranges = []
@@ -851,101 +838,130 @@ async function getChildRanges(parentPath, libraryId, useDynamicContent = true, g
             fileExists = false
           }
 
-          ranges.push({
-            path: child.relative_path,
-            extract_type: child.extract_type,
-            start: parseInt(child.range_start),
-            end: parseInt(child.range_end),
-            fileExists,
-          })
+          if (child.extract_type == 'pdf-text') {
+            ranges.push({
+              path: child.relative_path,
+              extract_type: child.extract_type,
+              page_start: parseInt(child.range_start),
+              line_start: parseInt(child.range_start_sub),
+              page_end: parseInt(child.range_end),
+              line_end: parseInt(child.range_end_sub),
+              fileExists,
+            })
+          } else {
+            ranges.push({
+              path: child.relative_path,
+              extract_type: child.extract_type,
+              page_start: parseInt(child.range_start),
+              page_end: parseInt(child.range_end),
+              fileExists,
+            })
+          }
         }
 
         db.close()
 
         return ranges
-      }
-
-      // Create a Map for O(1) lookup of children by relative_path
-      // Include all children even if they don't exist
-      const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
-
-      // Merging content from grandchild and deeper notes to direct child
-      // recur_depth DESC: bottom-to-top traversal
-      // range_start DESC: Ensures that replacing lines in a parent does not disrupt the line numbers for other children
-      for (const child of children) {
-        // Skip if file doesn't exist (for markdown/HTML)
-        if ((isMarkdown || isHTML) && !child.fileExists) continue
-
-        // direct children are skipped
-        if (child.recur_depth === 1) continue
-
-        const parent = childrenMap.get(child.parent_path)
-
-        if (parent && parent.fileExists && parent.content) {
-          // Replace lines in parent with child content
-          const lines = parent.content.split('\n')
-          // range_start and range_end are 1-based
-          const rangeStart = parseInt(child.range_start) - 1
-          const rangeEnd = parseInt(child.range_end) - 1
-
-          // Split parent content into: before, (replaced with child), after
-          const beforeLines = lines.slice(0, rangeStart)
-          const childLines =
-            child.fileExists && child.content
-              ? child.content.split('\n')
-              : ['[Content unavailable]']
-          const afterLines = lines.slice(rangeEnd + 1)
-
-          // Update parent content
-          parent.content = [...beforeLines, ...childLines, ...afterLines].join('\n')
-        }
-      }
-
-      // Filter to only return direct children (depth=1)
-      // Include children with missing files, but mark them with unavailable content
-      const directChildren = children.filter((c) => {
-        return c.recur_depth === 1
-      })
-
-      // Sort by range_start ASC for final output
-      directChildren.sort((a, b) => parseInt(a.range_start) - parseInt(b.range_start))
-
-      // Map to result format
-      const ranges = directChildren.map((child) => {
-        // Parse range_start and range_end to handle line numbers
-        // Format: "pageNum:lineNum" or just "pageNum"
-        const parseRange = (rangeStr) => {
-          if (!rangeStr) {
-            return { page: null, line: null }
+      } else if (isMarkdown || isHTML) {
+        // Read all children content (for markdown and HTML files)
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i]
+          const childAbsPath = path.join(dbInfo.folderPath, child.relative_path)
+          try {
+            child.content = await fs.readFile(childAbsPath, 'utf-8')
+            child.fileExists = true
+          } catch (err) {
+            console.warn(`Failed to read child note ${child.relative_path}:`, err.message)
+            child.fileExists = false
           }
-          if (rangeStr.includes(':')) {
-            const [page, line] = rangeStr.split(':')
-            return { page: parseInt(page), line: parseInt(line) }
+        }
+
+        // Create a Map for O(1) lookup of children by relative_path
+        // Include all children even if they don't exist
+        const childrenMap = new Map(children.map((c) => [c.relative_path, c]))
+
+        // Merging content from grandchild and deeper notes to direct child
+        // recur_depth DESC: bottom-to-top traversal
+        // range_start DESC: Ensures that replacing lines in a parent does not disrupt the line numbers for other children
+        for (const child of children) {
+          // Skip if file doesn't exist (for markdown/HTML)
+          if ((isMarkdown || isHTML) && !child.fileExists) continue
+
+          // direct children are skipped
+          if (child.recur_depth === 1) continue
+
+          const parent = childrenMap.get(child.parent_path)
+
+          if (parent && parent.fileExists && parent.content) {
+            // Replace lines in parent with child content
+            const lines = parent.content.split('\n')
+            // range_start and range_end are 1-based
+            const rangeStart = parseInt(child.range_start) - 1
+            const rangeEnd = parseInt(child.range_end) - 1
+
+            // Split parent content into: before, (replaced with child), after
+            const beforeLines = lines.slice(0, rangeStart)
+            const childLines =
+              child.fileExists && child.content
+                ? child.content.split('\n')
+                : ['[Content unavailable]']
+            const afterLines = lines.slice(rangeEnd + 1)
+
+            // Update parent content
+            parent.content = [...beforeLines, ...childLines, ...afterLines].join('\n')
           }
-          return { page: parseInt(rangeStr), line: null }
         }
 
-        const startParsed = parseRange(child.range_start)
-        const endParsed = parseRange(child.range_end)
+        // Filter to only return direct children (depth=1)
+        // Include children with missing files, but mark them with unavailable content
+        const directChildren = children.filter((c) => {
+          return c.recur_depth === 1
+        })
 
-        return {
-          path: child.relative_path,
-          extract_type: child.extract_type,
-          start: parseInt(child.range_start),
-          end: parseInt(child.range_end),
-          // Add parsed page and line numbers for PDFs
-          pageNum: startParsed.page,
-          lineStart: startParsed.line,
-          lineEnd: endParsed.line,
-          content: child.fileExists ? child.content : '[Content unavailable]',
-          lineCount: child.fileExists ? (child.content ? child.content.split('\n').length : 0) : 1,
-          fileExists: child.fileExists,
-        }
-      })
+        // Sort by range_start ASC for final output
+        directChildren.sort((a, b) => parseInt(a.range_start) - parseInt(b.range_start))
 
-      db.close()
+        // Map to result format
+        const ranges = directChildren.map((child) => {
+          // Parse range_start and range_end to handle line numbers
+          // Format: "pageNum:lineNum" or just "pageNum"
+          const parseRange = (rangeStr) => {
+            if (!rangeStr) {
+              return { page: null, line: null }
+            }
+            if (rangeStr.includes(':')) {
+              const [page, line] = rangeStr.split(':')
+              return { page: parseInt(page), line: parseInt(line) }
+            }
+            return { page: parseInt(rangeStr), line: null }
+          }
 
-      return ranges
+          const startParsed = parseRange(child.range_start)
+          const endParsed = parseRange(child.range_end)
+
+          return {
+            path: child.relative_path,
+            extract_type: child.extract_type,
+            start: parseInt(child.range_start),
+            end: parseInt(child.range_end),
+            // Add parsed page and line numbers for PDFs
+            pageNum: startParsed.page,
+            lineStart: startParsed.line,
+            lineEnd: endParsed.line,
+            content: child.fileExists ? child.content : '[Content unavailable]',
+            lineCount: child.fileExists
+              ? child.content
+                ? child.content.split('\n').length
+                : 0
+              : 1,
+            fileExists: child.fileExists,
+          }
+        })
+
+        db.close()
+
+        return ranges
+      }
     }
   } catch (error) {
     console.error('Error in getChildRanges:', error)
@@ -1764,10 +1780,10 @@ async function extractPdfText(
 
     // Store line numbers in range_start and range_end
     // Format: "pageNum:lineStart-lineEnd" or just "pageNum" if no line numbers
-    const rangeStart =
-      lineStart !== undefined && lineStart !== null ? `${pageNum}:${lineStart}` : String(pageNum)
-    const rangeEnd =
-      lineEnd !== undefined && lineEnd !== null ? `${pageNum}:${lineEnd}` : String(pageNum)
+    const rangeStart = pageNum
+    const rangeStartSub = lineStart
+    const rangeEnd = pageNum
+    const rangeEndSub = lineEnd
 
     const parentData = db
       .prepare('select rank from file where library_id = ? and relative_path = ?')
@@ -1819,7 +1835,9 @@ async function extractPdfText(
                   parent_path,
                   extract_type,
                   range_start,
+                  range_start_sub,
                   range_end,
+                  range_end_sub,
                   source_hash
                 )
                 VALUES (?, ?, ?, 'pdf-text', ?, ?, ?)
@@ -1829,7 +1847,9 @@ async function extractPdfText(
           relativePath,
           parentRelativePath,
           rangeStart,
+          rangeStartSub,
           rangeEnd,
+          rangeEndSub,
           fingerprint.contentHash
         )
       })()
@@ -1989,49 +2009,38 @@ async function extractVideoClip(videoPath, startTime, endTime, libraryId, getCen
 async function getNoteExtractInfo(notePath, libraryId, getCentralDbPath) {
   try {
     const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-    if (!dbInfo.found) {
-      return { success: false, error: 'Database not found' }
-    }
-
     const db = new Database(dbInfo.dbPath)
     const relativePath = path.relative(dbInfo.folderPath, notePath)
 
-    try {
-      const info = db
-        .prepare(
-          `
-        SELECT parent_path, extract_type, range_start, range_end
-        FROM note_source
-        WHERE library_id = ? AND relative_path = ?
-      `
-        )
-        .get(libraryId, relativePath)
-
-      if (!info) {
-        return { success: true, found: false }
-      }
-
+    const info = db
+      .prepare(
+        `
+          SELECT parent_path, extract_type, range_start, range_start_sub, range_end, range_end_sub
+          FROM note_source
+          WHERE library_id = ? AND relative_path = ?
+        `
+      )
+      .get(libraryId, relativePath)
+    if (info === undefined) {
+      db.close()
+      return undefined
+    } else {
       // Convert relative parent_path to absolute path
       const absoluteParentPath = path.join(dbInfo.folderPath, info.parent_path)
+      db.close()
 
       return {
-        success: true,
-        found: true,
         extractType: info.extract_type,
         parentPath: absoluteParentPath,
-        rangeStart:
-          info.range_start !== null && info.range_start !== 'null'
-            ? parseInt(info.range_start)
-            : null,
-        rangeEnd:
-          info.range_end !== null && info.range_end !== 'null' ? parseInt(info.range_end) : null,
+        rangeStart: info.range_start,
+        rangeStartSub: info.range_start_sub,
+        rangeEnd: info.range_end,
+        rangeEndSub: info.range_end_sub,
       }
-    } finally {
-      db.close()
     }
-  } catch (error) {
-    console.error('Error getting note extract info:', error)
-    return { success: false, error: error.message }
+  } catch (e) {
+    console.error('Error getting note extraction info:', e.stack)
+    throw e
   }
 }
 /**
