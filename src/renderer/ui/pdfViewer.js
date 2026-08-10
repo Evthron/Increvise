@@ -426,7 +426,7 @@ class PdfCanvas extends LitElement {
 
     if (needsPageRender) {
       if (this.isRendering) {
-        this.pageNumRendering = this.currentPage
+        this.pageNumPending = this.currentPage
       } else {
         this._renderPage()
       }
