@@ -1715,28 +1715,15 @@ async function extractPdfText(
   libraryId,
   getCentralDbPath
 ) {
-  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-  if (!dbInfo.found) {
-    return { success: false, error: 'Database not found' }
-  }
-
-  const db = new Database(dbInfo.dbPath)
-  const rootPath = dbInfo.folderPath
-
   try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+
+    const db = new Database(dbInfo.dbPath)
+    const rootPath = dbInfo.folderPath
+
     // Create PDF container folder
     const containerFolder = path.join(path.dirname(pdfPath), path.basename(pdfPath, '.pdf'))
-
-    try {
-      await fs.mkdir(containerFolder, { recursive: true })
-    } catch (mkdirError) {
-      console.error('[extractPdfText] mkdir error:', mkdirError)
-      return {
-        success: false,
-        error: `Failed to create container folder: ${mkdirError.message}`,
-      }
-    }
-
+    await fs.mkdir(containerFolder, { recursive: true })
     // Generate filename from first 3 words
     let words = ''
     const trimmedText = text.trim()
@@ -1763,8 +1750,6 @@ async function extractPdfText(
       words += currentWord
     }
 
-    if (!words) words = 'text'
-
     const fileName = `${pageNum}-${pageNum}_${words}.md`
     const textFilePath = path.join(containerFolder, fileName)
     const relativePath = path.relative(rootPath, textFilePath)
@@ -1789,85 +1774,79 @@ async function extractPdfText(
       .prepare('select rank from file where library_id = ? and relative_path = ?')
       .get(libraryId, parentRelativePath)
 
-    try {
-      db.transaction(() => {
-        // Insert new file record
-        db.prepare(
-          `
-                INSERT OR REPLACE INTO file (
-                  library_id,
-                  relative_path,
-                  added_time,
-                  review_count,
-                  easiness,
-                  rank,
-                  due_time,
-                  intermediate_interval,
-                  content_hash
-                )
-                VALUES (
-                  ?,
-                  ?,
-                  datetime('now'),
-                  0,
-                  0.0,
-                  ?,
-                  datetime('now', '+' || ? || ' days'),
-                  7,
-                  ?
-                )
-              `
-        ).run(libraryId, relativePath, parentData.rank, initialDays, fingerprint.contentHash)
+    db.transaction(() => {
+      // Insert new file record
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO file (
+            library_id,
+            relative_path,
+            added_time,
+            review_count,
+            easiness,
+            rank,
+            due_time,
+            intermediate_interval,
+            content_hash
+          )
+          VALUES (
+            ?,
+            ?,
+            datetime('now'),
+            0,
+            0.0,
+            ?,
+            datetime('now', '+' || ? || ' days'),
+            7,
+            ?
+          )
+        `
+      ).run(libraryId, relativePath, parentData.rank, initialDays, fingerprint.contentHash)
 
-        db.prepare(
-          `
-                INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
-                VALUES (?, 'intermediate', ?)
-              `
-        ).run(libraryId, relativePath)
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
+          VALUES (?, 'intermediate', ?)
+        `
+      ).run(libraryId, relativePath)
 
-        // Insert new note_source record
-        db.prepare(
-          `
-                INSERT OR REPLACE INTO note_source (
-                  library_id,
-                  relative_path,
-                  parent_path,
-                  extract_type,
-                  range_start,
-                  range_start_sub,
-                  range_end,
-                  range_end_sub,
-                  source_hash
-                )
-                VALUES (?, ?, ?, 'pdf-text', ?, ?, ?)
-              `
-        ).run(
-          libraryId,
-          relativePath,
-          parentRelativePath,
-          rangeStart,
-          rangeStartSub,
-          rangeEnd,
-          rangeEndSub,
-          fingerprint.contentHash
+      // Insert new note_source record
+      db.prepare(
+        `
+        INSERT OR REPLACE INTO note_source (
+          library_id,
+          relative_path,
+          parent_path,
+          extract_type,
+          range_start,
+          range_start_sub,
+          range_end,
+          range_end_sub,
+          source_hash
         )
-      })()
-    } catch (err) {
-      console.error('Failed to insert/update extracted note records:', err.message)
-      return {
-        success: false,
-        error: `Failed to insert/update extracted note records: ${err.message}`,
-      }
-    }
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(
+        libraryId,
+        relativePath,
+        parentRelativePath,
+        'pdf-text',
+        rangeStart,
+        rangeStartSub,
+        rangeEnd,
+        rangeEndSub,
+        fingerprint.contentHash
+      )
+    })()
 
     return {
       success: true,
       filePath: textFilePath,
       fileName: fileName,
     }
-  } finally {
-    db.close()
+  } catch (e) {
+    console.log('Error when extracting text', e.stack)
+    throw e
   }
 }
 

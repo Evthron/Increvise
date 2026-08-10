@@ -539,6 +539,7 @@ export class EditorPanel extends LitElement {
     const filteredRangesResult = rangesResult
       .filter((range) => range.page_start >= pageStart && range.page_end <= pageEnd)
       .filter((range) => !(range.page_start === pageStart && range.page_end === pageEnd)) // Remove the page itself
+      .filter((range) => range.fileExists) // Remove non-existent file
 
     // Convert database ranges to pdfViewer format
     const { extractedPages, extractedLineRanges } = processExtractedRanges(
@@ -1030,11 +1031,6 @@ export class EditorPanel extends LitElement {
    */
   async _handleExtractText() {
     const pdfPath = this.pdfViewer.getCurrentPdfPath()
-
-    if (!pdfPath || !pdfPath.endsWith('.pdf')) {
-      this._showToast('Please open a PDF file first', true)
-      return
-    }
 
     const selectedText = this.pdfViewer.getSelectedTextWithLines()
 
