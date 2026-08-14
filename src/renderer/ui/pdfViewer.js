@@ -411,16 +411,6 @@ class PdfCanvas extends LitElement {
       this.textLayer = null
     }
   }
-  willUpdate(changedProperties) {
-    console.log(changedProperties)
-    console.log(
-      'page changes from',
-      changedProperties.get('currentPage'),
-      'to page',
-      this.currentPage,
-      '!'
-    )
-  }
 
   updated(changedProperties) {
     // Check if only highlighting-related properties changed
@@ -436,20 +426,11 @@ class PdfCanvas extends LitElement {
 
     if (needsPageRender) {
       if (this.isRendering) {
-        console.log('page', this.currentPage, 'want to load but need to wait!')
-        console.log('page', this.pageNumPending, 'is previously in the pending area')
         this.pageNumPending = this.currentPage
-        console.log(
-          'page',
-          this.pageNumPending,
-          'goes into pending and replaces the last one in queue!'
-        )
       } else {
-        console.log('page', this.currentPage, 'can render!')
         this._renderPage(this.currentPage)
       }
     } else if (needsHighlightUpdate && this.selectionMode === 'text') {
-      console.log('no need to render for this page')
       // Only update highlighting without re-rendering the page
       this._applyHighlighting()
     }
@@ -460,7 +441,6 @@ class PdfCanvas extends LitElement {
    */
   async _renderPage(pageNum) {
     try {
-      console.log('enter render page for page', pageNum)
       this.isRendering = true
 
       const page = await this.pdfDocument.getPage(pageNum)
@@ -488,31 +468,20 @@ class PdfCanvas extends LitElement {
 
       // Render text layer for text selection (only in text mode)
       if (this.selectionMode === 'text') {
-        console.log('render text layer for', pageNum)
         await this._renderTextLayer(page, viewport)
       } else {
         // Clear text layer in page mode
         const textLayer = this.shadowRoot.querySelector('.text-layer')
-        console.log('Clearing text layer for page selection mode')
         if (textLayer) {
           textLayer.innerHTML = ''
         }
       }
 
       this.isRendering = false
-      console.log('page', pageNum, 'render complete!')
       if (this.pageNumPending !== null) {
-        console.log(
-          'page',
-          pageNum,
-          'let its next friend page',
-          this.pageNumPending,
-          'come and render!'
-        )
-        this.currentPage = this.pageNumPending // not triggering re-render if pageNumPending already changed
-        this.requestUpdate() // not working because it thinks no property has changed
-        console.log('page', pageNum, 'think its friend is rendered and clear pending')
+        const pendingPage = this.pageNumPending
         this.pageNumPending = null
+        this._renderPage(pendingPage)
       }
     } catch (error) {
       console.error('Error rendering page:', error)
