@@ -480,7 +480,7 @@ class PdfCanvas extends LitElement {
       this.isRendering = false
       if (this.pageNumPending !== null) {
         const pendingPage = this.pageNumPending
-        this.pageNumPending = null
+        this.pageNumPending = null // need to lock this if-body before calling renderPage
         this._renderPage(pendingPage)
       }
     } catch (error) {
