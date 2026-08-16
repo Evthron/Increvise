@@ -150,7 +150,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
         layers: note.layers,
         children: [],
         type: 'note-child',
-        library_id: libraryId,
+        libraryId: libraryId,
         inQueue: inQueue,
       }
 
@@ -254,7 +254,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
             type: isPdf ? 'pdf-parent' : 'note-parent',
             path: filePath,
             children: result.data,
-            library_id: libraryId,
+            libraryId: libraryId,
             inQueue: parentInQueue,
           })
           fileMap.delete(item.name)
@@ -267,7 +267,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
             name: fileItem.name,
             type: 'file',
             path: filePath,
-            library_id: libraryId,
+            libraryId: libraryId,
             inQueue: parentInQueue,
           })
           fileMap.delete(item.name)
@@ -296,7 +296,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
             type: 'workspace',
             path: fullPath,
             children: null,
-            library_id: subLbibraryId,
+            libraryId: subLbibraryId,
           })
         } else {
           tree.push({
@@ -304,7 +304,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
             type: 'directory',
             path: fullPath,
             children: null,
-            library_id: libraryId,
+            libraryId: libraryId,
           })
         }
       }
@@ -330,7 +330,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
         name: item.name,
         type: 'flashcard',
         path: fullPath,
-        library_id: libraryId,
+        libraryId: libraryId,
         inQueue: inQueue,
       })
     } else {
@@ -338,7 +338,7 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
         name: item.name,
         type: 'file',
         path: fullPath,
-        library_id: libraryId,
+        libraryId: libraryId,
         inQueue: inQueue,
       })
     }
