@@ -180,173 +180,163 @@ async function getDirectoryTree(dirPath, libraryId = null, getCentralDbPath = nu
     return { success: true, data: roots }
   }
 
-  // Read directory items
-  let items
   try {
+    // Read directory items
+    let items
     items = await fs.readdir(dirPath, { withFileTypes: true })
-  } catch (error) {
-    console.error(`Error reading directory tree ${dirPath}:`, error)
-    return {
-      success: false,
-      error: error.message,
-    }
-  }
 
-  const tree = []
-  const fileMap = new Map()
-  let registeredWorkspacePaths = new Set()
+    const tree = []
+    const fileMap = new Map()
+    let registeredWorkspacePaths = new Set()
 
-  if (getCentralDbPath) {
-    try {
+    if (getCentralDbPath) {
       const db = new Database(getCentralDbPath(), { readonly: true })
       const rows = db.prepare('SELECT folder_path FROM workspace_history').all()
       db.close()
       registeredWorkspacePaths = new Set(rows.map((row) => row.folder_path))
-    } catch (error) {
-      console.error('Failed to load workspace paths from central database:', error)
     }
-  }
 
-  // Build file map: basename -> file item
-  // Filter out compressed files (they should not be treated as parent files)
-  const compressedExtensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
-  items
-    .filter((item) => {
-      const ext = path.extname(item.name).toLowerCase()
-      return !compressedExtensions.includes(ext)
-    })
-    .forEach((item) => {
-      const baseName = path.basename(item.name, path.extname(item.name))
-      fileMap.set(baseName, item)
-    })
+    // Build file map: basename -> file item
+    // Filter out compressed files (they should not be treated as parent files)
+    const compressedExtensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
+    items
+      .filter((item) => {
+        const ext = path.extname(item.name).toLowerCase()
+        return !compressedExtensions.includes(ext)
+      })
+      .forEach((item) => {
+        const baseName = path.basename(item.name, path.extname(item.name))
+        fileMap.set(baseName, item)
+      })
 
-  // Process directories and files
-  for (const item of items) {
-    const fullPath = path.join(dirPath, item.name)
+    // Process directories and files
+    for (const item of items) {
+      const fullPath = path.join(dirPath, item.name)
 
-    if (item.isDirectory()) {
-      // Skip the database folder
-      if (item.name === '.increvise') continue
-      // Skip browser asset folder
-      if (item.name.endsWith('_files')) continue
+      if (item.isDirectory()) {
+        // Skip the database folder
+        if (item.name === '.increvise') continue
+        // Skip browser asset folder
+        if (item.name.endsWith('_files')) continue
 
-      // Check if this is a hierarchy folder (folder name matching existing file basename)
-      if (fileMap.has(item.name)) {
-        const fileItem = fileMap.get(item.name)
-        const filePath = path.join(dirPath, fileItem.name)
+        // Check if this is a hierarchy folder (folder name matching existing file basename)
+        if (fileMap.has(item.name)) {
+          const fileItem = fileMap.get(item.name)
+          const filePath = path.join(dirPath, fileItem.name)
 
-        // Check if parent file is in queue
-        let parentInQueue = false
-        if (libraryId && getCentralDbPath) {
-          const queueResult = await checkFileInQueue(filePath, libraryId, getCentralDbPath)
-          parentInQueue = queueResult.inQueue || false
-        }
-
-        // Try to build note hierarchy
-        const result = await buildNoteHierarchy(fullPath)
-
-        if (result.success) {
-          // Success: add as hierarchy parent with children
-          const isPdf = fileItem.name.endsWith('.pdf')
-
-          tree.push({
-            name: fileItem.name,
-            type: isPdf ? 'pdf-parent' : 'note-parent',
-            path: filePath,
-            children: result.data,
-            libraryId: libraryId,
-            inQueue: parentInQueue,
-          })
-          fileMap.delete(item.name)
-        } else {
-          // Failure: degrade to regular file
-          console.error(`Failed to build hierarchy for ${fullPath}:`, result.error)
-
-          // Add parent file as regular file (degraded)
-          tree.push({
-            name: fileItem.name,
-            type: 'file',
-            path: filePath,
-            libraryId: libraryId,
-            inQueue: parentInQueue,
-          })
-          fileMap.delete(item.name)
-        }
-      }
-      // Regular directory
-      else {
-        if (registeredWorkspacePaths.has(fullPath)) {
-          // get the library_id for this workspace from the central database
-          let subLbibraryId = null
-          let db
-          try {
-            const db = new Database(getCentralDbPath(), { readonly: true })
-            const row = db
-              .prepare('SELECT library_id FROM workspace_history WHERE folder_path = ?')
-              .get(fullPath)
-            subLbibraryId = row ? row.library_id : null
-            db.close()
-          } catch (error) {
-            console.error('Failed to get library_id for workspace from central database:', error)
-            db.close()
-            continue
+          // Check if parent file is in queue
+          let parentInQueue = false
+          if (libraryId && getCentralDbPath) {
+            const queueResult = await checkFileInQueue(filePath, libraryId, getCentralDbPath)
+            parentInQueue = queueResult.inQueue || false
           }
-          tree.push({
-            name: item.name,
-            type: 'workspace',
-            path: fullPath,
-            children: null,
-            libraryId: subLbibraryId,
-          })
-        } else {
-          tree.push({
-            name: item.name,
-            type: 'directory',
-            path: fullPath,
-            children: null,
-            libraryId: libraryId,
-          })
+
+          // Try to build note hierarchy
+          const result = await buildNoteHierarchy(fullPath)
+
+          if (result.success) {
+            // Success: add as hierarchy parent with children
+            const isPdf = fileItem.name.endsWith('.pdf')
+
+            tree.push({
+              name: fileItem.name,
+              type: isPdf ? 'pdf-parent' : 'note-parent',
+              path: filePath,
+              children: result.data,
+              libraryId: libraryId,
+              inQueue: parentInQueue,
+            })
+            fileMap.delete(item.name)
+          } else {
+            // Failure: degrade to regular file
+            console.error(`Failed to build hierarchy for ${fullPath}:`, result.error)
+
+            // Add parent file as regular file (degraded)
+            tree.push({
+              name: fileItem.name,
+              type: 'file',
+              path: filePath,
+              libraryId: libraryId,
+              inQueue: parentInQueue,
+            })
+            fileMap.delete(item.name)
+          }
+        }
+        // Regular directory
+        else {
+          if (registeredWorkspacePaths.has(fullPath)) {
+            // get the library_id for this workspace from the central database
+            let subLbibraryId = null
+            let db
+            try {
+              const db = new Database(getCentralDbPath(), { readonly: true })
+              const row = db
+                .prepare('SELECT library_id FROM workspace_history WHERE folder_path = ?')
+                .get(fullPath)
+              subLbibraryId = row ? row.library_id : null
+              db.close()
+            } catch (error) {
+              console.error('Failed to get library_id for workspace from central database:', error)
+              db.close()
+              continue
+            }
+            tree.push({
+              name: item.name,
+              type: 'workspace',
+              path: fullPath,
+              children: null,
+              libraryId: subLbibraryId,
+            })
+          } else {
+            tree.push({
+              name: item.name,
+              type: 'directory',
+              path: fullPath,
+              children: null,
+              libraryId: libraryId,
+            })
+          }
         }
       }
     }
-  }
 
-  // Add remaining files (not paired with folders)
-  for (const [, item] of fileMap) {
-    const fullPath = path.join(dirPath, item.name)
+    // Add remaining files (not paired with folders)
+    for (const [, item] of fileMap) {
+      const fullPath = path.join(dirPath, item.name)
 
-    // Check if file is in queue
-    let inQueue = false
-    if (libraryId && getCentralDbPath) {
-      const queueResult = await checkFileInQueue(fullPath, libraryId, getCentralDbPath)
-      inQueue = queueResult.inQueue || false
+      // Check if file is in queue
+      let inQueue = false
+      if (libraryId && getCentralDbPath) {
+        const queueResult = await checkFileInQueue(fullPath, libraryId, getCentralDbPath)
+        inQueue = queueResult.inQueue || false
+      }
+
+      // Detect flashcard files
+      const isFlashcard = item.name.endsWith('.flashcard')
+
+      if (isFlashcard) {
+        tree.push({
+          name: item.name,
+          type: 'flashcard',
+          path: fullPath,
+          libraryId: libraryId,
+          inQueue: inQueue,
+        })
+      } else {
+        tree.push({
+          name: item.name,
+          type: 'file',
+          path: fullPath,
+          libraryId: libraryId,
+          inQueue: inQueue,
+        })
+      }
     }
 
-    // Detect flashcard files
-    const isFlashcard = item.name.endsWith('.flashcard')
-
-    if (isFlashcard) {
-      tree.push({
-        name: item.name,
-        type: 'flashcard',
-        path: fullPath,
-        libraryId: libraryId,
-        inQueue: inQueue,
-      })
-    } else {
-      tree.push({
-        name: item.name,
-        type: 'file',
-        path: fullPath,
-        libraryId: libraryId,
-        inQueue: inQueue,
-      })
-    }
-  }
-
-  return {
-    success: true,
-    data: tree,
+    return tree
+  } catch (e) {
+    console.log(`Error reading directory tree ${dirPath}`, e.stack)
+    throw e
   }
 }
 

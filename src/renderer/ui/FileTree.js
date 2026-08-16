@@ -113,17 +113,11 @@ export class FileTree extends LitElement {
     if (!item) return
 
     try {
-      const result = await window.fileManager.getDirectoryTree(item.path, item.library_id)
-
-      if (!result.success) {
-        console.error('Failed to load directory:', result.error)
-        return
-      }
-
-      item.children = result.data
+      item.children = await window.fileManager.getDirectoryTree(item.path, item.library_id)
       this.requestUpdate()
     } catch (error) {
       console.error('Error loading children:', error)
+      return
     }
   }
 

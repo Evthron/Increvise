@@ -113,18 +113,10 @@ export class FileManager extends LitElement {
         await this._openAllWorkspaces()
       } else {
         // Refresh the directory tree for single workspace
-        const result = await window.fileManager.getDirectoryTree(
+        this.treeData = await window.fileManager.getDirectoryTree(
           window.currentFile.rootPath,
           window.currentWorkspace.libraryId
         )
-
-        if (!result.success) {
-          console.error('Failed to refresh directory tree:', result.error)
-          alert(`Failed to refresh dir：${result.error}`)
-          return
-        }
-
-        this.treeData = result.data
 
         // Also refresh the revision list
         const revisionList = document.querySelector('revision-list')
@@ -133,7 +125,9 @@ export class FileManager extends LitElement {
         }
       }
     } catch (error) {
+      alert(`Failed to refresh dir`)
       console.error('Error refreshing workspace:', error)
+      return
     }
   }
 
@@ -150,15 +144,13 @@ export class FileManager extends LitElement {
 
       // Loop through each workspace and get its directory tree
       for (const ws of workspaces) {
-        const result = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
-
-        if (!result.success) {
-          console.error(`Failed to load workspace ${ws.folder_path}:`, result.error)
+        try {
+          const nodes = await window.fileManager.getDirectoryTree(ws.folder_path, ws.library_id)
+          combined.push(...nodes)
+        } catch (error) {
+          console.error(`Failed to load workspace ${ws.folder_path}:`, error)
           continue // Skip this workspace but continue with others
         }
-
-        const nodes = result.data
-        combined.push(...nodes)
       }
       this.treeData = combined
 
@@ -199,19 +191,12 @@ export class FileManager extends LitElement {
     console.log('Workspace recorded in central database')
 
     try {
-      const result = await window.fileManager.getDirectoryTree(
+      const tree = await window.fileManager.getDirectoryTree(
         folderPath,
         window.currentWorkspace.libraryId
       )
-
-      if (!result.success) {
-        console.error('Failed to load directory tree:', result.error)
-        alert(`Failed to load directory tree: ${result.error}`)
-        this.treeData = []
-      } else {
-        console.log('Directory tree received:', result.data)
-        this.treeData = result.data
-      }
+      console.log('Directory tree received:', tree)
+      this.treeData = tree
     } catch (error) {
       console.error('Error fetching directory tree:', error)
       alert(`Error fetching directory tree:：${error.message}`)
