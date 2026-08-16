@@ -473,6 +473,7 @@ export class EditorPanel extends LitElement {
             return
           }
         }
+        window.currentFile.fullPath = filePath
 
         // Check if the opened file is in a queue
         // Load queue info to determine if we should show Cloze button
@@ -1051,7 +1052,7 @@ export class EditorPanel extends LitElement {
 
       if (result.success) {
         this._showToast(`Text extracted to ${result.fileName}`)
-        await this._reloadPdfExtractedRanges()
+        await this._reloadPdfExtractedText()
 
         if (selectedText.lineStart !== undefined && selectedText.lineEnd !== undefined) {
           this.pdfViewer.clearLineSelection()
@@ -1100,7 +1101,7 @@ export class EditorPanel extends LitElement {
 
       if (result.success) {
         this._showToast(`Pages ${startPage}-${endPage} extracted to ${result.fileName}`)
-        await this._reloadPdfExtractedRanges()
+        await this._reloadPdfExtractedPage()
         this.pdfViewer.clearPageSelection()
         // Refresh file manager to show the new extracted note
         this._refreshFileManager()
@@ -1174,10 +1175,8 @@ export class EditorPanel extends LitElement {
   /**
    * Reload PDF extracted ranges
    */
-  async _reloadPdfExtractedRanges() {
+  async _reloadPdfExtractedPage() {
     const pdfPath = this.pdfViewer.getCurrentPdfPath()
-
-    if (!pdfPath || !pdfPath.endsWith('.pdf')) return
 
     try {
       const rangesResult = await window.fileManager.getChildRanges(
@@ -1185,16 +1184,30 @@ export class EditorPanel extends LitElement {
         window.currentFile.libraryId
       )
       if (rangesResult) {
-        const { extractedPages, extractedLineRanges } = processExtractedRanges(rangesResult)
-
+        const { extractedPages } = processExtractedRanges(rangesResult)
         this.pdfViewer.extractedPages = extractedPages
-        this.pdfViewer.extractedLineRanges = extractedLineRanges
       }
     } catch (error) {
       console.error('Error reloading PDF extracted ranges:', error)
     }
   }
 
+  async _reloadPdfExtractedText() {
+    const pdfPath = this.pdfViewer.getCurrentPdfPath()
+
+    try {
+      const rangesResult = await window.fileManager.getChildRanges(
+        pdfPath,
+        window.currentFile.libraryId
+      )
+      if (rangesResult) {
+        const { extractedLineRanges } = processExtractedRanges(rangesResult)
+        this.pdfViewer.extractedLineRanges = extractedLineRanges
+      }
+    } catch (error) {
+      console.error('Error reloading PDF extracted ranges:', error)
+    }
+  }
   /**
    * Handle Cloze button click - create flashcard from selection
    */

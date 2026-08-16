@@ -671,32 +671,39 @@ export class RevisionList extends LitElement {
 
         this.currentFile = this.files[this.currentIndex] || null
 
-        // Auto-start revision workflow if files are available
-        const filteredFiles = this.getFilteredFiles()
-        window.mode.revision = filteredFiles.length > 0
+        if (
+          this.currentFile.libraryId === window.currentFile.libraryId &&
+          this.currentFile.file_path === window.currentFile.fullPath
+        ) {
+          // already opened
+        } else {
+          // Auto-start revision workflow if files are available
+          const filteredFiles = this.getFilteredFiles()
+          window.mode.revision = filteredFiles.length > 0
 
-        let selectedFile = this.currentFile
-          ? filteredFiles.find((file) => file.file_path === this.currentFile.file_path)
-          : null
+          let selectedFile = this.currentFile
+            ? filteredFiles.find((file) => file.file_path === this.currentFile.file_path)
+            : null
 
-        if (!selectedFile && filteredFiles.length > 0) {
-          selectedFile = filteredFiles[0]
-          this.currentIndex = this.files.findIndex(
-            (file) => file.file_path === selectedFile.file_path
-          )
-          this.currentFile = this.files[this.currentIndex] || null
-        }
+          if (!selectedFile && filteredFiles.length > 0) {
+            selectedFile = filteredFiles[0]
+            this.currentIndex = this.files.findIndex(
+              (file) => file.file_path === selectedFile.file_path
+            )
+            this.currentFile = this.files[this.currentIndex] || null
+          }
 
-        window.currentFile.libraryId = selectedFile?.library_id || null
-        const feedbackBar = document.querySelector('feedback-bar')
-        if (feedbackBar && window.mode.revision && selectedFile) {
-          await feedbackBar.reloadFile(selectedFile)
-          console.log('reload file')
-        }
-        const editorPanel = document.querySelector('editor-panel')
-        if (editorPanel && window.mode.revision && selectedFile) {
-          await editorPanel.openFile(selectedFile.file_path)
-          console.log('open file')
+          window.currentFile.libraryId = selectedFile?.library_id || null
+          const feedbackBar = document.querySelector('feedback-bar')
+          if (feedbackBar && window.mode.revision && selectedFile) {
+            await feedbackBar.reloadFile(selectedFile)
+            console.log('reload file')
+          }
+          const editorPanel = document.querySelector('editor-panel')
+          if (editorPanel && window.mode.revision && selectedFile) {
+            await editorPanel.openFile(selectedFile.file_path)
+            console.log('open file')
+          }
         }
         this.requestUpdate()
       }

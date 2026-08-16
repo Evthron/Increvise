@@ -9,3 +9,4 @@ window.mode.revision = false
 window.currentWorkspace.libraryId = null
 window.currentFile.libraryId = null
 window.currentFile.rootPath = null
+window.currentFile.fullPath = null
