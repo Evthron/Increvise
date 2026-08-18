@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const { env, pipeline } = await import('@xenova/transformers')
+const { env, pipeline } = await import('@huggingface/transformers')
 
 const MODEL = 'Xenova/multilingual-e5-small'
 env.allowRemoteModels = true

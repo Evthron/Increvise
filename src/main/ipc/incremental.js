@@ -7,7 +7,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import crypto from 'node:crypto'
 import Database from 'better-sqlite3'
-import { env, pipeline } from '@xenova/transformers'
+import { env, pipeline } from '@huggingface/transformers'
 import { getWorkspaceDbPath } from '../db/index.js'
 
 const DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD = 0.82
