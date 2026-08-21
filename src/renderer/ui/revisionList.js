@@ -672,7 +672,7 @@ export class RevisionList extends LitElement {
         this.currentFile = this.files[this.currentIndex] || null
 
         if (
-          this.currentFile.libraryId === window.currentFile.libraryId &&
+          this.currentFile.library_id === window.currentFile.libraryId &&
           this.currentFile.file_path === window.currentFile.fullPath
         ) {
           // already opened
