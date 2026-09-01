@@ -355,20 +355,6 @@ export class RevisionQueueFilter extends LitElement {
     this.currentFilter = 'all'
   }
 
-  getFilters() {
-    return [
-      { id: 'all', label: 'All', icon: '📋' },
-      { id: 'new', label: 'New', icon: '📥' },
-      { id: 'processing', label: 'Processing', icon: '🔄' },
-      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
-      { id: 'spaced', label: 'Spaced', icon: '🧠' },
-      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
-      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
-      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
-      { id: 'archived', label: 'Archived', icon: '📦' },
-    ]
-  }
-
   handleSelect(event) {
     const selectedItem = event.detail.item
     this.dispatchEvent(
@@ -381,7 +367,17 @@ export class RevisionQueueFilter extends LitElement {
   }
 
   render() {
-    const filters = this.getFilters()
+    const filters = [
+      { id: 'all', label: 'All', icon: '📋' },
+      { id: 'new', label: 'New', icon: '📥' },
+      { id: 'processing', label: 'Processing', icon: '🔄' },
+      { id: 'intermediate', label: 'Intermediate', icon: '📊' },
+      { id: 'spaced', label: 'Spaced', icon: '🧠' },
+      { id: 'spaced-casual', label: 'Casual', icon: '🟢' },
+      { id: 'spaced-standard', label: 'Standard', icon: '🔵' },
+      { id: 'spaced-strict', label: 'Strict', icon: '🔴' },
+      { id: 'archived', label: 'Archived', icon: '📦' },
+    ]
     const currentFilterObj = filters.find((f) => f.id === this.currentFilter)
 
     return html`

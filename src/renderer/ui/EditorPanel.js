@@ -1092,22 +1092,19 @@ export class EditorPanel extends LitElement {
     }
 
     try {
-      const result = await window.fileManager.extractPdfPages(
+      await window.fileManager.extractPdfPages(
         parentPath,
         startPage,
         endPage,
         window.currentFile.libraryId
       )
 
-      if (result.success) {
-        this._showToast(`Pages ${startPage}-${endPage} extracted to ${result.fileName}`)
-        await this._reloadPdfExtractedPage()
-        this.pdfViewer.clearPageSelection()
-        // Refresh file manager to show the new extracted note
-        this._refreshFileManager()
-      } else {
-        this._showToast(`Error: ${result.error}`, true)
-      }
+      this._showToast(`Pages ${startPage}-${endPage} extracted`)
+      await this._reloadPdfExtractedPage()
+      this.pdfViewer.clearPageSelection()
+
+      // Refresh file manager to show the new extracted note
+      this._refreshFileManager()
     } catch (error) {
       console.error('Error extracting pages:', error)
       this._showToast(`Error extracting pages: ${error.message}`, true)

@@ -816,7 +816,7 @@ export const mobilePlatform = {
 
   async extractPdfPages(_pdfPath, _startPage, _endPage, _libraryId) {
     console.warn('[Mobile] extractPdfPages not supported on mobile')
-    return { success: false, error: 'Not available on mobile' }
+    throw Error('Not available on mobile')
   },
 
   async extractPdfText(_pdfPath, _text, _pageNum, _lineStart, _lineEnd, _libraryId) {

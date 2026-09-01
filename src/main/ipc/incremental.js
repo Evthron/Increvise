@@ -1585,113 +1585,86 @@ async function extractHTML(
  * @returns {Promise<Object>} - Result object
  */
 async function extractPdfPages(parentPath, startPage, endPage, libraryId, getCentralDbPath) {
-  const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
-  if (!dbInfo.found) {
-    return { success: false, error: 'Database not found' }
-  }
-
-  const db = new Database(dbInfo.dbPath)
-  const rootPath = dbInfo.folderPath
-
   try {
+    const dbInfo = await getWorkspaceDbPath(libraryId, getCentralDbPath)
+
+    const db = new Database(dbInfo.dbPath)
+    const rootPath = dbInfo.folderPath
+
     // Create PDF container folder
     const containerFolder = path.join(path.dirname(parentPath), path.basename(parentPath, '.pdf'))
-
-    try {
-      await fs.mkdir(containerFolder, { recursive: true })
-    } catch (mkdirError) {
-      console.error('[extractPdfPages] mkdir error:', mkdirError)
-      return {
-        success: false,
-        error: `Failed to create container folder: ${mkdirError.message}`,
-      }
-    }
-
+    await fs.mkdir(containerFolder, { recursive: true })
     const extractionFolderPath = path.join(containerFolder, `p${startPage}-${endPage}/`)
+    await fs.mkdir(extractionFolderPath, { recursive: true })
+
     const relativePath = path.relative(rootPath, extractionFolderPath)
     const parentRelativePath = path.relative(rootPath, parentPath)
 
-    try {
-      await fs.mkdir(extractionFolderPath, { recursive: true })
-    } catch (e) {
-      console.error('mkdir error', e)
-      return {
-        success: false,
-        error: `Falied to create extraction folder: ${e.message}`,
-      }
-    }
-
-    // Insert or update records
-    const initialDays = getRandomInitialDays()
-
-    const parentData = db
-      .prepare('select rank from file where library_id = ? and relative_path = ?')
+    const parentQueue = db
+      .prepare('select queue_name from queue_membership where library_id = ? and relative_path = ?')
       .get(libraryId, parentRelativePath)
 
-    try {
-      db.transaction(() => {
-        // Insert new file record
-        db.prepare(
-          `
-            INSERT INTO file (
-              library_id,
-              relative_path,
-              added_time,
-              review_count,
-              easiness,
-              rank,
-              due_time,
-              intermediate_interval
-            )
-            VALUES (
-              ?,
-              ?,
-              datetime('now'),
-              0,
-              0.0,
-              ?,
-              datetime('now', '+' || ? || ' days'),
-              7
-            )
-          `
-        ).run(libraryId, relativePath, parentData.rank, initialDays)
+    const parentData = db
+      .prepare(
+        'select rank, intermediate_interval from file where library_id = ? and relative_path = ?'
+      )
+      .get(libraryId, parentRelativePath)
 
-        db.prepare(
-          `
-            INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
-            VALUES (?, 'intermediate', ?)
-          `
-        ).run(libraryId, relativePath)
-        // Insert new note_source record
-        db.prepare(
-          `
-            INSERT OR REPLACE INTO note_source (
-              library_id,
-              relative_path,
-              parent_path,
-              extract_type,
-              range_start,
-              range_end
-            )
-            VALUES (?, ?, ?, 'pdf-page', ?, ?)
-          `
-        ).run(libraryId, relativePath, parentRelativePath, String(startPage), String(endPage))
-      })()
-    } catch (err) {
-      console.error('Failed to insert/update extracted note records:', err.message)
-      return {
-        success: false,
-        error: `Failed to insert/update extracted note records: ${err.message}`,
-      }
-    }
+    const initialDays =
+      parentQueue === 'processing' ? getRandomInitialDays() : parentData.intermediate_interval
 
-    return {
-      success: true,
-      filePath: extractionFolderPath,
-      fileName: `${startPage}-${endPage}-pages.md`,
-    }
-  } finally {
-    db.close()
+    // Child extract better inherit parent's interval
+    // But how to determine the next due date? Feel iffy, now is just using (now + interval)
+    db.transaction(() => {
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO file (
+            library_id,
+            relative_path,
+            added_time,
+            review_count,
+            easiness,
+            rank,
+            due_time,
+            intermediate_interval
+          )
+          VALUES (
+            ?,
+            ?,
+            datetime('now'),
+            0,
+            0.0,
+            ?,
+            datetime('now', '+' || ? || ' days'),
+            ?
+          )
+        `
+      ).run(libraryId, relativePath, parentData.rank, initialDays, initialDays)
+
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO queue_membership (library_id, queue_name, relative_path)
+          VALUES (?, 'intermediate', ?)
+        `
+      ).run(libraryId, relativePath)
+
+      db.prepare(
+        `
+          INSERT OR REPLACE INTO note_source (
+            library_id,
+            relative_path,
+            parent_path,
+            extract_type,
+            range_start,
+            range_end
+          )
+          VALUES (?, ?, ?, 'pdf-page', ?, ?)
+        `
+      ).run(libraryId, relativePath, parentRelativePath, String(startPage), String(endPage))
+    })()
+  } catch (e) {
+    console.error('Error when extracting PDF pages', e.stack)
+    throw e
   }
 }
 
