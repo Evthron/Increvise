@@ -1639,7 +1639,7 @@ async function extractPdfPages(parentPath, startPage, endPage, libraryId, getCen
             ?
           )
         `
-      ).run(libraryId, relativePath, parentData.rank, initialDays, initialDays)
+      ).run(libraryId, relativePath, parentData.rank, 7, initialDays)
 
       db.prepare(
         `
